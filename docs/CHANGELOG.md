@@ -24,3 +24,6 @@
 - Progress tracking
 - Testing/Security/Deployment conventions
 - Cursor rules
+
+### Changed
+- `requirements.txt`：`passlib[bcrypt]==1.7.4` → `pwdlib[argon2]==0.3.1`。原因：实测 passlib 1.7.4 与已安装的 bcrypt 5.0.0 **不兼容**（`AttributeError: module 'bcrypt' has no attribute '__about__'`，`CryptContext.hash()` 直接抛 `ValueError: password cannot be longer than 72 bytes`），无法完成哈希；改用项目文档 §20 明确推荐的 pwdlib / Argon2id。（TASK-014）

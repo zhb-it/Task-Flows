@@ -7,7 +7,7 @@ In Progress
 Phase 2：用户与认证
 
 ## Current Task
-TASK-014 密码哈希与安全模块
+TASK-015 注册
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -23,6 +23,7 @@ TASK-014 密码哈希与安全模块
 - [x] TASK-011 User Model
 - [x] TASK-012 User Migration
 - [x] TASK-013 User Schema/CRUD
+- [x] TASK-014 密码哈希与安全模块
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -32,7 +33,7 @@ TASK-014 密码哈希与安全模块
 - None
 
 ## Next
-TASK-014 密码哈希与安全模块（Phase 2 用户与认证）
+TASK-015 注册（Phase 2 用户与认证）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
