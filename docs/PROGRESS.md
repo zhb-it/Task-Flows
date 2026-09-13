@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-029 Project Model/CRUD/Service/Router（已完成）
+TASK-030 团队与项目权限测试（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -39,6 +39,7 @@ TASK-029 Project Model/CRUD/Service/Router（已完成）
 - [x] TASK-027 团队 CRUD
 - [x] TASK-028 成员邀请/删除
 - [x] TASK-029 Project Model/CRUD/Service/Router
+- [x] TASK-030 团队与项目权限测试
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -48,7 +49,7 @@ TASK-029 Project Model/CRUD/Service/Router（已完成）
 - None
 
 ## Next
-TASK-030 团队与项目权限测试（Phase 4 收尾）
+TASK-031 Task Model/Migration（Phase 5 任务核心）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -65,6 +66,8 @@ TASK-027 完成团队 CRUD——产品应用首批资源型端点（POST/GET /te
 TASK-028 完成成员邀请/删除（TASK-028 决策，用户确认：①**双层判定**——功能级 team:invite/read + 资源级团队角色 OWNER/ADMIN，团队角色不足 403（调用者已在归属链、无泄露顾虑）；②邀请请求体 user_id + role 仅 admin/member（owner 不可邀请，"owner" → 422），重复邀请 409、目标用户不存在 404；③移除层级 OWNER > ADMIN > MEMBER——owner 可移除任何非 owner 成员、admin 仅可移除 member、owner 不可被移除（403，与 owner_id RESTRICT 语义一致）；④成员列表团队成员可见，局外人 404）：app/schemas/team.py 增补 TeamMemberInvite/TeamMemberRead；app/crud/team.py 增补 remove_team_member/list_team_members（join users 取 username）；app/services/team.py 增补 invite_member/remove_member/list_members；app/api/v1/teams.py 增补三个端点（POST /teams/{id}/members、GET /teams/{id}/members、DELETE /teams/{id}/members/{user_id}）。新增 tests/test_team_members_service.py 14 项 + tests/test_team_members_api.py 10 项（真实产品应用 HTTP 端到端：双层判定的三种 403 形态、可见性翻转、层级移除、409/404 契约、422 校验）。全量 309 passed，零残留；Docker 重建镜像后真实容器冒烟 6 项 PASS（邀请 201 → 重复 409 → 成员列表可见 → 移除后 404 → owner 不可移除 → 零残留）。
 
 TASK-029 完成 Project Model/CRUD/Service/Router（TASK-029 决策，用户确认：①projects 字段自定——team_id FK→teams CASCADE + owner_id FK→users RESTRICT（创建者，可转让），name 不加 UNIQUE；②创建授权 = 全局 project:create + 团队成员即可；③改删授权 = 全局 project:update/delete + 团队角色 OWNER/ADMIN（角色不足 403「Only team owner or admin can manage projects」，不在归属链 404）；④列表 = 我所在团队下的项目）。可见性按规格 §5「用户只能访问其所属团队链路下的资源」，归属链 = 项目所属团队的 team_members 成员。交付：app/models/project.py + 迁移 99f70df5d269（information_schema 实证 CASCADE/RESTRICT/双索引）；schemas/crud/service/api 四件套；owner_id 恒为创建者不开放客户端指定。tests/test_project_model.py 12 项（离线 + DB 约束集成：CASCADE 删团队清项目、RESTRICT 拒删有项目用户、同名可并存）+ tests/test_project_api.py 11 项（HTTP 端到端：三层 403/404 形态、可见性、exclude_unset、删团队级联清项目）。全量 332 passed，零残留；Docker 容器冒烟 6 项 PASS。
+
+TASK-030 完成团队与项目权限测试（Phase 4 收尾）：新增 tests/test_team_project_permissions.py 11 项——把 TASK-027/028/029 分散的授权语义整合为「全局 RBAC 角色 × 团队角色 × 操作」系统性矩阵验收（六用户阵容：owner/tmember/tadmin/gmember/outsider/nobody），落实开发文档 §56 Phase 4 验收点「ADMIN / MEMBER 权限表现不同」；覆盖双层判定两方向（团队角色高不补全局权限、全局权限高不过资源级归属）、IDOR 404 契约一致性（含列表不泄露）、可见性翻转、无角色用户 403 优先。TESTING.md 增补「团队与项目权限矩阵」章节。全量 343 passed，零残留（纯测试任务，无应用代码变更，无需镜像重建）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

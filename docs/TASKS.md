@@ -36,7 +36,7 @@
 - [x] TASK-027 团队 CRUD
 - [x] TASK-028 成员邀请/删除
 - [x] TASK-029 Project Model/CRUD/Service/Router
-- [ ] TASK-030 团队与项目权限测试
+- [x] TASK-030 团队与项目权限测试
 
 ## Phase 5：任务核心
 - [ ] TASK-031 Task Model/Migration

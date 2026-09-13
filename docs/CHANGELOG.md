@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- 团队与项目权限矩阵测试（TASK-030，Phase 4 收尾）：新增 tests/test_team_project_permissions.py 11 项，把团队（TASK-027）/成员管理（TASK-028）/项目（TASK-029）的授权决策整合为「全局 RBAC 角色 × 团队角色 × 操作」系统性矩阵验收：六用户阵容（owner/tmember/tadmin/gmember/outsider/nobody）对照全局权限与团队角色的独立作用；落实开发文档 §56 Phase 4 验收点「ADMIN / MEMBER 权限表现不同」（member 全局角色对团队/项目只读，写操作 403 `Permission denied: {perm}`）；验证双层判定两方向（升团队 ADMIN 补不了 team:invite 缺失；全局 admin 的团队 MEMBER 过不了资源级归属——团队改删 404、项目改删/邀请 403）、IDOR 404 契约一致性（归属链外全部 404 与不存在同文案、列表不泄露）、邀请后可见性即刻翻转、无角色用户功能级 403 优先。TESTING.md 增补「团队与项目权限矩阵」章节。全量 343 passed，开发库零残留。
+
+### Added
 - 项目 CRUD（TASK-029）：POST /api/v1/projects（201，需 project:create + 调用者是目标团队成员——团队不存在/非成员统一 404「Team not found」防枚举；请求体 {team_id, name, description?}；owner_id 恒为创建者，不开放客户端指定）、GET /api/v1/projects（我所在团队下的项目，skip/limit 分页）、GET /api/v1/projects/{project_id}（团队成员可见，否则 404「Project not found」）、PATCH /api/v1/projects/{project_id}（需 project:update + 团队角色 OWNER/ADMIN——角色不足 403，不在归属链 404；exclude_unset 部分更新）、DELETE /api/v1/projects/{project_id}（需 project:delete + 团队角色 OWNER/ADMIN）。**决策**（源文档未定义 projects 字段）：team_id FK→teams ON DELETE CASCADE（删团队级联清项目）、owner_id FK→users ON DELETE RESTRICT（创建者，删用户前先处理）、name 不加 UNIQUE；可见性按规格 §5「所属团队链路下的资源」。app/models/project.py + 迁移 99f70df5d269（autogenerate，information_schema 实证）。tests/test_project_model.py 12 项 + tests/test_project_api.py 11 项。全量 332 passed，零残留，Docker 容器冒烟 6 项 PASS。
 
 ### Added
