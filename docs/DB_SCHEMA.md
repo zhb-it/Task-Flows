@@ -35,10 +35,58 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - 撤销（TASK-019）与轮换（TASK-018）均按 `jti` 定位。
 - 迁移：`migrations/versions/872a33b812af_create_refresh_tokens.py`。
 
+## RBAC 四表（TASK-021 模型已定义，迁移属 TASK-022）
+开发文档 §6 只给出表名与模型链（User → UserRole → Role → RolePermission → Permission），未定义列。以下为 TASK-021 确认的推断设计，作为后续迁移与 CRUD 的契约：
+
+**roles**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| name | VARCHAR(64) | NOT NULL，UNIQUE —— 角色标识（如 `admin` / `member`） |
+| description | VARCHAR(255) | 可空 |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+
+**permissions**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| name | VARCHAR(100) | NOT NULL，UNIQUE —— 严格 `resource:action` 格式（§6 示例），单列不拆分 |
+| description | VARCHAR(255) | 可空 |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+
+**user_roles**（纯关联表，不带时间戳）
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| user_id | BIGINT | NOT NULL，FK → `users(id)` ON DELETE CASCADE，索引 |
+| role_id | BIGINT | NOT NULL，FK → `roles(id)` ON DELETE CASCADE，索引 |
+| 复合 UNIQUE `(user_id, role_id)` | | 同一用户不可重复授予同一角色 |
+
+**role_permissions**（纯关联表，不带时间戳）
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| role_id | BIGINT | NOT NULL，FK → `roles(id)` ON DELETE CASCADE，索引 |
+| permission_id | BIGINT | NOT NULL，FK → `permissions(id)` ON DELETE CASCADE，索引 |
+| 复合 UNIQUE `(role_id, permission_id)` | | 同一角色不可重复绑定同一权限 |
+
+- 权限判断以 `resource:action` 字符串为键（如 `user:read`），由 TASK-023 权限依赖消费。
+- `ON DELETE CASCADE`：删除用户/角色/权限时关联记录一并清理，不产生悬挂授权。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE
 - RefreshToken.jti UNIQUE
+- Role.name UNIQUE
+- Permission.name UNIQUE（`resource:action` 格式）
+- UserRole(user_id, role_id) 不允许重复
+- RolePermission(role_id, permission_id) 不允许重复
 - TeamMember(team_id, user_id) 不允许重复
 - TaskAssignee(task_id, user_id) UNIQUE
 - Task status CHECK：TODO / IN_PROGRESS / REVIEW / DONE / CANCELLED

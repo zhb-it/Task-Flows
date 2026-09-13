@@ -7,7 +7,7 @@ In Progress
 Phase 2：用户与认证
 
 ## Current Task
-TASK-020 Auth 测试（已完成）
+TASK-021 Role/Permission Model（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -30,6 +30,7 @@ TASK-020 Auth 测试（已完成）
 - [x] TASK-018 Refresh Token/JTI
 - [x] TASK-019 Logout/Token revoke
 - [x] TASK-020 Auth 测试
+- [x] TASK-021 Role/Permission Model
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -39,12 +40,13 @@ TASK-020 Auth 测试（已完成）
 - None
 
 ## Next
-Phase 2 用户与认证全部完成（TASK-011 ~ 020）。下一阶段 Phase 3 RBAC，起始 TASK-021 Role/Permission Model。
+TASK-022 RBAC Migration/CRUD（Phase 3 RBAC）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 TASK-019 完成后已重建 app 镜像，并在真实容器上端到端验证 `POST /api/v1/auth/logout`：有效 Token 对登出 → 200 且库中 jti `revoked=true`、之后 refresh 401（§56 Phase 3 验收）；重复登出/伪造签名/类别不符的 Refresh Token → 200 幂等无副作用；跨用户撤销 → 403 且对方 Token 不受影响；禁用账号 → 403；无 Authorization 头 → 401。验证后 users 与 refresh_tokens 两表均 0 行残留。
 TASK-020 为纯测试任务（未改应用代码，无需重建镜像）：§35 八项 Auth 测试要求逐条核对均有专项覆盖，新增 `tests/test_auth_flow.py` 5 项端到端验收链路测试（Phase 2 链路、Phase 3 链路、完整生命周期、三轮独立会话、OpenAPI 验收面），全量 143 passed。
+TASK-021 为纯模型任务（迁移属 TASK-022，无库表操作）：定义 `roles` / `permissions` / `user_roles` / `role_permissions` 四表 ORM（TASK-021 确认的推断设计已登记 DB_SCHEMA.md），新增 `tests/test_rbac_model.py` 22 项离线模型测试，全量 165 passed。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
