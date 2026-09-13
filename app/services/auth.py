@@ -1,4 +1,5 @@
-"""Auth services — registration (TASK-015), login (TASK-016) and refresh (TASK-018).
+"""Auth services — registration (TASK-015), login (TASK-016), refresh (TASK-018)
+and logout (TASK-019).
 
 Business rules enforced here (not in the router):
 
@@ -11,6 +12,9 @@ Business rules enforced here (not in the router):
   （开发文档 §55.1）
 - refresh validates the token, then the **database** jti（§19「检查数据库
   JTI」）, then rotates it: 旧 jti 立即置 revoked，新 Token 对重新落库
+- logout revokes the caller's own Refresh Token（§19「登出：撤销 Refresh
+  Token」）with idempotent semantics: 任何「Token 本来就不可用」的情形都静默
+  成功，仅出示他人 Token 时显式 403
 - the Service owns the transaction boundary (项目规则 §4 / ARCHITECTURE.md)：
   签发 Token 与登记 jti 必须同生共死
 """
@@ -153,3 +157,37 @@ async def rotate_tokens(db: AsyncSession, refresh_token: str) -> tuple[str, str]
     )
     await db.commit()
     return access_token, new_refresh_token
+
+
+async def logout_user(db: AsyncSession, user: User, refresh_token: str) -> None:
+    """撤销当前用户的 Refresh Token（TASK-019，开发文档 §19「登出：撤销
+    Refresh Token」）。
+
+    幂等语义（TASK-019 决策）：登出的目标是「让这个 Refresh Token 不可用」，
+    因此签名/过期/类别不合法、jti 未登记、jti 已撤销等「Token 本来就不可用」
+    的情形一律静默返回（不报错、不产生副作用），客户端可以无条件清理本地
+    凭证。
+
+    唯一的显式拒绝：出示的 Refresh Token 有效但属于**其他用户** —— 归属校验
+    防止越权撤销他人凭证（项目规则 §9 IDOR），返回 403 且不产生任何撤销动作。
+
+    Raises:
+        ForbiddenError: Refresh Token 有效但归属其他用户。
+    """
+    try:
+        payload = decode_refresh_token(refresh_token)
+    except UnauthorizedError:
+        return  # 不可用的 Token：幂等成功，无需操作
+
+    jti = payload.get("jti")
+    if not isinstance(jti, str) or not jti:
+        return
+
+    stored = await get_refresh_token_by_jti(db, jti)
+    if stored is None or stored.revoked:
+        return
+    if stored.user_id != user.id:
+        raise ForbiddenError("Refresh token does not belong to current user")
+
+    await revoke_refresh_token(db, jti)
+    await db.commit()

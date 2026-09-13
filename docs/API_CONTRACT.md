@@ -110,7 +110,35 @@ Response `200 OK`：结构同 login，返回**全新的 Token 对**。
 - Token 有效但账号已被禁用 → `403 Forbidden`：`{"detail": "User account is disabled"}`（与 `/users/me` 一致）。
 - 刷新失败时**不产生**新的 `refresh_tokens` 记录，也不改动已有记录。
 - 缺少必填字段 → `422 Unprocessable Entity`。
-- 登出与主动撤销（`POST /api/v1/auth/logout`）属 TASK-019。
+- 登出与主动撤销（`POST /api/v1/auth/logout`）见下节（TASK-019）。
+
+### POST `/api/v1/auth/logout`（TASK-019 已实现）
+
+认证：必须携带请求头 `Authorization: Bearer <access_token>`（与 `/users/me` 同一套认证规则）。
+
+Request：
+
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+Response `200 OK`：
+
+```json
+{
+  "data": null,
+  "message": "success"
+}
+```
+
+- 语义（开发文档 §19「登出：撤销 Refresh Token」）：把请求体中 Refresh Token 的 `jti` 置 `revoked=true`；之后该 Token 用于 `/auth/refresh` 一律 `401`。
+- **幂等**（TASK-019 决策）：登出的目标是「让这个 Refresh Token 不可用」，因此签名/过期/类别不合法、`jti` 未登记、`jti` 已撤销等「Token 本来就不可用」的情形一律返回 `200`（无副作用），客户端可无条件清理本地凭证。
+- **归属校验**：出示的 Refresh Token 有效但属于其他用户 → `403 Forbidden`：`{"detail": "Refresh token does not belong to current user"}`，且**不产生**任何撤销动作（防越权撤销他人凭证，项目规则 §9 IDOR）。
+- Access Token 认证失败（缺头/非 Bearer/签名错误/已过期/`type` 不是 `access`/用户不存在）→ `401 Unauthorized`，带 `WWW-Authenticate: Bearer`；账号禁用 → `403`（与 `/users/me` 一致），两种情况下 Refresh Token 均不会被改动。
+- 缺少 `refresh_token` 字段 → `422 Unprocessable Entity`。
+- 本阶段**不引入** Redis JWT 黑名单（开发文档 §19「必要时支持」）：Access Token 30 分钟短时效 + Refresh 轮换已可控风险；登出后旧 Access Token 在剩余有效期内仍可访问资源，属已知且接受的行为。
 
 ## User
 - GET `/api/v1/users/me`
