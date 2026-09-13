@@ -279,9 +279,9 @@ Request：
 - DELETE `/api/v1/projects/{project_id}` → 功能级 `project:delete` + 团队角色 OWNER/ADMIN。200 后复查 404。删团队时项目随 `team_id` CASCADE 级联清理。
 
 ## Task
-> TASK-032/033 已定 Schema 与授权决策（端点在 TASK-034 挂载）。授权两层：功能级（task:create/read/update/delete）+ 资源级（本注，IDOR 契约：不在归属链一律 404 同文案；调用者已在归属链上时明示 403）——创建/更新 = 项目所属团队成员即可（task:create/task:update + team_members 有行）；删除 = 团队角色 OWNER/ADMIN（403 文案 `Only team owner or admin can delete tasks`，与种子设计对齐：member 全局角色有 task:update 无 task:delete）；创建时项目不存在或非成员统一 404 `Project not found`（类比 POST /projects 对不可见团队报 `Team not found`）。TASK-032 Schema 决策：POST 创建请求体**不含 `status`**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出非 TODO 任务（Decision 005）；PATCH 请求体同样不含 status / project_id / creator_id。title 1-200，priority 枚举 LOW/MEDIUM/HIGH/URGENT（默认 MEDIUM），due_at 可空。
+> **TASK-034 已实现：五端点挂载完成。** 授权两层（TASK-032/033 决策）：授权两层：功能级（task:create/read/update/delete）+ 资源级（本注，IDOR 契约：不在归属链一律 404 同文案；调用者已在归属链上时明示 403）——创建/更新 = 项目所属团队成员即可（task:create/task:update + team_members 有行）；删除 = 团队角色 OWNER/ADMIN（403 文案 `Only team owner or admin can delete tasks`，与种子设计对齐：member 全局角色有 task:update 无 task:delete）；创建时项目不存在或非成员统一 404 `Project not found`（类比 POST /projects 对不可见团队报 `Team not found`）。TASK-032 Schema 决策：POST 创建请求体**不含 `status`**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出非 TODO 任务（Decision 005）；PATCH 请求体同样不含 status / project_id / creator_id。title 1-200，priority 枚举 LOW/MEDIUM/HIGH/URGENT（默认 MEDIUM），due_at 可空。
 - POST `/api/v1/tasks`
-- GET `/api/v1/tasks`
+- GET `/api/v1/tasks?project_id={id}` → 项目下全部任务（id 升序；`project_id` 必填 query 参数，缺失 422）；项目不存在或不在归属链 404 `Task not found`。需 `task:read`。（TASK-035 再做过滤/分页/排序专项）
 - GET `/api/v1/tasks/{task_id}`
 - PATCH `/api/v1/tasks/{task_id}`
 - DELETE `/api/v1/tasks/{task_id}`

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Task API（TASK-034）：五端点挂载 /api/v1——POST /api/v1/tasks（201，需 task:create + 项目所属团队成员；项目不存在/非成员统一 404 Project not found；新任务恒 TODO 起步，请求体含 status 等额外字段被忽略）、GET /api/v1/tasks?project_id={id}（需 task:read；项目下任务 id 升序；project_id 必填 query 参数缺失 422；项目不可见 404 Task not found）、GET/PATCH /api/v1/tasks/{task_id}（需 task:read/task:update + 归属链；PATCH exclude_unset 部分更新，status 不可触达）、DELETE /api/v1/tasks/{task_id}（需 task:delete + 团队角色 OWNER/ADMIN；角色不足 403 Only team owner or admin can delete tasks）。403 双形态辨析：member 全局角色无 task:delete 走功能级 403 Permission denied；资源级 403 由「全局 admin+团队 MEMBER」触发。app/api/v1/tasks.py + tests/test_task_api.py 10 项 HTTP 端到端。全量 390 passed，零残留，Docker 容器冒烟 6 项 PASS。
+
+### Added
 - Task Service（TASK-033）：app/services/task.py。**决策**：创建 = task:create + 项目所属团队成员即可（项目不存在/非成员统一 404 Project not found）；更新 = task:update + 归属链成员即可；删除 = task:delete + 团队角色 OWNER/ADMIN（角色不足 403 Only team owner or admin can delete tasks）——与种子设计对齐（member 有 task:update 无 task:delete）。归属链 = 任务→项目→团队→team_members（规格 §5）；IDOR 契约：不在归属链 404 同文案，已在链上角色不足 403 明示。commit 事务边界在本层；status 不可经 update 触达（流转留 TASK-038）。tests/test_task_service.py 9 项。全量 380 passed，零残留，容器冒烟 PASS。
 
 ### Added
