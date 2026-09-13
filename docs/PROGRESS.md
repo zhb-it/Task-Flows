@@ -7,7 +7,7 @@ In Progress
 Phase 1：项目基础设施
 
 ## Current Task
-TASK-007
+TASK-008
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -16,6 +16,7 @@ TASK-007
 - [x] TASK-004 配置 PostgreSQL Docker 服务
 - [x] TASK-005 配置 Redis Docker 服务
 - [x] TASK-006 配置 SQLAlchemy Async Session/Base
+- [x] TASK-007 初始化 Alembic
 
 ## In Progress
 - [ ]
@@ -24,7 +25,7 @@ TASK-007
 - None
 
 ## Next
-TASK-007 初始化 Alembic
+TASK-008 实现 /health
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

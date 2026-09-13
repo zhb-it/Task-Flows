@@ -7,7 +7,7 @@
 - [x] TASK-004 配置 PostgreSQL Docker 服务
 - [x] TASK-005 配置 Redis Docker 服务
 - [x] TASK-006 配置 SQLAlchemy Async Session/Base
-- [ ] TASK-007 初始化 Alembic
+- [x] TASK-007 初始化 Alembic
 - [ ] TASK-008 实现 `/health`
 - [ ] TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis
 - [ ] TASK-010 第一次 Git Commit
