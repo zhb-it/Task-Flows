@@ -43,7 +43,7 @@
 - [x] TASK-032 Task Schema/CRUD
 - [x] TASK-033 Task Service
 - [x] TASK-034 Task API
-- [ ] TASK-035 Task 查询过滤/分页/排序
+- [x] TASK-035 Task 查询过滤/分页/排序
 - [ ] TASK-036 TaskAssignee 多人分配
 
 ## Phase 6：状态机与审计

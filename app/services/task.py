@@ -15,6 +15,7 @@
 所属团队链路下的资源」）。复用 project 服务的可见性原语，不重复实现。
 """
 
+from sqlalchemy import case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError, ResourceNotFoundError
@@ -29,12 +30,29 @@ from app.crud.task import (
 from app.models.task import Task
 from app.models.team_member import TeamRole
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskCreate, TaskSortField, TaskUpdate
 from app.services.team import team_membership
 
 TASK_NOT_FOUND = "Task not found"
 PROJECT_NOT_FOUND = "Project not found"  # 与项目创建同一文案模式：目标不可见
 NOT_MANAGER = "Only team owner or admin can delete tasks"
+
+#: priority 业务权重（URGENT > HIGH > MEDIUM > LOW）——sort=priority 时
+#: 按业务序而非字母序排（TASK-035 决策）。
+_PRIORITY_WEIGHT = case(
+    (Task.priority == "URGENT", 4),
+    (Task.priority == "HIGH", 3),
+    (Task.priority == "MEDIUM", 2),
+    else_=1,
+)
+
+#: sort 白名单 -> 排序列/表达式映射（TASK-035）。
+_SORT_COLUMNS = {
+    TaskSortField.ID: Task.id,
+    TaskSortField.CREATED_AT: Task.created_at,
+    TaskSortField.DUE_AT: Task.due_at,
+    TaskSortField.PRIORITY: _PRIORITY_WEIGHT,
+}
 
 
 async def create_task(db: AsyncSession, user: User, payload: TaskCreate) -> Task:
@@ -72,15 +90,54 @@ async def get_task_for_user(db: AsyncSession, user: User, task_id: int) -> Task:
 
 
 async def list_tasks(
-    db: AsyncSession, user: User, project_id: int
+    db: AsyncSession,
+    user: User,
+    project_id: int,
+    *,
+    status: str | None = None,
+    priority: str | None = None,
+    keyword: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    sort: TaskSortField = TaskSortField.ID,
+    order: str = "asc",
 ) -> list[Task]:
-    """项目下全部任务（id 升序）；项目不可见 → 404（TASK-035 再做过滤分页）。"""
+    """项目下任务列表（TASK-035：多条件过滤 + 分页 + 排序）。
+
+    - 项目不可见 / 不存在 → 404（沿用 TASK-034 契约，IDOR 防枚举）；
+    - 过滤：status / priority 精确匹配 + keyword 标题 ILIKE——通配符
+      （% _ \\）转义后按字面匹配，纯空白 keyword 视为未传；
+    - 分页：skip/limit（与 teams/projects 同惯例，边界由 Router 校验）；
+    - 排序：sort 白名单（TaskSortField）+ order（asc/desc）；priority
+      按业务权重而非字母序。
+    """
     project = await get_project(db, project_id)
     if project is None or not await is_project_visible(
         db, project_id=project.id, user_id=user.id
     ):
         raise ResourceNotFoundError(TASK_NOT_FOUND)
-    return await list_tasks_by_project(db, project.id)
+
+    cleaned = keyword.strip() if keyword else None
+    if cleaned:
+        escaped = (
+            cleaned.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        keyword_clause = f"%{escaped}%"
+    else:
+        keyword_clause = None
+
+    column = _SORT_COLUMNS[sort]
+    order_clause = column.desc() if order == "desc" else column.asc()
+    return await list_tasks_by_project(
+        db,
+        project.id,
+        status=status,
+        priority=priority,
+        keyword=keyword_clause,
+        skip=skip,
+        limit=limit,
+        order_by=order_clause,
+    )
 
 
 async def update_task(

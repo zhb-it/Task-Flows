@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Task 列表多条件过滤/分页/排序（TASK-035）：GET /api/v1/tasks?project_id={id} 演进为多条件查询，响应仍为纯列表。**决策**：分页沿用 skip/limit（skip≥0、limit 1-100 默认 100，与 teams/projects 同惯例）；过滤 = status/priority 枚举精确 + keyword 标题模糊（%/_/\ 转义后按字面 ILIKE、纯空白视为未传；负责人筛选依赖 TASK-036 暂不做）；排序 = sort 白名单 id/created_at/due_at/priority + order asc/desc（TaskSortField StrEnum 校验，非法 422），priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序；project_id 保持必填。交付：schemas/task.py 增 TaskSortField/TaskSortOrder、crud/task.py 的 list_tasks_by_project 支持过滤分页排序（排序子句由 Service 传入）、services/task.py 扩展 list_tasks（keyword 转义 + 白名单映射 + 可见性 404 契约不变）、api/v1/tasks.py 挂载 query 参数。tests/test_task_query_api.py 8 项 HTTP 端到端（status 过滤用 fixture 直插非 TODO 行、keyword 通配符字面匹配、分页边界 422、priority 业务序双向、组合查询与可见性不变）。全量 398 passed，零残留，Docker 容器冒烟 10 项 PASS。
+
+### Added
 - Task API（TASK-034）：五端点挂载 /api/v1——POST /api/v1/tasks（201，需 task:create + 项目所属团队成员；项目不存在/非成员统一 404 Project not found；新任务恒 TODO 起步，请求体含 status 等额外字段被忽略）、GET /api/v1/tasks?project_id={id}（需 task:read；项目下任务 id 升序；project_id 必填 query 参数缺失 422；项目不可见 404 Task not found）、GET/PATCH /api/v1/tasks/{task_id}（需 task:read/task:update + 归属链；PATCH exclude_unset 部分更新，status 不可触达）、DELETE /api/v1/tasks/{task_id}（需 task:delete + 团队角色 OWNER/ADMIN；角色不足 403 Only team owner or admin can delete tasks）。403 双形态辨析：member 全局角色无 task:delete 走功能级 403 Permission denied；资源级 403 由「全局 admin+团队 MEMBER」触发。app/api/v1/tasks.py + tests/test_task_api.py 10 项 HTTP 端到端。全量 390 passed，零残留，Docker 容器冒烟 6 项 PASS。
 
 ### Added

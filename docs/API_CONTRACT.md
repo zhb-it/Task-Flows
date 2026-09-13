@@ -281,7 +281,7 @@ Request：
 ## Task
 > **TASK-034 已实现：五端点挂载完成。** 授权两层（TASK-032/033 决策）：授权两层：功能级（task:create/read/update/delete）+ 资源级（本注，IDOR 契约：不在归属链一律 404 同文案；调用者已在归属链上时明示 403）——创建/更新 = 项目所属团队成员即可（task:create/task:update + team_members 有行）；删除 = 团队角色 OWNER/ADMIN（403 文案 `Only team owner or admin can delete tasks`，与种子设计对齐：member 全局角色有 task:update 无 task:delete）；创建时项目不存在或非成员统一 404 `Project not found`（类比 POST /projects 对不可见团队报 `Team not found`）。TASK-032 Schema 决策：POST 创建请求体**不含 `status`**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出非 TODO 任务（Decision 005）；PATCH 请求体同样不含 status / project_id / creator_id。title 1-200，priority 枚举 LOW/MEDIUM/HIGH/URGENT（默认 MEDIUM），due_at 可空。
 - POST `/api/v1/tasks`
-- GET `/api/v1/tasks?project_id={id}` → 项目下全部任务（id 升序；`project_id` 必填 query 参数，缺失 422）；项目不存在或不在归属链 404 `Task not found`。需 `task:read`。（TASK-035 再做过滤/分页/排序专项）
+- GET `/api/v1/tasks?project_id={id}` → **TASK-035 已实现：多条件过滤 + 分页 + 排序**（响应仍为纯列表 `{data: [TaskRead...]}`）。`project_id` 必填（缺失 422）；过滤：`status`（枚举精确，非法 422）、`priority`（枚举精确）、`keyword`（标题大小写不敏感子串 ILIKE，`%`/`_`/`\` 转义后按字面匹配，纯空白视为未传）；分页：`skip`（默认 0，≥0）、`limit`（默认 100，1-100）；排序：`sort` 白名单 `id|created_at|due_at|priority`（默认 id）+ `order` `asc|desc`（默认 asc），**priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序**。项目不存在或不在归属链 404 `Task not found`。需 `task:read`。
 - GET `/api/v1/tasks/{task_id}`
 - PATCH `/api/v1/tasks/{task_id}`
 - DELETE `/api/v1/tasks/{task_id}`

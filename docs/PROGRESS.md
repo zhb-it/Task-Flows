@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-034 Task API（已完成）
+TASK-035 Task 查询过滤/分页/排序（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -44,6 +44,7 @@ TASK-034 Task API（已完成）
 - [x] TASK-032 Task Schema/CRUD
 - [x] TASK-033 Task Service
 - [x] TASK-034 Task API
+- [x] TASK-035 Task 查询过滤/分页/排序
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -53,7 +54,7 @@ TASK-034 Task API（已完成）
 - None
 
 ## Next
-TASK-035 Task 查询过滤/分页/排序（Phase 5 任务核心）
+TASK-036 TaskAssignee 多人分配（Phase 5 任务核心）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -80,6 +81,8 @@ TASK-032 完成 Task Schema/CRUD（TASK-032 决策，用户确认：①POST 创�
 TASK-033 完成 Task Service（TASK-033 决策，用户确认：①创建授权 = 全局 task:create + 项目所属团队成员即可——项目不存在或非成员统一 404 Project not found（IDOR 防枚举，类比 POST /projects 对不可见团队报 Team not found）；②更新 = 归属链上成员即可（task:update，seed member 有此权限暗示协作式更新），删除 = 全局 task:delete + 团队角色 OWNER/ADMIN（seed member 无 task:delete——删除是管理行为；角色不足 403 Only team owner or admin can delete tasks）。归属链 = 任务 → 项目 → 团队 → team_members（规格 §5）。交付：app/services/task.py（create/get_for_user/list/update/delete + _get_task_on_chain 资源级判定原语；commit 事务边界在本层；status 不可经 update 触达，流转留 TASK-038 transition）。tests/test_task_service.py 9 项（DB 集成：成员创建 creator=caller+TODO 起步、非成员/不存在 404 同文案、成员/局外读可见性、项目隔离列表、member 更新 OK 且 status 不变、member 删除 403、owner 删除 OK）。全量 380 passed，零残留；容器冒烟 PASS。
 
 TASK-034 完成 Task API（Phase 5：五端点挂载 /api/v1——POST /tasks 201 TODO 起步、GET /tasks?project_id={id} 必填 query 参数（缺失 422）、GET/PATCH/DELETE /tasks/{task_id}；授权语义沿用 TASK-033 决策，无新决策）。tests/test_task_api.py 10 项 HTTP 端到端（真实产品应用+真实 Token）：创建 201/无全局权限 403/非成员与不存在 404 同文案/请求体带 status 被忽略（额外字段默认忽略，核心契约恒 TODO）、成员读可见+局外人 404（详情与列表）、PATCH exclude_unset（显式 null 清空 description、未传 title 保持、status 不可触达）、删除双 403 形态辨析——member 全局角色无 task:delete 被功能级 403 挡住，资源级 403（Only team owner or admin can delete tasks）由「全局 admin+团队 MEMBER」触发、owner 删除 200+复查 404。全量 390 passed，零残留；Docker 重建后真实容器冒烟 6 项 PASS。
+
+TASK-035 完成 Task 查询过滤/分页/排序（TASK-035 决策，用户确认：①分页沿用 skip/limit——与 teams/projects 同惯例，响应仍为纯列表 {data: [...]}，skip≥0、limit 1-100 默认 100；②过滤范围 = status 枚举精确 + priority 枚举精确 + keyword 标题模糊——%/_/\ 通配符转义后按字面 ILIKE 匹配、纯空白视为未传，负责人筛选依赖 TASK-036 TaskAssignee 暂不做；③排序 = sort 白名单 id/created_at/due_at/priority（TaskSortField StrEnum，非法 422 防注入）+ order asc/desc，**priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序**（Service 层 SQL case 映射）；④project_id 保持必填，跨项目「我的任务」视图留待 TASK-036 后再议）。交付：app/schemas/task.py 增补 TaskSortField/TaskSortOrder；app/crud/task.py 的 list_tasks_by_project 演进为过滤/分页/排序查询（排序子句由 Service 传入，CRUD 保持纯数据操作）；app/services/task.py 的 list_tasks 扩展参数并做 keyword 转义/白名单映射（可见性 404 契约不变）；app/api/v1/tasks.py 的 GET /tasks 挂载全部 query 参数。新增 tests/test_task_query_api.py 8 项 HTTP 端到端（status 过滤含 fixture 直插 IN_PROGRESS/DONE 行——POST 只能建 TODO；priority 过滤；keyword 大小写不敏感 + % 字面匹配 + 空白忽略；分页窗口/超界空列表/边界 422；sort=id 与 priority 业务序双向、due_at desc；非法 sort/order/limit/skip/status 422；过滤+分页组合与局外人 404 可见性不变）。全量 398 passed，开发库零残留；Docker 重建镜像后真实容器冒烟 10 项 PASS（过滤/排序/分页/422 全链路，冒烟数据 API+DB 双通道清理干净）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

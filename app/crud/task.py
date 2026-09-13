@@ -1,21 +1,22 @@
-"""Task CRUD operations (TASK-032).
+"""Task CRUD operations (TASK-032, list query extended in TASK-035).
 
 Write helpers persist rows via `flush` only — the transaction boundary stays
 with the Service layer (项目规则 §4 / ARCHITECTURE.md).
 
 TASK-032 决策（用户确认）：本层只提供基础 CRUD —— `get_task` /
-`list_tasks_by_project`（简单 id 升序）/ create / update / delete；过滤、
-分页、排序是 TASK-035 专项，不在本层超前实现。
+`list_tasks_by_project` / create / update / delete；状态值校验在 Schema
+与状态机（TASK-037/038），本层不做。
 
-`create_task` 不收 `status`：新任务一律依赖模型默认值 TODO 起步。
-`update_task` 只持久化 Service 层对属性的就地修改（含 status 的修改
-由 TASK-037 状态机 / TASK-038 transition API 在 Service 层执行后落库，
-本层不做 status 值校验 —— 校验在 Schema 与状态机）。
+TASK-035（用户确认决策）：`list_tasks_by_project` 演进为多条件查询——
+`status` / `priority` 精确过滤 + `keyword` 标题 ILIKE（通配符转义，按
+字面匹配）+ skip/limit 分页（与 teams/projects 同惯例）+ 排序子句由
+Service 层传入（白名单映射与 priority 业务权重在 Service，本层保持
+纯数据操作，不解释业务含义）。
 """
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import asc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
@@ -51,12 +52,30 @@ async def get_task(db: AsyncSession, task_id: int) -> Task | None:
 
 
 async def list_tasks_by_project(
-    db: AsyncSession, project_id: int
+    db: AsyncSession,
+    project_id: int,
+    *,
+    status: str | None = None,
+    priority: str | None = None,
+    keyword: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    order_by=None,
 ) -> list[Task]:
-    """All tasks of a project, ordered by id (TASK-035 adds filtering)."""
-    result = await db.execute(
-        select(Task).where(Task.project_id == project_id).order_by(Task.id)
-    )
+    """Tasks of a project with optional filtering / paging / ordering.
+
+    `order_by` 是完整的排序子句（Service 层传入 `Task.col.asc()/desc()`，
+    默认 id 升序）；keyword 已由 Service 层做通配符转义。
+    """
+    stmt = select(Task).where(Task.project_id == project_id)
+    if status is not None:
+        stmt = stmt.where(Task.status == status)
+    if priority is not None:
+        stmt = stmt.where(Task.priority == priority)
+    if keyword:
+        stmt = stmt.where(Task.title.ilike(keyword))
+    stmt = stmt.order_by(order_by if order_by is not None else asc(Task.id))
+    result = await db.execute(stmt.offset(skip).limit(limit))
     return list(result.scalars().all())
 
 

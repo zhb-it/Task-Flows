@@ -15,11 +15,30 @@ TASK-032 决策（用户确认）：
   / `creator_id`（任务跨项目移动与冒名创建均不在契约内）。
 """
 
+import enum
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.task import TaskPriority, TaskStatus
+
+
+class TaskSortField(enum.StrEnum):
+    """列表排序白名单（TASK-035）：仅允许这四列作为 sort 参数。
+
+    priority 按业务权重排序（URGENT > HIGH > MEDIUM > LOW），非字母序，
+    权重映射在 Service 层完成。
+    """
+
+    ID = "id"
+    CREATED_AT = "created_at"
+    DUE_AT = "due_at"
+    PRIORITY = "priority"
+
+
+#: 排序方向（TASK-035）；非法值由 FastAPI 422 拒绝。
+TaskSortOrder = Literal["asc", "desc"]
 
 
 class TaskCreate(BaseModel):
