@@ -7,11 +7,12 @@ In Progress
 Phase 1：项目基础设施
 
 ## Current Task
-TASK-003
+TASK-004
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
 - [x] TASK-002 配置基础依赖与环境变量
+- [x] TASK-003 创建 FastAPI 应用与基础配置
 
 ## In Progress
 - [ ]
@@ -20,7 +21,7 @@ TASK-003
 - None
 
 ## Next
-TASK-003 创建 FastAPI 应用与基础配置
+TASK-004 配置 PostgreSQL Docker 服务
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
