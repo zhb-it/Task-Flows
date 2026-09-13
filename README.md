@@ -9,7 +9,7 @@
 - PostgreSQL 16、Redis 7、Celery
 - JWT、pytest、Docker、GitHub Actions
 
-当前处于 Phase 1 基础设施搭建，尚未提供业务 API。
+当前处于 Phase 2 用户与认证，已提供 `POST /api/v1/auth/register`、`POST /api/v1/auth/login`、`GET /api/v1/users/me`；完整接口清单见 [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md)。
 
 ## 本地环境
 

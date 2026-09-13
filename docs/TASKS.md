@@ -19,7 +19,7 @@
 - [x] TASK-014 密码哈希与安全模块
 - [x] TASK-015 注册
 - [x] TASK-016 登录与 Access Token
-- [ ] TASK-017 `/users/me`
+- [x] TASK-017 `/users/me`
 - [ ] TASK-018 Refresh Token/JTI
 - [ ] TASK-019 Logout/Token revoke
 - [ ] TASK-020 Auth 测试

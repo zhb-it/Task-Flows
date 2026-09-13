@@ -7,7 +7,7 @@ In Progress
 Phase 2：用户与认证
 
 ## Current Task
-TASK-016 登录与 Access Token
+TASK-017 `/users/me`（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -25,6 +25,8 @@ TASK-016 登录与 Access Token
 - [x] TASK-013 User Schema/CRUD
 - [x] TASK-014 密码哈希与安全模块
 - [x] TASK-015 注册
+- [x] TASK-016 登录与 Access Token
+- [x] TASK-017 `/users/me`
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -34,10 +36,11 @@ TASK-016 登录与 Access Token
 - None
 
 ## Next
-TASK-017 `/users/me`（Phase 2 用户与认证）
+TASK-018 Refresh Token/JTI（Phase 2 用户与认证）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
+TASK-017 完成后已用 `docker compose up -d --build` 重建 app 镜像，并在真实容器上端到端验证 `GET /api/v1/users/me`：有效 Token → 200（字段与注册返回一致、不泄露密码）；无 Token / 篡改签名 → 401 且带 `WWW-Authenticate: Bearer`；账号禁用 → 403；账号删除 → 401。验证后开发库 users 表 0 行残留。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

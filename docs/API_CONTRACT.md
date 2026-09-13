@@ -79,6 +79,33 @@ Response `200 OK`：
 ## User
 - GET `/api/v1/users/me`
 
+### GET `/api/v1/users/me`（TASK-017 已实现）
+
+认证：必须携带请求头 `Authorization: Bearer <access_token>`，Token 由 `POST /api/v1/auth/login` 签发。
+
+Response `200 OK`：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "username": "alice",
+    "email": "alice@example.com",
+    "is_active": true,
+    "created_at": "2026-09-13T12:00:00Z",
+    "updated_at": "2026-09-13T12:00:00Z"
+  },
+  "message": "success"
+}
+```
+
+- 返回当前 Token 所属用户的资料，字段与 `POST /api/v1/auth/register` 的 `data` 完全一致（`UserRead`）。
+- 响应永不包含 `password` 或 `password_hash`。
+- 缺少 `Authorization` 头、方案不是 `Bearer`、Token 签名错误/已过期/`type` 不为 `access`、或 `sub` 无法解析为合法用户 id → `401 Unauthorized`：`{"detail": "..."}`，响应头含 `WWW-Authenticate: Bearer`。
+- Token 签名有效但对应账号已不存在 → 同样 `401`，且文案与上一条不作区分（避免探测账号是否存在）。
+- Token 有效、账号存在但 `is_active=false`（已被禁用）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。与 `POST /api/v1/auth/login` 对禁用账号的处理保持同一语义。
+- 本接口只读，不修改任何数据。
+
 ## Team
 - POST `/api/v1/teams`
 - GET `/api/v1/teams`
