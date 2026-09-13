@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `app/main.py` 新增 `/health` 端点（异步探测 PostgreSQL `SELECT 1` 与 Redis `PING`，2s 超时；返回 `status`/`database`/`redis` 状态，进程存活即返回 200）；`tests/test_app.py` 增补 `/health` 断言（TASK-008）
 - `alembic.ini`、`migrations/env.py`（异步 env：从 `app.core.config` 注入 `DATABASE_URL`、`target_metadata=Base.metadata`）、`migrations/script.py.mako`、`migrations/versions/.gitkeep`；`tests/test_alembic.py` 离线验证 `alembic history` 可运行（TASK-007）
 - `app/db/` 异步数据库模块：`base.py`（`declarative_base`）、`session.py`（异步 `engine` + `async_session_factory` + `get_db` 依赖）；`tests/test_db.py` 离线验证引擎/会话工厂/`get_db` 契约（TASK-006）
 - `docker-compose.yml` 增补 redis 服务（`redis:7`、端口 `6379:6379`、命名卷 `redis_data`、healthcheck）（TASK-005）
