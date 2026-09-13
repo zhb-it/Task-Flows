@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Task Schema/CRUD（TASK-032）：app/schemas/task.py + app/crud/task.py。**决策**：POST 创建请求体不含 status——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机（Decision 005）；TaskUpdate 同样不含 status/project_id/creator_id；CRUD 层仅基础操作（get_task / list_tasks_by_project 简单升序 / create / update / delete），过滤/分页/排序留 TASK-035。TaskCreate：project_id、title 1-200、description 可空、priority 枚举默认 MEDIUM、due_at 可空；TaskRead 暴露全 10 列。CRUD flush-only，事务边界在 Service（惯例）。tests/test_task_crud.py 13 项（Schema 离线 7 + DB 集成 6）。全量 371 passed，零残留，容器冒烟 PASS。
+
+### Added
 - Task 模型与迁移（TASK-031，Phase 5 任务核心开始）：新增 `app/models/task.py`（Task + TaskStatus/TaskPriority StrEnum）与迁移 `6f1cfcc35abe_create_tasks_table.py`。**决策**（源文档未定义 tasks 字段）：基础十列——project_id FK→projects ON DELETE CASCADE（任务随项目清理）、title VARCHAR(200) 无 UNIQUE、description TEXT、status VARCHAR(20) DEFAULT 'TODO' CHECK 五态、priority VARCHAR(10) DEFAULT 'MEDIUM' CHECK 四档、creator_id FK→users ON DELETE CASCADE（创建者非所有者，删用户级联清任务）、due_at 可空；**无 assignee 列**（多人分配在 task_assignees，TASK-036）。DB_SCHEMA 硬约束全落实：status/priority 双 CHECK、复合索引 (project_id,status)、(creator_id)、due_at 部分索引（仅 TODO/IN_PROGRESS/REVIEW）。状态流转规则由 TASK-037/038 消费，status 不允许经普通 PATCH 修改。tests/test_task_model.py 15 项（离线 9 + DB 集成 6）。全量 358 passed，开发库零残留，Docker 冒烟 PASS。
 
 ### Added

@@ -40,7 +40,7 @@
 
 ## Phase 5：任务核心
 - [x] TASK-031 Task Model/Migration
-- [ ] TASK-032 Task Schema/CRUD
+- [x] TASK-032 Task Schema/CRUD
 - [ ] TASK-033 Task Service
 - [ ] TASK-034 Task API
 - [ ] TASK-035 Task 查询过滤/分页/排序

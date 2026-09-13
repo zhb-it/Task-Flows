@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-031 Task Model/Migration（已完成）
+TASK-032 Task Schema/CRUD（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -41,6 +41,7 @@ TASK-031 Task Model/Migration（已完成）
 - [x] TASK-029 Project Model/CRUD/Service/Router
 - [x] TASK-030 团队与项目权限测试
 - [x] TASK-031 Task Model/Migration
+- [x] TASK-032 Task Schema/CRUD
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -50,7 +51,7 @@ TASK-031 Task Model/Migration（已完成）
 - None
 
 ## Next
-TASK-032 Task Schema/CRUD（Phase 5 任务核心）
+TASK-033 Task Service（Phase 5 任务核心）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -71,6 +72,8 @@ TASK-029 完成 Project Model/CRUD/Service/Router（TASK-029 决策，用户确�
 TASK-030 完成团队与项目权限测试（Phase 4 收尾）：新增 tests/test_team_project_permissions.py 11 项——把 TASK-027/028/029 分散的授权语义整合为「全局 RBAC 角色 × 团队角色 × 操作」系统性矩阵验收（六用户阵容：owner/tmember/tadmin/gmember/outsider/nobody），落实开发文档 §56 Phase 4 验收点「ADMIN / MEMBER 权限表现不同」；覆盖双层判定两方向（团队角色高不补全局权限、全局权限高不过资源级归属）、IDOR 404 契约一致性（含列表不泄露）、可见性翻转、无角色用户 403 优先。TESTING.md 增补「团队与项目权限矩阵」章节。全量 343 passed，零残留（纯测试任务，无应用代码变更，无需镜像重建）。
 
 TASK-031 完成 Task Model/Migration（Phase 5 开始；TASK-031 决策，用户确认：①基础十列——id/project_id/title/description/status/priority/creator_id/due_at/created_at/updated_at，无 assignee 列（多人分配在 task_assignees，TASK-036），无单独 owner_id；②creator_id FK→users **CASCADE**——creator 是创建者非 owner 式所有者，删用户级联清其创建的任务不卡删除；③status/priority 存 **VARCHAR + CHECK 字面字符串**（'TODO' 等，API/DB/日志同字面值，Python 侧 TaskStatus/TaskPriority StrEnum）。DB_SCHEMA 硬约束全落实：双 CHECK（ck_tasks_status_values/ck_tasks_priority_values）、复合索引 (project_id,status)、(creator_id)、due_at 部分索引（WHERE status IN 未完成三态，谓词精确落库）。新增 app/models/task.py + 迁移 6f1cfcc35abe（autogenerate，information_schema/pg_constraint/pg_indexes 实证）+ tests/test_task_model.py 15 项（离线 9 + DB 集成 6：默认值 roundtrip、CHECK 拒非法值、删项目/删 creator 级联清任务、同名并存）。全量 358 passed，零残留；Docker 重建后容器冒烟 PASS（模型变更不影响启动与既有端点）。
+
+TASK-032 完成 Task Schema/CRUD（TASK-032 决策，用户确认：①POST 创建请求体**不含 status**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出 DONE 任务；②CRUD 层仅基础操作——get_task / list_tasks_by_project（id 升序）/ create / update / delete，过滤/分页/排序留 TASK-035 专项不超前实现）。交付：app/schemas/task.py（TaskCreate/TaskUpdate/TaskRead；TaskUpdate 同样不含 status/project_id/creator_id；priority 用 TaskPriority StrEnum 校验，默认 MEDIUM；title 1-200；TaskRead 暴露全 10 列）+ app/crud/task.py（flush-only，事务边界在 Service）。tests/test_task_crud.py 13 项（Schema 离线 7 + DB 集成 6：TODO 起步、roundtrip/due_at、项目隔离与升序、exclude_unset 部分更新且 status 不受影响、删除）。全量 371 passed，零残留；Docker 重建后容器冒烟 PASS（tasks 路由未提前暴露）。清理了早前失败运行留下的 taskcrud 前缀孤儿行（teardown 修复前产生）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

@@ -279,6 +279,7 @@ Request：
 - DELETE `/api/v1/projects/{project_id}` → 功能级 `project:delete` + 团队角色 OWNER/ADMIN。200 后复查 404。删团队时项目随 `team_id` CASCADE 级联清理。
 
 ## Task
+> TASK-032 已定 Schema 层决策（端点在 TASK-034 挂载）：POST 创建请求体**不含 `status`**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出非 TODO 任务（Decision 005）；PATCH 请求体同样不含 status / project_id / creator_id。title 1-200，priority 枚举 LOW/MEDIUM/HIGH/URGENT（默认 MEDIUM），due_at 可空。
 - POST `/api/v1/tasks`
 - GET `/api/v1/tasks`
 - GET `/api/v1/tasks/{task_id}`
