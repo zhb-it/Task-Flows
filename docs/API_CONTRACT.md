@@ -185,15 +185,60 @@ Response `200 OK`：
 - Token 有效、账号存在但 `is_active=false`（已被禁用）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。与 `POST /api/v1/auth/login` 对禁用账号的处理保持同一语义。
 - 本接口只读，不修改任何数据。
 
-## Team
-- POST `/api/v1/teams`
-- GET `/api/v1/teams`
-- GET `/api/v1/teams/{team_id}`
-- PATCH `/api/v1/teams/{team_id}`
-- DELETE `/api/v1/teams/{team_id}`
-- POST `/api/v1/teams/{team_id}/members`
-- GET `/api/v1/teams/{team_id}/members`
-- DELETE `/api/v1/teams/{team_id}/members/{user_id}`
+## Team（TASK-027 已实现：团队 CRUD）
+
+授权两层（与全局契约一致）：功能级权限缺失 → `403`（`require_permission` 依赖）；资源级归属不满足 → `404` `{"detail": "Team not found"}`（`ResourceNotFoundError`，与「不存在」不可区分，防 id 枚举）。
+
+**TASK-027 决策**：
+1. 创建团队时自动在 `team_members` 写入一条 `OWNER` 行（`role_id=1`），成员归属链统一以 `team_members` 为准。
+2. `PATCH` / `DELETE` 资源级**仅 owner**（`teams.owner_id == 当前用户`）；有功能权限但非 owner → 404。
+3. `GET` 列表/详情的可见范围 = **我参与的团队**（owner 或 `team_members` 成员）。
+
+### POST `/api/v1/teams`
+
+Request：
+
+```json
+{
+  "name": "Platform Team",
+  "description": "平台研发团队"
+}
+```
+
+- `name` 必填（1–150 字符）；`description` 可选（≤255 字符）。
+- Response `201 Created`：`{"data": {"id", "name", "description", "owner_id", "created_at", "updated_at"}, "message": "success"}`，`data` 为 `TeamRead`。
+- 需要功能权限 `team:create`；创建者成为 owner（`teams.owner_id` + `team_members` OWNER 行）。
+- 校验失败（空/超长 name、超长 description）→ `422`；缺权限 → `403 Permission denied: team:create`；未认证 → `401`。
+
+### GET `/api/v1/teams`
+
+- Response `200`：`{"data": [TeamRead...], "message": "success"}`——按 `id` 升序，仅含当前用户参与的团队。
+- 分页查询参数：`skip`（默认 0，≥0）、`limit`（默认 100，1–100）。
+- 需要功能权限 `team:read`。
+
+### GET `/api/v1/teams/{team_id}`
+
+- Response `200`：`{"data": TeamRead, "message": "success"}`。
+- 可见性：owner 或团队成员；他人团队与不存在的团队统一 `404 {"detail": "Team not found"}`。
+- 需要功能权限 `team:read`。
+
+### PATCH `/api/v1/teams/{team_id}`
+
+Request（部分更新，仅应用显式出现的字段；`description` 显式传 `null` 表示清空）：
+
+```json
+{"description": "新描述"}
+```
+
+- Response `200`：`{"data": TeamRead, "message": "success"}`。
+- 需要功能权限 `team:update`；资源级**仅 owner**，非 owner → `404`（即使存在）。
+- `name` 传 `null`/空串/超 150 字符 → `422`。
+
+### DELETE `/api/v1/teams/{team_id}`
+
+- Response `200`：`{"data": null, "message": "success"}`。
+- 需要功能权限 `team:delete`；资源级**仅 owner**，非 owner → `404`。
+- 删除团队时 `team_members` 行随 ON DELETE CASCADE 级联清理。
 
 ## Project
 - POST `/api/v1/projects`

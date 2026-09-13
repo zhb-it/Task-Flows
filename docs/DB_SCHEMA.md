@@ -107,6 +107,7 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 | 复合 UNIQUE `(team_id, user_id)` | | §7「一个用户不能重复加入同一个团队」 |
 
 - 团队角色（OWNER/ADMIN/MEMBER）管团队内的地位（能否邀请/删人等，§35「非管理员不能邀请」的消费方），**不参与** `get_user_permissions` 的功能权限解析。
+- **业务规则（TASK-027 决策）**：创建团队时 Service 层在同一事务内自动写入一条 `team_members(owner, role_id=1)` OWNER 行——成员归属链统一以 `team_members` 为准。
 - 迁移：`migrations/versions/fc52c0603ba5_create_teams_and_team_members.py`。
 
 ## 已明确约束

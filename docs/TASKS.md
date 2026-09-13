@@ -33,7 +33,7 @@
 
 ## Phase 4：团队与项目
 - [x] TASK-026 Team/TeamMember
-- [ ] TASK-027 团队 CRUD
+- [x] TASK-027 团队 CRUD
 - [ ] TASK-028 成员邀请/删除
 - [ ] TASK-029 Project Model/CRUD/Service/Router
 - [ ] TASK-030 团队与项目权限测试
