@@ -46,6 +46,18 @@ class ConflictError(AppError):
     detail = "Resource conflict"
 
 
+class ResourceNotFoundError(AppError):
+    """404 Not Found — 资源不存在，或不在调用者的归属链上。
+
+    开发文档 §49 IDOR 防护（TASK-024 决策）：跨团队访问他人资源与资源不存在
+    统一以 404 呈现——客户端无法通过 403/404 差异枚举资源 id。功能级权限
+    缺失（不针对具体资源）仍用 `ForbiddenError`(403)，见 TASK-023 契约。
+    """
+
+    status_code = 404
+    detail = "Resource not found"
+
+
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
     """Render domain errors with the project error envelope (项目文档 §26).
 

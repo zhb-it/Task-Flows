@@ -11,7 +11,7 @@
 - POST `/api/v1/auth/refresh`
 - POST `/api/v1/auth/logout`
 
-## 授权机制（TASK-023，内部机制，无独立端点）
+## 授权机制（TASK-023 / TASK-024，内部机制，无独立端点）
 后续资源端点通过权限依赖 `require_permission("resource:action", ...)` 声明所需权限（多值 AND 语义）：
 
 - 未认证（无/非法 Token）→ `401` + `WWW-Authenticate: Bearer`（与 `/users/me` 一致）。
@@ -19,6 +19,12 @@
 - 已认证但缺少所需权限 → `403` `{"detail": "Permission denied: <缺失的权限名, 逗号分隔>"}`（多权限 AND 时只列出缺失项）。
 - 权限名严格 `resource:action` 格式（§6），用户有效权限 = 其全部角色的权限并集（去重）。
 - 种子角色（TASK-022）：`admin` 持有全部 22 项权限；`member` 持有 10 项「读 + 基础写」。
+
+**资源级权限（TASK-024）**：功能级判定（上面 403 一条）之外，业务层（Service）还需资源归属校验——开发文档 §49 的 `User → Team → Project → Task` 归属链，防止 IDOR：
+
+- **资源不存在** 与 **资源存在但不在调用者归属链上**（如跨团队访问他人任务）→ 统一 `404` `{"detail": "<资源> not found"}`（`ResourceNotFoundError`）。TASK-024 决策：两种情形不可区分，防止通过 403/404 差异枚举资源 id。
+- 功能级权限缺失（不针对具体资源）仍是 `403`（`require_permission` 依赖 / `ensure_permission` 守卫，两者语义与文案一致）；404 与 403 不得混用。
+- `ensure_permission`（`app/services/authorization.py`）是依赖的 Service 层等价物：Service 互调、后台任务等无 HTTP 上下文场景使用，语义（单权限/AND）与报错文案完全一致。
 
 ### POST `/api/v1/auth/register`（TASK-015 已实现）
 

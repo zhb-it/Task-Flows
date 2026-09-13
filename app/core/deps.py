@@ -6,7 +6,8 @@
 权限依赖（TASK-023）`require_permission` 在认证之后判定授权：沿
 User → UserRole → Role → RolePermission → Permission 模型链解析用户的有效
 权限集合，不满足即 403。它只回答「这个用户能不能进这个端点」；资源归属等
-更细的判定属于 Service 资源级权限（TASK-024）。
+更细的判定属于 Service 资源级权限（TASK-024，`ensure_permission` +
+`ResourceNotFoundError`）。
 """
 
 from typing import Annotated
@@ -20,6 +21,7 @@ from app.core.security import decode_access_token
 from app.crud.permission import get_user_permissions
 from app.db.session import get_db
 from app.models.user import User
+from app.services.authorization import validate_permission_name
 from app.services.user import load_current_user
 
 # `auto_error=False` 是刻意的：FastAPI 的 HTTPBearer 默认在缺少 Authorization 头时
@@ -63,19 +65,6 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def _validate_permission_name(name: str) -> None:
-    """权限名必须是 `resource:action` 格式（TASK-022 决策：单列严格格式）。
-
-    在工厂创建时（即应用启动/路由注册时）就拒绝拼写错误，而不是等到
-    第一个请求打进来才在运行期暴露。
-    """
-    parts = name.split(":")
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        raise ValueError(
-            f"Invalid permission name {name!r}: expected 'resource:action' format"
-        )
-
-
 def require_permission(*permissions: str):
     """权限依赖工厂：返回一个「要求当前用户持有全部列出权限」的依赖。
 
@@ -95,12 +84,14 @@ def require_permission(*permissions: str):
 
     认证失败（401/账号禁用 403）由链条前端的 `get_current_user` 决定；
     本依赖只在认证通过后追加授权判定，缺权限 → `ForbiddenError`(403)，
-    文案列出缺失的权限名便于客户端与服务端定位。
+    文案列出缺失的权限名便于客户端与服务端定位。业务层内部的等价判定
+    （Service 互调、后台任务）用 `app.services.authorization.ensure_permission`，
+    两者语义与文案一致（TASK-024）。
     """
     if not permissions:
         raise ValueError("require_permission() needs at least one permission name")
     for name in permissions:
-        _validate_permission_name(name)
+        validate_permission_name(name)
 
     required = frozenset(permissions)
 
