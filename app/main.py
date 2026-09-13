@@ -8,14 +8,13 @@ the process itself is alive (liveness), reporting dependency status in the body.
 
 import asyncio
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, app_error_handler
 from app.db.session import engine
 
 settings = get_settings()
@@ -28,15 +27,7 @@ app = FastAPI(
 
 app.include_router(api_router)
 
-
-@app.exception_handler(AppError)
-async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
-    """Render domain errors with the project error envelope (项目文档 §26)."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-        headers=exc.headers,
-    )
+app.add_exception_handler(AppError, app_error_handler)
 
 
 @app.get("/")

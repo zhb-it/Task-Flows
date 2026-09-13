@@ -2,9 +2,12 @@
 
 `ARCHITECTURE.md` assigns 异常 to the `core` module. Domain errors raised by the
 Service layer carry the HTTP status they map to, so routers stay free of
-business rules and a single handler (registered in `app/main.py`) renders the
-project's error envelope — `{"detail": ...}` (项目文档 §26).
+business rules and a single handler renders the project's error envelope —
+`{"detail": ...}` (项目文档 §26).
 """
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 
 class AppError(Exception):
@@ -41,3 +44,16 @@ class ConflictError(AppError):
 
     status_code = 409
     detail = "Resource conflict"
+
+
+async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+    """Render domain errors with the project error envelope (项目文档 §26).
+
+    Lives in core next to the exception types so any FastAPI app — the product
+    `app.main` and test-harness apps alike — can register the same rendering.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )

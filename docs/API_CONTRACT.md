@@ -11,6 +11,15 @@
 - POST `/api/v1/auth/refresh`
 - POST `/api/v1/auth/logout`
 
+## 授权机制（TASK-023，内部机制，无独立端点）
+后续资源端点通过权限依赖 `require_permission("resource:action", ...)` 声明所需权限（多值 AND 语义）：
+
+- 未认证（无/非法 Token）→ `401` + `WWW-Authenticate: Bearer`（与 `/users/me` 一致）。
+- 已认证但账号禁用 → `403` `{"detail": "User account is disabled"}`。
+- 已认证但缺少所需权限 → `403` `{"detail": "Permission denied: <缺失的权限名, 逗号分隔>"}`（多权限 AND 时只列出缺失项）。
+- 权限名严格 `resource:action` 格式（§6），用户有效权限 = 其全部角色的权限并集（去重）。
+- 种子角色（TASK-022）：`admin` 持有全部 22 项权限；`member` 持有 10 项「读 + 基础写」。
+
 ### POST `/api/v1/auth/register`（TASK-015 已实现）
 
 Request：

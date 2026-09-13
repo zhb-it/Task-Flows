@@ -3,8 +3,10 @@
 认证依赖是 Router 与 Service 之间的桥：它只做「HTTP 凭证 → 已认证用户」的翻译，
 把「取不到凭证 / 凭证不合法」统一表达为 401，真正的账号状态规则交给 Service。
 
-后续 TASK-023 的权限依赖与各资源路由都应复用 `CurrentUser`，避免在每个
-Router 里重复解析 Token。
+权限依赖（TASK-023）`require_permission` 在认证之后判定授权：沿
+User → UserRole → Role → RolePermission → Permission 模型链解析用户的有效
+权限集合，不满足即 403。它只回答「这个用户能不能进这个端点」；资源归属等
+更细的判定属于 Service 资源级权限（TASK-024）。
 """
 
 from typing import Annotated
@@ -13,8 +15,9 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import decode_access_token
+from app.crud.permission import get_user_permissions
 from app.db.session import get_db
 from app.models.user import User
 from app.services.user import load_current_user
@@ -58,3 +61,57 @@ async def get_current_user(
 
 #: 路由签名中直接使用：`current_user: CurrentUser`
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def _validate_permission_name(name: str) -> None:
+    """权限名必须是 `resource:action` 格式（TASK-022 决策：单列严格格式）。
+
+    在工厂创建时（即应用启动/路由注册时）就拒绝拼写错误，而不是等到
+    第一个请求打进来才在运行期暴露。
+    """
+    parts = name.split(":")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(
+            f"Invalid permission name {name!r}: expected 'resource:action' format"
+        )
+
+
+def require_permission(*permissions: str):
+    """权限依赖工厂：返回一个「要求当前用户持有全部列出权限」的依赖。
+
+    语义（TASK-023 决策）：单权限或 AND——`require_permission("task:read")`
+    要求持有 `task:read`；`require_permission("a", "b")` 要求同时持有两者。
+    OR 语义留给后续 TASK 在需要时扩展。
+
+    用法::
+
+        @router.get("/tasks", dependencies=[Depends(require_permission("task:read"))])
+        async def list_tasks(...): ...
+
+    或需要用户对象时::
+
+        @router.get("/tasks")
+        async def list_tasks(user: Annotated[User, Depends(require_permission("task:read"))]): ...
+
+    认证失败（401/账号禁用 403）由链条前端的 `get_current_user` 决定；
+    本依赖只在认证通过后追加授权判定，缺权限 → `ForbiddenError`(403)，
+    文案列出缺失的权限名便于客户端与服务端定位。
+    """
+    if not permissions:
+        raise ValueError("require_permission() needs at least one permission name")
+    for name in permissions:
+        _validate_permission_name(name)
+
+    required = frozenset(permissions)
+
+    async def permission_checker(
+        user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ) -> User:
+        effective = set(await get_user_permissions(db, user.id))
+        missing = sorted(required - effective)
+        if missing:
+            raise ForbiddenError(f"Permission denied: {', '.join(missing)}")
+        return user
+
+    return permission_checker
