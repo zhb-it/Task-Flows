@@ -22,7 +22,7 @@
 - [x] TASK-017 `/users/me`
 - [x] TASK-018 Refresh Token/JTI
 - [x] TASK-019 Logout/Token revoke
-- [ ] TASK-020 Auth 测试
+- [x] TASK-020 Auth 测试
 
 ## Phase 3：RBAC
 - [ ] TASK-021 Role/Permission Model
