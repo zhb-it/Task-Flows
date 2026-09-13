@@ -110,6 +110,24 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - **业务规则（TASK-027 决策）**：创建团队时 Service 层在同一事务内自动写入一条 `team_members(owner, role_id=1)` OWNER 行——成员归属链统一以 `team_members` 为准。
 - 迁移：`migrations/versions/fc52c0603ba5_create_teams_and_team_members.py`。
 
+## 项目表（TASK-029 已实现）
+源开发文档未定义 projects 字段（§7 只给到团队），以下为 TASK-029 用户确认的决策：
+
+**projects**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| name | VARCHAR(150) | NOT NULL，**不加 UNIQUE**（源文档未定义唯一约束） |
+| description | VARCHAR(255) | 可空 |
+| team_id | BIGINT | NOT NULL，FK → `teams(id)` **ON DELETE CASCADE**，索引 —— 项目是团队资产，删团队级联清项目（未来其下任务随之清理） |
+| owner_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE RESTRICT**，索引 —— 记录创建者（可后续转让），与 teams.owner_id 同语义：删用户前必须先处理其项目 |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+
+- 关系链遵循 DB_SCHEMA 顶层 `Team -> Project -> Task`；可见性按规格 §5「用户只能访问其所属团队链路下的资源」——项目所属团队的 `team_members` 成员构成归属链。
+- 迁移：`migrations/versions/99f70df5d269_create_projects_table.py`（autogenerate，`information_schema` 实证 CASCADE/RESTRICT 与双索引）。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE

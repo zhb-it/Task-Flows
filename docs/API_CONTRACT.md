@@ -271,12 +271,12 @@ Request：
 - 目标不是成员 → `404 {"detail": "Team member not found"}`；移除 owner / ADMIN 移除非 MEMBER → `403 {"detail": "Team owner cannot be removed"}` / `{"detail": "Team admin can only remove members"}`。
 - 被移除者即刻失去该团队可见性（`GET /teams/{id}` → 404）。
 
-## Project
-- POST `/api/v1/projects`
-- GET `/api/v1/projects`
-- GET `/api/v1/projects/{project_id}`
-- PATCH `/api/v1/projects/{project_id}`
-- DELETE `/api/v1/projects/{project_id}`
+## Project（TASK-029 已实现：项目 CRUD）
+- POST `/api/v1/projects` → 201。功能级 `project:create`（403）；资源级：**团队成员即可创建**（决策 2），团队不存在或调用者非成员 → 404（同一文案，IDOR 防枚举）。请求体 `{team_id, name, description?}`；`owner_id` 恒为当前调用者，不开放客户端指定。
+- GET `/api/v1/projects` → 我所在团队（`team_members` 有行）下的全部项目（决策 4），skip/limit 分页（skip≥0，limit 1-100 默认 100），按 id 升序。需 `project:read`。
+- GET `/api/v1/projects/{project_id}` → 项目所属团队成员可见（规格 §5「所属团队链路」）；不存在或不在归属链 → 404 `Project not found`。需 `project:read`。
+- PATCH `/api/v1/projects/{project_id}` → 功能级 `project:update`（403）+ 资源级**团队角色 OWNER/ADMIN**（决策 3；角色不足 → 403 `Only team owner or admin can manage projects`，不在归属链 → 404）。请求体 `{name?, description?}`，exclude_unset 部分更新：`description` 显式传 null 清空，未传不变。
+- DELETE `/api/v1/projects/{project_id}` → 功能级 `project:delete` + 团队角色 OWNER/ADMIN。200 后复查 404。删团队时项目随 `team_id` CASCADE 级联清理。
 
 ## Task
 - POST `/api/v1/tasks`
