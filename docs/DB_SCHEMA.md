@@ -81,6 +81,34 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - 迁移：`migrations/versions/7e15047d3a10_create_rbac_tables.py`（建表）+ `migrations/versions/0de65c197efc_seed_rbac_data.py`（种子，TASK-022）。
 - 种子数据（TASK-022 决策）：角色 `admin` / `member`；权限为开发文档 §6 全部 **22 项** `resource:action` 权限；`admin` 绑定全部 22 项，`member` 授「读 + 基础写」10 项（`user:read`、`team:read`、`project:read`、`task:read`、`log:read` + `task:create`、`task:update`、`comment:create`、`attachment:upload`、`attachment:download`）。全部 INSERT 带 `ON CONFLICT DO NOTHING`，幂等可重放；降级仅按 name 删除种子行。此为开发文档 §56 Phase 4「ADMIN / MEMBER 权限表现不同」验收的数据前提。
 
+## 团队两表（TASK-026 已实现）
+字段取自开发文档 §7。TASK-026 决策（已确认）：
+
+**teams**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| name | VARCHAR(150) | NOT NULL，**不加 UNIQUE**（§7 未定义唯一约束，同名团队靠 id 区分） |
+| description | VARCHAR(255) | 可空 |
+| owner_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE RESTRICT**，索引 —— 团队是聚合根，owner 被删前必须先转让所有权，不得静默级联删团队 |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+
+**team_members**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| team_id | BIGINT | NOT NULL，FK → `teams(id)` ON DELETE CASCADE，索引 |
+| user_id | BIGINT | NOT NULL，FK → `users(id)` ON DELETE CASCADE，索引 |
+| role_id | SMALLINT | NOT NULL，CHECK `role_id IN (1, 2, 3)` —— **团队角色**：1=OWNER / 2=ADMIN / 3=MEMBER（§7 示例），与全局 RBAC 角色（`roles` 表，管 `resource:action` 功能权限）是两个维度 |
+| joined_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| 复合 UNIQUE `(team_id, user_id)` | | §7「一个用户不能重复加入同一个团队」 |
+
+- 团队角色（OWNER/ADMIN/MEMBER）管团队内的地位（能否邀请/删人等，§35「非管理员不能邀请」的消费方），**不参与** `get_user_permissions` 的功能权限解析。
+- 迁移：`migrations/versions/fc52c0603ba5_create_teams_and_team_members.py`。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE

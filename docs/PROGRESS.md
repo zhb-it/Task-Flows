@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-025 RBAC 测试（已完成）
+TASK-026 Team/TeamMember（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -35,6 +35,7 @@ TASK-025 RBAC 测试（已完成）
 - [x] TASK-023 权限依赖
 - [x] TASK-024 Service 资源级权限
 - [x] TASK-025 RBAC 测试
+- [x] TASK-026 Team/TeamMember
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -44,7 +45,7 @@ TASK-025 RBAC 测试（已完成）
 - None
 
 ## Next
-TASK-026 Team/TeamMember（Phase 4 团队与项目）
+TASK-027 团队 CRUD（Phase 4 团队与项目）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -55,6 +56,7 @@ TASK-022 完成 RBAC 迁移与 CRUD：`7e15047d3a10_create_rbac_tables.py`（aut
 TASK-023 完成权限依赖：`app/core/deps.py` 增补工厂 `require_permission(*permissions)`（TASK-023 决策：单权限 / AND 语义、缺权限 403 且文案列出缺失项；权限名格式在工厂创建时校验、启动期快速失败）——依赖链为 `get_current_user`（认证 401 / 禁用 403）→ `get_user_permissions`（模型链解析）→ 集合包含判定；`app/core/exceptions.py` 的 `app_error_handler` 从 `main.py` 抽取为可复用处理器（`main.py` 改为注册，行为不变）。新增 `tests/test_permission_dependency.py` 19 项测试（工厂校验离线 + 测试内探针应用走完整 HTTP 链路：member/admin 权限差异、AND 语义、认证链顺序、禁用账号 403 来源）。全量 205 passed；Docker 重建镜像后冒烟验证（/health、register、login、/users/me、无 Token 401）全 PASS、零残留。
 TASK-024 完成 Service 资源级权限（TASK-024 决策：范围 = Service 守卫函数 + `ResourceNotFoundError`，§49 链式归属校验待 TASK-026+ 有实体表时实装；IDOR 场景「资源存在但不在归属链上」→ 404 防枚举，与「不存在」不可区分；`InvalidTransitionError` / `RateLimitExceededError` 随对应 Phase 再建）：新增 `app/services/authorization.py`（`validate_permission_name` 权限名校验收拢于此，`require_permission` 改为复用；`ensure_permission(db, user, *perms)` 与依赖同语义同文案，账号状态仍归认证链）+ `app/core/exceptions.py` 增补 `ResourceNotFoundError`(404)。新增 `tests/test_authorization_service.py` 24 项测试（守卫校验离线、真实数据库授权判定、IDOR 404 契约、探针路由验证 Service 异常的 HTTP 渲染链）。全量 229 passed；Docker 重建镜像后冒烟验证全 PASS、零残留。
 TASK-025 为纯测试任务（未改应用代码，无需重建镜像）：§35 三项 RBAC 测试要求（有权限访问 / 无权限访问 / 不同角色权限差异）逐条核对均有专项覆盖（test_rbac_model / test_rbac_crud / test_permission_dependency / test_authorization_service 四模块），补上缺失的验收链路 `tests/test_rbac_flow.py` 10 项端到端测试——§56 Phase 4 验收（ADMIN/MEMBER 同端点集合表现不同、依赖层与守卫层各自独立判定）、角色生命周期（无角色 403 → 授予立即生效 → 撤销立即失效，权限解析实时查库无缓存）、多角色并集聚合去重、撤销单角色保留其余、权限绑定/解绑对既有持有者即时生效、自定义角色 + 种子权限走通依赖层、admin ⊇ member 种子健全性与测试数据零污染。全量 239 passed，验证后种子完好（2 角色 / 22 权限）、零残留。Phase 3 RBAC 全部收官。
+TASK-026 完成 Team/TeamMember 模型与迁移（TASK-026 决策：团队角色 role_id 用 SmallInt + CHECK 枚举 1=OWNER/2=ADMIN/3=MEMBER，与全局 RBAC 角色两套体系互不污染；teams.owner_id 外键 ON DELETE RESTRICT——项目首个 RESTRICT 外键，删 owner 前必须先转让团队；teams.name 不加 UNIQUE；范围 = 模型 + 迁移，CRUD 留 TASK-027/028）：新增 `app/models/team.py` / `app/models/team_member.py`（含 TeamRole IntEnum）与迁移 `fc52c0603ba5_create_teams_and_team_members.py`（已 upgrade head，pg_constraint / pg_indexes 实证，并直连库实证 RESTRICT 行为：删有团队的用户抛 ForeignKeyViolationError）。新增 `tests/test_team_model.py` 21 项测试（14 项离线模型 + 7 项 DB 约束集成：复合 UNIQUE 拒重复加入、CHECK 拒非法角色、RESTRICT 拒删有团队用户、删团队级联清成员、同名团队可并存）。全量 260 passed，零残留。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

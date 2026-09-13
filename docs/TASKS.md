@@ -32,7 +32,7 @@
 - [x] TASK-025 RBAC 测试
 
 ## Phase 4：团队与项目
-- [ ] TASK-026 Team/TeamMember
+- [x] TASK-026 Team/TeamMember
 - [ ] TASK-027 团队 CRUD
 - [ ] TASK-028 成员邀请/删除
 - [ ] TASK-029 Project Model/CRUD/Service/Router
