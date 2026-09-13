@@ -16,7 +16,11 @@ Service 层等价场景用 `ensure_permission`（app/services/authorization.py�
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    ResourceNotFoundError,
+)
 from app.crud.team import (
     add_team_member,
     create_team as create_team_crud,
@@ -24,15 +28,29 @@ from app.crud.team import (
     get_team,
     get_team_member,
     is_team_member,
+    list_team_members,
     list_teams_for_user,
+    remove_team_member,
     update_team as update_team_crud,
 )
+from app.crud.user import get_user
 from app.models.team import Team
 from app.models.team_member import TeamRole
 from app.models.user import User
-from app.schemas.team import TeamCreate, TeamUpdate
+from app.schemas.team import (
+    TeamCreate,
+    TeamMemberInvite,
+    TeamMemberRead,
+    TeamUpdate,
+)
 
 NOT_FOUND = "Team not found"
+MEMBER_NOT_FOUND = "Team member not found"
+USER_NOT_FOUND = "User not found"
+NOT_MANAGER = "Only team owner or admin can manage members"
+
+#: 邀请请求体的角色名 → 团队角色（不含 OWNER：owner 不可被邀请，决策 2）。
+ROLE_BY_NAME = {"admin": TeamRole.ADMIN, "member": TeamRole.MEMBER}
 
 
 async def create_team(db: AsyncSession, owner: User, payload: TeamCreate) -> Team:
@@ -104,6 +122,83 @@ async def delete_team(db: AsyncSession, user: User, team_id: int) -> None:
 async def team_membership(
     db: AsyncSession, team_id: int, user_id: int
 ) -> TeamRole | None:
-    """调用者在团队中的团队角色（TASK-028 成员管理的基石，此任务先暴露）。"""
+    """调用者在团队中的团队角色（TASK-028 成员管理的基石）。"""
     member = await get_team_member(db, team_id=team_id, user_id=user_id)
     return TeamRole(member.role_id) if member else None
+
+
+# --- TASK-028 成员管理 ------------------------------------------------------------
+#
+# 授权规则（TASK-028 决策）：
+# 1. 双层判定——功能级 `team:invite`（Router 依赖层）+ 资源级团队角色
+#    OWNER/ADMIN（本层）。团队角色不足 → 403（调用者已在归属链上、本就
+#    可见成员列表，无信息泄露顾虑；与 §49 的「不在归属链 → 404」不冲突）。
+# 2. 邀请角色仅 admin/member（owner 不可邀请）；重复邀请 → 409。
+# 3. 移除层级 OWNER > ADMIN > MEMBER：OWNER 可移除任何非 owner 成员；
+#    ADMIN 仅可移除 MEMBER；owner 不可被移除（与 owner_id RESTRICT 语义
+#    一致——退出只能经转让，能力留后续 TASK）。
+
+
+async def list_members(
+    db: AsyncSession, user: User, team_id: int
+) -> list[TeamMemberRead]:
+    """成员列表：团队成员（owner 或成员）可见，否则 404（决策 4）。"""
+    await get_team_for_user(db, user, team_id)
+    return await list_team_members(db, team_id)
+
+
+async def invite_member(
+    db: AsyncSession, user: User, team_id: int, payload: TeamMemberInvite
+) -> TeamMemberRead:
+    """邀请用户入队（决策 1/2），重复邀请 409，目标用户不存在 404。"""
+    team = await get_team_for_user(db, user, team_id)
+    caller_role = await team_membership(db, team.id, user.id)
+    if caller_role not in (TeamRole.OWNER, TeamRole.ADMIN):
+        raise ForbiddenError(NOT_MANAGER)
+
+    target = await get_user(db, payload.user_id)
+    if target is None:
+        raise ResourceNotFoundError(USER_NOT_FOUND)
+    if await get_team_member(db, team_id=team.id, user_id=payload.user_id):
+        raise ConflictError("User is already a team member")
+
+    member = await add_team_member(
+        db,
+        team_id=team.id,
+        user_id=payload.user_id,
+        role_id=ROLE_BY_NAME[payload.role].value,
+    )
+    await db.commit()
+    return TeamMemberRead(
+        id=member.id,
+        team_id=member.team_id,
+        user_id=member.user_id,
+        username=target.username,
+        role=TeamRole(member.role_id).name.lower(),
+        joined_at=member.joined_at,
+    )
+
+
+async def remove_member(
+    db: AsyncSession, user: User, team_id: int, target_user_id: int
+) -> None:
+    """移除成员（决策 1/3）：层级 OWNER > ADMIN > MEMBER，owner 不可被移除。"""
+    team = await get_team_for_user(db, user, team_id)
+    caller_role = await team_membership(db, team.id, user.id)
+    if caller_role not in (TeamRole.OWNER, TeamRole.ADMIN):
+        raise ForbiddenError(NOT_MANAGER)
+
+    member = await get_team_member(
+        db, team_id=team.id, user_id=target_user_id
+    )
+    if member is None:
+        raise ResourceNotFoundError(MEMBER_NOT_FOUND)
+
+    target_role = TeamRole(member.role_id)
+    if target_role is TeamRole.OWNER:
+        raise ForbiddenError("Team owner cannot be removed")
+    if caller_role is TeamRole.ADMIN and target_role is not TeamRole.MEMBER:
+        raise ForbiddenError("Team admin can only remove members")
+
+    await remove_team_member(db, member)
+    await db.commit()

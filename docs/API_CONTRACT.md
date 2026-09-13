@@ -185,7 +185,7 @@ Response `200 OK`：
 - Token 有效、账号存在但 `is_active=false`（已被禁用）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。与 `POST /api/v1/auth/login` 对禁用账号的处理保持同一语义。
 - 本接口只读，不修改任何数据。
 
-## Team（TASK-027 已实现：团队 CRUD）
+## Team（TASK-027 已实现：团队 CRUD；TASK-028 已实现：成员管理）
 
 授权两层（与全局契约一致）：功能级权限缺失 → `403`（`require_permission` 依赖）；资源级归属不满足 → `404` `{"detail": "Team not found"}`（`ResourceNotFoundError`，与「不存在」不可区分，防 id 枚举）。
 
@@ -239,6 +239,37 @@ Request（部分更新，仅应用显式出现的字段；`description` 显式�
 - Response `200`：`{"data": null, "message": "success"}`。
 - 需要功能权限 `team:delete`；资源级**仅 owner**，非 owner → `404`。
 - 删除团队时 `team_members` 行随 ON DELETE CASCADE 级联清理。
+
+## Team Members（TASK-028 已实现）
+
+**TASK-028 决策**：
+1. **双层判定**：功能级 `team:invite`（邀请/移除）或 `team:read`（列表）+ 资源级**团队角色** OWNER/ADMIN（列表仅需团队成员可见）。全局权限缺失 → 403（先行）；团队角色不足 → 403 `Only team owner or admin can manage members`；团队不在归属链 → 404（与团队 CRUD 一致）。
+2. **邀请请求体** `{user_id, role}`：`role` 仅接受 `admin` / `member`（默认 `member`），`"owner"` → 422——owner 不可被邀请（只能经创建/转让获得）。
+3. **移除层级 OWNER > ADMIN > MEMBER**：owner 可移除任何非 owner 成员；admin 仅可移除 member；owner 不可被移除（403，含 owner 自移）——与 `teams.owner_id` RESTRICT 语义一致，退出只能经转让（后续 TASK）。
+
+### POST `/api/v1/teams/{team_id}/members`
+
+Request：
+
+```json
+{"user_id": 42, "role": "admin"}
+```
+
+- 需要功能权限 `team:invite` + 团队角色 OWNER/ADMIN。
+- Response `201 Created`：`{"data": {"id", "team_id", "user_id", "username", "role", "joined_at"}, "message": "success"}`（`role` 为小写名 `owner|admin|member`）。
+- 目标用户不存在 → `404 {"detail": "User not found"}`；已是成员 → `409 {"detail": "User is already a team member"}`；团队不可见 → `404 {"detail": "Team not found"}`。
+
+### GET `/api/v1/teams/{team_id}/members`
+
+- 需要功能权限 `team:read`；团队成员（owner 或成员）可见，局外人 → `404 {"detail": "Team not found"}`。
+- Response `200`：`{"data": [成员...], "message": "success"}`，按入队时间（`joined_at`）升序，owner 最先。
+
+### DELETE `/api/v1/teams/{team_id}/members/{user_id}`
+
+- 需要功能权限 `team:invite` + 团队角色 OWNER/ADMIN；移除层级见决策 3。
+- Response `200`：`{"data": null, "message": "success"}`。
+- 目标不是成员 → `404 {"detail": "Team member not found"}`；移除 owner / ADMIN 移除非 MEMBER → `403 {"detail": "Team owner cannot be removed"}` / `{"detail": "Team admin can only remove members"}`。
+- 被移除者即刻失去该团队可见性（`GET /teams/{id}` → 404）。
 
 ## Project
 - POST `/api/v1/projects`

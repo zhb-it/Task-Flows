@@ -15,7 +15,8 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.team import Team
-from app.models.team_member import TeamMember
+from app.models.team_member import TeamMember, TeamRole
+from app.schemas.team import TeamMemberRead
 
 
 async def create_team(
@@ -92,3 +93,36 @@ async def delete_team(db: AsyncSession, team: Team) -> None:
     """Delete the team. `team_members` rows go with it (ON DELETE CASCADE)."""
     await db.delete(team)
     await db.flush()
+
+
+async def remove_team_member(db: AsyncSession, member: TeamMember) -> None:
+    """Delete a `team_members` row (TASK-028). Flushes so callers can react."""
+    await db.delete(member)
+    await db.flush()
+
+
+async def list_team_members(
+    db: AsyncSession, team_id: int
+) -> list[TeamMemberRead]:
+    """All members of a team with their usernames, ordered by join time (TASK-028)."""
+    from app.models.user import User
+
+    result = await db.execute(
+        select(TeamMember, User.username)
+        .join(User, User.id == TeamMember.user_id)
+        .where(TeamMember.team_id == team_id)
+        .order_by(TeamMember.joined_at, TeamMember.id)
+    )
+    members: list[TeamMemberRead] = []
+    for member, username in result.all():
+        members.append(
+            TeamMemberRead(
+                id=member.id,
+                team_id=member.team_id,
+                user_id=member.user_id,
+                username=username,
+                role=TeamRole(member.role_id).name.lower(),
+                joined_at=member.joined_at,
+            )
+        )
+    return members
