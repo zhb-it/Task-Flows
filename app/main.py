@@ -1,19 +1,21 @@
 """FastAPI application entrypoint.
 
-Wires up the application shell plus a `/health` endpoint. Database sessions,
-Redis connections, routers and middleware are introduced in later tasks. The
-`/health` endpoint probes PostgreSQL and Redis so an orchestrator can tell
+Wires up the application shell, the `/api/v1` routers and a `/health` endpoint.
+The `/health` endpoint probes PostgreSQL and Redis so an orchestrator can tell
 whether the app's dependencies are reachable, but it always returns 200 while
 the process itself is alive (liveness), reporting dependency status in the body.
 """
 
 import asyncio
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from app.api.v1 import api_router
 from app.core.config import get_settings
+from app.core.exceptions import AppError
 from app.db.session import engine
 
 settings = get_settings()
@@ -23,6 +25,14 @@ app = FastAPI(
     version=settings.app_version,
     debug=settings.debug,
 )
+
+app.include_router(api_router)
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+    """Render domain errors with the project error envelope (项目文档 §26)."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.get("/")

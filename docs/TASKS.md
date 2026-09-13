@@ -17,7 +17,7 @@
 - [x] TASK-012 User Migration
 - [x] TASK-013 User Schema/CRUD
 - [x] TASK-014 密码哈希与安全模块
-- [ ] TASK-015 注册
+- [x] TASK-015 注册
 - [ ] TASK-016 登录与 Access Token
 - [ ] TASK-017 `/users/me`
 - [ ] TASK-018 Refresh Token/JTI

@@ -11,6 +11,38 @@
 - POST `/api/v1/auth/refresh`
 - POST `/api/v1/auth/logout`
 
+### POST `/api/v1/auth/register`（TASK-015 已实现）
+
+Request：
+
+```json
+{
+  "username": "alice",
+  "email": "alice@example.com",
+  "password": "S3cret-Passw0rd!"
+}
+```
+
+Response `201 Created`：
+
+```json
+{
+  "data": {
+    "id": 1,
+    "username": "alice",
+    "email": "alice@example.com",
+    "is_active": true,
+    "created_at": "2026-09-13T12:00:00Z",
+    "updated_at": "2026-09-13T12:00:00Z"
+  },
+  "message": "success"
+}
+```
+
+- `data` 永不包含 `password` 或 `password_hash`。
+- 用户名或邮箱已存在 → `409 Conflict`：`{"detail": "..."}`。
+- 缺少必填字段 → `422 Unprocessable Entity`。
+
 ## User
 - GET `/api/v1/users/me`
 
