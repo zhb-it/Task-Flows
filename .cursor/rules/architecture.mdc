@@ -1,0 +1,7 @@
+# Architecture Rules
+- 固定分层：Router -> Service -> CRUD -> Model。
+- Router 不写复杂业务逻辑/复杂 SQL。
+- Service 负责业务规则、权限、状态机、事务协调。
+- CRUD 负责数据库操作。
+- 数据库约束与 Service 规则共同保证数据一致性。
+- 不擅自改变已确认架构。

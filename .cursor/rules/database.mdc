@@ -1,0 +1,7 @@
+# Database Rules
+- PostgreSQL 16 + SQLAlchemy 2.0。
+- 所有结构变化使用 Alembic。
+- 优先考虑 FK、UNIQUE、CHECK、NOT NULL、索引和事务。
+- 查询必须考虑分页和 N+1。
+- 根据关系选择 selectinload/joinedload。
+- 不直接修改生产数据库结构。

@@ -1,0 +1,6 @@
+# Project Context
+- TaskFlow Pro 是生产级团队任务协作平台后端。
+- 技术栈：Python 3.11/3.12 + FastAPI + SQLAlchemy 2.0 + PostgreSQL 16 + Redis 7 + Celery + JWT + Alembic + pytest。
+- 开发必须以 docs/PROJECT_SPEC.md、docs/ARCHITECTURE.md、docs/TASKS.md、docs/PROGRESS.md 为上下文。
+- 一次只执行一个 TASK。
+- 不虚构需求、API、字段、ID、测试结果。

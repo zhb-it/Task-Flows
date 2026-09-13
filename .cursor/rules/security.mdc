@@ -1,0 +1,7 @@
+# Security Rules
+- Authentication != Authorization。
+- 所有资源访问进行资源级权限检查，防止 IDOR。
+- 密码不能明文保存。
+- 禁止日志输出 password/token/secret。
+- 文件上传必须限制大小、校验 MIME、处理文件名并防止路径穿越。
+- Redis 限流需要考虑原子性与并发。
