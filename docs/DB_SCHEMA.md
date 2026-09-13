@@ -78,6 +78,8 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 
 - 权限判断以 `resource:action` 字符串为键（如 `user:read`），由 TASK-023 权限依赖消费。
 - `ON DELETE CASCADE`：删除用户/角色/权限时关联记录一并清理，不产生悬挂授权。
+- 迁移：`migrations/versions/7e15047d3a10_create_rbac_tables.py`（建表）+ `migrations/versions/0de65c197efc_seed_rbac_data.py`（种子，TASK-022）。
+- 种子数据（TASK-022 决策）：角色 `admin` / `member`；权限为开发文档 §6 全部 **22 项** `resource:action` 权限；`admin` 绑定全部 22 项，`member` 授「读 + 基础写」10 项（`user:read`、`team:read`、`project:read`、`task:read`、`log:read` + `task:create`、`task:update`、`comment:create`、`attachment:upload`、`attachment:download`）。全部 INSERT 带 `ON CONFLICT DO NOTHING`，幂等可重放；降级仅按 name 删除种子行。此为开发文档 §56 Phase 4「ADMIN / MEMBER 权限表现不同」验收的数据前提。
 
 ## 已明确约束
 - User.username UNIQUE

@@ -26,7 +26,7 @@
 
 ## Phase 3：RBAC
 - [x] TASK-021 Role/Permission Model
-- [ ] TASK-022 RBAC Migration/CRUD
+- [x] TASK-022 RBAC Migration/CRUD
 - [ ] TASK-023 权限依赖
 - [ ] TASK-024 Service 资源级权限
 - [ ] TASK-025 RBAC 测试
