@@ -20,7 +20,7 @@
 - [x] TASK-015 注册
 - [x] TASK-016 登录与 Access Token
 - [x] TASK-017 `/users/me`
-- [ ] TASK-018 Refresh Token/JTI
+- [x] TASK-018 Refresh Token/JTI
 - [ ] TASK-019 Logout/Token revoke
 - [ ] TASK-020 Auth 测试
 

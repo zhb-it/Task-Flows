@@ -18,9 +18,27 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - User -> Notification
 - User -> RefreshToken
 
+## refresh_tokens（TASK-018 已实现）
+字段取自开发文档 §19「JWT 双 Token」：
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| user_id | BIGINT | NOT NULL，FK → `users(id)` ON DELETE CASCADE，索引 |
+| jti | VARCHAR(36) | NOT NULL，UNIQUE |
+| expires_at | TIMESTAMPTZ | NOT NULL |
+| revoked | BOOLEAN | NOT NULL，DEFAULT false |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+
+- 只存 Refresh Token 的 `jti`，Token 本体永不落库（§55.1「保存 Refresh Token JTI」）。
+- `ON DELETE CASCADE`：删除用户即清理其全部 Token 记录，不留孤儿行。
+- 撤销（TASK-019）与轮换（TASK-018）均按 `jti` 定位。
+- 迁移：`migrations/versions/872a33b812af_create_refresh_tokens.py`。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE
+- RefreshToken.jti UNIQUE
 - TeamMember(team_id, user_id) 不允许重复
 - TaskAssignee(task_id, user_id) UNIQUE
 - Task status CHECK：TODO / IN_PROGRESS / REVIEW / DONE / CANCELLED

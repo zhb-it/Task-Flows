@@ -43,7 +43,7 @@ Response `201 Created`：
 - 用户名或邮箱已存在 → `409 Conflict`：`{"detail": "..."}`。
 - 缺少必填字段 → `422 Unprocessable Entity`。
 
-### POST `/api/v1/auth/login`（TASK-016 已实现）
+### POST `/api/v1/auth/login`（TASK-016 已实现，TASK-018 扩展为双 Token）
 
 Request：
 
@@ -62,6 +62,7 @@ Response `200 OK`：
 {
   "data": {
     "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
     "token_type": "bearer"
   },
   "message": "success"
@@ -69,12 +70,47 @@ Response `200 OK`：
 ```
 
 - `access_token` 为 HS256 签名的 JWT，claims：`sub`（用户 id，字符串）、`type`（`"access"`）、`iat`、`exp`（默认 30 分钟后过期，由 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制）。
+- `refresh_token` 同样为 HS256 JWT，claims：`sub`、`type`（`"refresh"`）、`jti`（UUID4，唯一标识）、`iat`、`exp`（默认 7 天后过期，由 `REFRESH_TOKEN_EXPIRE_DAYS` 控制）。
+- 登录时**只有 `refresh_token` 的 `jti` 与 `expires_at` 落库**（`refresh_tokens` 表），Token 本体不持久化（开发文档 §55.1）。
 - 客户端使用方式：`Authorization: Bearer <access_token>`。
 - 用户名不存在或密码错误 → `401 Unauthorized`：`{"detail": "Invalid username or password"}`（两种情形文案一致，避免用户名枚举），响应头含 `WWW-Authenticate: Bearer`。
 - 密码正确但账号被禁用（`is_active=false`）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。
 - 缺少必填字段 → `422 Unprocessable Entity`。
 - 响应永不包含 `password` 或 `password_hash`。
-- 本 TASK 只签发 Access Token；Refresh Token / JTI（`POST /api/v1/auth/refresh`）属 TASK-018。
+
+### POST `/api/v1/auth/refresh`（TASK-018 已实现）
+
+Request：
+
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+Refresh Token 通过请求体传递（项目无 Cookie/Session 机制，凭证一律走显式字段）。
+
+Response `200 OK`：结构同 login，返回**全新的 Token 对**。
+
+```json
+{
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+    "token_type": "bearer"
+  },
+  "message": "success"
+}
+```
+
+- **采用轮换策略**：每次 refresh 都签发新的 Refresh Token，并把旧 `jti` 立即置 `revoked=true`；旧 Refresh Token 之后再次使用一律 `401`（可用于识别 Token 被复制使用）。
+- Refresh Token 的 claims 含唯一 `jti`，故新旧 `refresh_token` 必然不同；`access_token` 的 claims 只精确到秒，同一秒内签发可能得到完全相同的串——客户端应以响应中的值为准，不要假定它一定变化。
+- 校验顺序：签名/过期/`type` → jti 是否登记在库（§19「检查数据库 JTI」）→ 是否已撤销 → 库中 `expires_at` 是否过期 → 账号是否存在/是否启用。
+- 任一 Token 校验失败（签名错误、已过期、`type` 不是 `refresh`、jti 未知、jti 已撤销、库中已过期、`sub` 非法）→ `401 Unauthorized`：`{"detail": "..."}`，文案不区分具体原因。
+- Token 有效但账号已被禁用 → `403 Forbidden`：`{"detail": "User account is disabled"}`（与 `/users/me` 一致）。
+- 刷新失败时**不产生**新的 `refresh_tokens` 记录，也不改动已有记录。
+- 缺少必填字段 → `422 Unprocessable Entity`。
+- 登出与主动撤销（`POST /api/v1/auth/logout`）属 TASK-019。
 
 ## User
 - GET `/api/v1/users/me`
