@@ -29,7 +29,7 @@
 - [x] TASK-022 RBAC Migration/CRUD
 - [x] TASK-023 权限依赖
 - [x] TASK-024 Service 资源级权限
-- [ ] TASK-025 RBAC 测试
+- [x] TASK-025 RBAC 测试
 
 ## Phase 4：团队与项目
 - [ ] TASK-026 Team/TeamMember
