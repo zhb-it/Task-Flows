@@ -4,10 +4,10 @@
 In Progress
 
 ## Current Phase
-Phase 1：项目基础设施
+Phase 2：用户与认证
 
 ## Current Task
-Phase 1 完成，待进入 Phase 2
+TASK-012 User Migration
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -29,7 +29,7 @@ Phase 1 完成，待进入 Phase 2
 - None
 
 ## Next
-TASK-011 User Model（Phase 2 用户与认证）
+TASK-012 User Migration（Phase 2 用户与认证）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

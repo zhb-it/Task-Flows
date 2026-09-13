@@ -13,7 +13,7 @@
 - [x] TASK-010 第一次 Git Commit
 
 ## Phase 2：用户与认证
-- [ ] TASK-011 User Model
+- [x] TASK-011 User Model
 - [ ] TASK-012 User Migration
 - [ ] TASK-013 User Schema/CRUD
 - [ ] TASK-014 密码哈希与安全模块

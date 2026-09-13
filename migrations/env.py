@@ -17,6 +17,11 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.db.base import Base
 
+# Importing the models package registers every ORM table on `Base.metadata`,
+# which `target_metadata` points at. Without this, autogenerate would diff
+# against an empty metadata and produce no migrations.
+import app.models  # noqa: E402,F401
+
 config = context.config
 
 if config.config_file_name is not None:
