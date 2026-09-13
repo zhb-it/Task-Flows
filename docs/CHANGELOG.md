@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Task 模型与迁移（TASK-031，Phase 5 任务核心开始）：新增 `app/models/task.py`（Task + TaskStatus/TaskPriority StrEnum）与迁移 `6f1cfcc35abe_create_tasks_table.py`。**决策**（源文档未定义 tasks 字段）：基础十列——project_id FK→projects ON DELETE CASCADE（任务随项目清理）、title VARCHAR(200) 无 UNIQUE、description TEXT、status VARCHAR(20) DEFAULT 'TODO' CHECK 五态、priority VARCHAR(10) DEFAULT 'MEDIUM' CHECK 四档、creator_id FK→users ON DELETE CASCADE（创建者非所有者，删用户级联清任务）、due_at 可空；**无 assignee 列**（多人分配在 task_assignees，TASK-036）。DB_SCHEMA 硬约束全落实：status/priority 双 CHECK、复合索引 (project_id,status)、(creator_id)、due_at 部分索引（仅 TODO/IN_PROGRESS/REVIEW）。状态流转规则由 TASK-037/038 消费，status 不允许经普通 PATCH 修改。tests/test_task_model.py 15 项（离线 9 + DB 集成 6）。全量 358 passed，开发库零残留，Docker 冒烟 PASS。
+
+### Added
 - 团队与项目权限矩阵测试（TASK-030，Phase 4 收尾）：新增 tests/test_team_project_permissions.py 11 项，把团队（TASK-027）/成员管理（TASK-028）/项目（TASK-029）的授权决策整合为「全局 RBAC 角色 × 团队角色 × 操作」系统性矩阵验收：六用户阵容（owner/tmember/tadmin/gmember/outsider/nobody）对照全局权限与团队角色的独立作用；落实开发文档 §56 Phase 4 验收点「ADMIN / MEMBER 权限表现不同」（member 全局角色对团队/项目只读，写操作 403 `Permission denied: {perm}`）；验证双层判定两方向（升团队 ADMIN 补不了 team:invite 缺失；全局 admin 的团队 MEMBER 过不了资源级归属——团队改删 404、项目改删/邀请 403）、IDOR 404 契约一致性（归属链外全部 404 与不存在同文案、列表不泄露）、邀请后可见性即刻翻转、无角色用户功能级 403 优先。TESTING.md 增补「团队与项目权限矩阵」章节。全量 343 passed，开发库零残留。
 
 ### Added

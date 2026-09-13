@@ -10,6 +10,7 @@ from app.models.project import Project
 from app.models.refresh_token import RefreshToken
 from app.models.role import Role
 from app.models.role_permission import RolePermission
+from app.models.task import Task
 from app.models.team import Team
 from app.models.team_member import TeamMember
 from app.models.user import User
@@ -21,6 +22,7 @@ __all__ = [
     "RefreshToken",
     "Role",
     "RolePermission",
+    "Task",
     "Team",
     "TeamMember",
     "User",

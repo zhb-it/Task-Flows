@@ -39,7 +39,7 @@
 - [x] TASK-030 团队与项目权限测试
 
 ## Phase 5：任务核心
-- [ ] TASK-031 Task Model/Migration
+- [x] TASK-031 Task Model/Migration
 - [ ] TASK-032 Task Schema/CRUD
 - [ ] TASK-033 Task Service
 - [ ] TASK-034 Task API

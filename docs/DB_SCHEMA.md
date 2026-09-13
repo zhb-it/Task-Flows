@@ -128,6 +128,28 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - 关系链遵循 DB_SCHEMA 顶层 `Team -> Project -> Task`；可见性按规格 §5「用户只能访问其所属团队链路下的资源」——项目所属团队的 `team_members` 成员构成归属链。
 - 迁移：`migrations/versions/99f70df5d269_create_projects_table.py`（autogenerate，`information_schema` 实证 CASCADE/RESTRICT 与双索引）。
 
+## 任务表（TASK-031 已实现）
+源开发文档未定义 tasks 字段，以下为 TASK-031 用户确认的决策；DB_SCHEMA 硬约束（status/priority CHECK 值集、Task 索引清单）全部落实：
+
+**tasks**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| project_id | BIGINT | NOT NULL，FK → `projects(id)` **ON DELETE CASCADE**——任务随项目级联清理（Project -> Task 链） |
+| title | VARCHAR(200) | NOT NULL，**不加 UNIQUE**（同项目同名任务可并存） |
+| description | TEXT | 可空 |
+| status | VARCHAR(20) | NOT NULL，DEFAULT `'TODO'`，CHECK `IN ('TODO','IN_PROGRESS','REVIEW','DONE','CANCELLED')`——存字面字符串，API/DB/日志同字面值；状态流转由状态机（TASK-037）与 transition API（TASK-038）消费，**不允许经普通 PATCH 修改**（规格 §5 / Decision 005） |
+| priority | VARCHAR(10) | NOT NULL，DEFAULT `'MEDIUM'`，CHECK `IN ('LOW','MEDIUM','HIGH','URGENT')` |
+| creator_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE CASCADE**，索引——creator 是创建者而非 owner 式所有者，删用户级联清其创建的任务，不卡用户删除；审计追溯由 OperationLog（TASK-039）承担 |
+| due_at | TIMESTAMPTZ | 可空 |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+
+- **无 assignee 列**：多人分配由 `task_assignees`（TASK-036）承担，`UNIQUE(task_id, user_id)`（规格 §5）。
+- **索引（DB_SCHEMA「Task 索引」清单）**：复合 `(project_id, status)`、`(creator_id)`、`due_at` 部分索引 `WHERE status IN ('TODO','IN_PROGRESS','REVIEW')`（仅未完成/未取消任务）。
+- 迁移：`migrations/versions/6f1cfcc35abe_create_tasks_table.py`（autogenerate，pg_constraint / pg_indexes / information_schema 实证双 CHECK、双 CASCADE、部分索引谓词）。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE
