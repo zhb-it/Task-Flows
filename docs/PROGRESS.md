@@ -7,7 +7,7 @@ In Progress
 Phase 1：项目基础设施
 
 ## Current Task
-TASK-009
+Phase 1 完成，待进入 Phase 2
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -18,6 +18,9 @@ TASK-009
 - [x] TASK-006 配置 SQLAlchemy Async Session/Base
 - [x] TASK-007 初始化 Alembic
 - [x] TASK-008 实现 /health
+- [x] TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis
+- [x] TASK-010 第一次 Git Commit
+- [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
 - [ ]
@@ -26,7 +29,10 @@ TASK-009
 - None
 
 ## Next
-TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis
+TASK-011 User Model（Phase 2 用户与认证）
+
+## 部署状态
+Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

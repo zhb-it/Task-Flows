@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- 全栈 Docker 部署（TASK-009）：`Dockerfile`（python:3.13-slim、非 root 运行、uvicorn）、`.dockerignore`、`docker-compose.yml` 新增 `app` 服务（build + depends_on 健康依赖 + `/health` 健康探针）；实测 `GET /health` 返回 `status=ok, database=up, redis=up`。宿主端口：app 8000、postgres 5433、redis 6389（容器内仍 5432/6379，规避本机 6379 占用）。TASK-058 Dockerfile 随之提前完成并验证。
 - `app/main.py` 新增 `/health` 端点（异步探测 PostgreSQL `SELECT 1` 与 Redis `PING`，2s 超时；返回 `status`/`database`/`redis` 状态，进程存活即返回 200）；`tests/test_app.py` 增补 `/health` 断言（TASK-008）
 - `alembic.ini`、`migrations/env.py`（异步 env：从 `app.core.config` 注入 `DATABASE_URL`、`target_metadata=Base.metadata`）、`migrations/script.py.mako`、`migrations/versions/.gitkeep`；`tests/test_alembic.py` 离线验证 `alembic history` 可运行（TASK-007）
 - `app/db/` 异步数据库模块：`base.py`（`declarative_base`）、`session.py`（异步 `engine` + `async_session_factory` + `get_db` 依赖）；`tests/test_db.py` 离线验证引擎/会话工厂/`get_db` 契约（TASK-006）

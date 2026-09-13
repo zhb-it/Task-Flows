@@ -1,9 +1,39 @@
-# TaskFlow Pro — development infrastructure
-# TASK-004: PostgreSQL Docker service.
-# Redis / api / celery_worker services are added in later tasks.
+# TaskFlow Pro — full stack
+# TASK-004: PostgreSQL. TASK-005: Redis. TASK-009: app service (brings the
+# API up inside Docker, depends on healthy postgres/redis).
 # Env values fall back to the dev defaults in `.env.example` when not present in `.env`.
 
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: taskflow-app:latest
+    container_name: taskflow-app
+    # Inside the compose network the DB/Redis are reached by service name,
+    # not localhost (which would mean the app container itself).
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-taskflow}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
   postgres:
     image: postgres:16
     container_name: taskflow-postgres
@@ -12,7 +42,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-taskflow}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,7 +57,7 @@ services:
     image: redis:7
     container_name: taskflow-redis
     ports:
-      - "6379:6379"
+      - "6389:6379"
     volumes:
       - redis_data:/data
     healthcheck:

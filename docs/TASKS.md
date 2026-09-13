@@ -9,8 +9,8 @@
 - [x] TASK-006 配置 SQLAlchemy Async Session/Base
 - [x] TASK-007 初始化 Alembic
 - [x] TASK-008 实现 `/health`
-- [ ] TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis
-- [ ] TASK-010 第一次 Git Commit
+- [x] TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis
+- [x] TASK-010 第一次 Git Commit
 
 ## Phase 2：用户与认证
 - [ ] TASK-011 User Model
@@ -76,7 +76,7 @@
 ## Phase 10：工程化
 - [ ] TASK-056 结构化日志
 - [ ] TASK-057 Request ID
-- [ ] TASK-058 Dockerfile
+- [x] TASK-058 Dockerfile
 - [ ] TASK-059 Production Compose
 - [ ] TASK-060 Nginx/Gunicorn/Uvicorn
 - [ ] TASK-061 GitHub Actions CI

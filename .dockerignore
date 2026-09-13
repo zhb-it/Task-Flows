@@ -1,0 +1,29 @@
+# Version control / local rules
+.git
+.codebuddy
+.workbuddy
+
+# Virtual env & local secrets
+.venv
+env
+.venv/
+.env
+.env.*
+
+# Python caches
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Local data & logs
+storage
+uploads
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
