@@ -41,7 +41,7 @@
 ## Phase 5：任务核心
 - [x] TASK-031 Task Model/Migration
 - [x] TASK-032 Task Schema/CRUD
-- [ ] TASK-033 Task Service
+- [x] TASK-033 Task Service
 - [ ] TASK-034 Task API
 - [ ] TASK-035 Task 查询过滤/分页/排序
 - [ ] TASK-036 TaskAssignee 多人分配

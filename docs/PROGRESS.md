@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-032 Task Schema/CRUD（已完成）
+TASK-033 Task Service（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -42,6 +42,7 @@ TASK-032 Task Schema/CRUD（已完成）
 - [x] TASK-030 团队与项目权限测试
 - [x] TASK-031 Task Model/Migration
 - [x] TASK-032 Task Schema/CRUD
+- [x] TASK-033 Task Service
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -51,7 +52,7 @@ TASK-032 Task Schema/CRUD（已完成）
 - None
 
 ## Next
-TASK-033 Task Service（Phase 5 任务核心）
+TASK-034 Task API（Phase 5 任务核心）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -74,6 +75,8 @@ TASK-030 完成团队与项目权限测试（Phase 4 收尾）：新增 tests/te
 TASK-031 完成 Task Model/Migration（Phase 5 开始；TASK-031 决策，用户确认：①基础十列——id/project_id/title/description/status/priority/creator_id/due_at/created_at/updated_at，无 assignee 列（多人分配在 task_assignees，TASK-036），无单独 owner_id；②creator_id FK→users **CASCADE**——creator 是创建者非 owner 式所有者，删用户级联清其创建的任务不卡删除；③status/priority 存 **VARCHAR + CHECK 字面字符串**（'TODO' 等，API/DB/日志同字面值，Python 侧 TaskStatus/TaskPriority StrEnum）。DB_SCHEMA 硬约束全落实：双 CHECK（ck_tasks_status_values/ck_tasks_priority_values）、复合索引 (project_id,status)、(creator_id)、due_at 部分索引（WHERE status IN 未完成三态，谓词精确落库）。新增 app/models/task.py + 迁移 6f1cfcc35abe（autogenerate，information_schema/pg_constraint/pg_indexes 实证）+ tests/test_task_model.py 15 项（离线 9 + DB 集成 6：默认值 roundtrip、CHECK 拒非法值、删项目/删 creator 级联清任务、同名并存）。全量 358 passed，零残留；Docker 重建后容器冒烟 PASS（模型变更不影响启动与既有端点）。
 
 TASK-032 完成 Task Schema/CRUD（TASK-032 决策，用户确认：①POST 创建请求体**不含 status**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出 DONE 任务；②CRUD 层仅基础操作——get_task / list_tasks_by_project（id 升序）/ create / update / delete，过滤/分页/排序留 TASK-035 专项不超前实现）。交付：app/schemas/task.py（TaskCreate/TaskUpdate/TaskRead；TaskUpdate 同样不含 status/project_id/creator_id；priority 用 TaskPriority StrEnum 校验，默认 MEDIUM；title 1-200；TaskRead 暴露全 10 列）+ app/crud/task.py（flush-only，事务边界在 Service）。tests/test_task_crud.py 13 项（Schema 离线 7 + DB 集成 6：TODO 起步、roundtrip/due_at、项目隔离与升序、exclude_unset 部分更新且 status 不受影响、删除）。全量 371 passed，零残留；Docker 重建后容器冒烟 PASS（tasks 路由未提前暴露）。清理了早前失败运行留下的 taskcrud 前缀孤儿行（teardown 修复前产生）。
+
+TASK-033 完成 Task Service（TASK-033 决策，用户确认：①创建授权 = 全局 task:create + 项目所属团队成员即可——项目不存在或非成员统一 404 Project not found（IDOR 防枚举，类比 POST /projects 对不可见团队报 Team not found）；②更新 = 归属链上成员即可（task:update，seed member 有此权限暗示协作式更新），删除 = 全局 task:delete + 团队角色 OWNER/ADMIN（seed member 无 task:delete——删除是管理行为；角色不足 403 Only team owner or admin can delete tasks）。归属链 = 任务 → 项目 → 团队 → team_members（规格 §5）。交付：app/services/task.py（create/get_for_user/list/update/delete + _get_task_on_chain 资源级判定原语；commit 事务边界在本层；status 不可经 update 触达，流转留 TASK-038 transition）。tests/test_task_service.py 9 项（DB 集成：成员创建 creator=caller+TODO 起步、非成员/不存在 404 同文案、成员/局外读可见性、项目隔离列表、member 更新 OK 且 status 不变、member 删除 403、owner 删除 OK）。全量 380 passed，零残留；容器冒烟 PASS。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

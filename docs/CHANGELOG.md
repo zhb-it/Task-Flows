@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Task Service（TASK-033）：app/services/task.py。**决策**：创建 = task:create + 项目所属团队成员即可（项目不存在/非成员统一 404 Project not found）；更新 = task:update + 归属链成员即可；删除 = task:delete + 团队角色 OWNER/ADMIN（角色不足 403 Only team owner or admin can delete tasks）——与种子设计对齐（member 有 task:update 无 task:delete）。归属链 = 任务→项目→团队→team_members（规格 §5）；IDOR 契约：不在归属链 404 同文案，已在链上角色不足 403 明示。commit 事务边界在本层；status 不可经 update 触达（流转留 TASK-038）。tests/test_task_service.py 9 项。全量 380 passed，零残留，容器冒烟 PASS。
+
+### Added
 - Task Schema/CRUD（TASK-032）：app/schemas/task.py + app/crud/task.py。**决策**：POST 创建请求体不含 status——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机（Decision 005）；TaskUpdate 同样不含 status/project_id/creator_id；CRUD 层仅基础操作（get_task / list_tasks_by_project 简单升序 / create / update / delete），过滤/分页/排序留 TASK-035。TaskCreate：project_id、title 1-200、description 可空、priority 枚举默认 MEDIUM、due_at 可空；TaskRead 暴露全 10 列。CRUD flush-only，事务边界在 Service（惯例）。tests/test_task_crud.py 13 项（Schema 离线 7 + DB 集成 6）。全量 371 passed，零残留，容器冒烟 PASS。
 
 ### Added
