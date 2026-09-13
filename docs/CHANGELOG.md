@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `migrations/versions/99f0b41687e1_create_users.py`：`alembic revision --autogenerate` 生成 `users` 表迁移（字段/约束与 User 模型一致——id 序列主键、`username`/`email` 双 UNIQUE、`is_active` 默认 `true`、时区时间戳），并在运行中的 Docker PostgreSQL（宿主 5433）上 `alembic upgrade head` 真实建表（已用 `information_schema` 实证：列/主键/双 UNIQUE 约束齐全、行数 0）；`tests/test_alembic.py` 同步更新断言以反映已有迁移（TASK-012）
 - `app/models/__init__.py` 与 `app/models/user.py`：定义 `User` ORM 模型（字段严格取自规格 §5.1：`id` BIGINT PK、`username` UNIQUE、`email` UNIQUE、`password_hash`、`is_active`、带时区 `created_at`/`updated_at`）；`migrations/env.py` 增补 `import app.models` 使 Alembic 能 autogenerate；`tests/test_user_model.py` 离线验证列/约束/metadata 注册（TASK-011）
 - 全栈 Docker 部署（TASK-009）：`Dockerfile`（python:3.13-slim、非 root 运行、uvicorn）、`.dockerignore`、`docker-compose.yml` 新增 `app` 服务（build + depends_on 健康依赖 + `/health` 健康探针）；实测 `GET /health` 返回 `status=ok, database=up, redis=up`。宿主端口：app 8000、postgres 5433、redis 6389（容器内仍 5432/6379，规避本机 6379 占用）。TASK-058 Dockerfile 随之提前完成并验证。
 - `app/main.py` 新增 `/health` 端点（异步探测 PostgreSQL `SELECT 1` 与 Redis `PING`，2s 超时；返回 `status`/`database`/`redis` 状态，进程存活即返回 200）；`tests/test_app.py` 增补 `/health` 断言（TASK-008）

@@ -14,7 +14,7 @@
 
 ## Phase 2：用户与认证
 - [x] TASK-011 User Model
-- [ ] TASK-012 User Migration
+- [x] TASK-012 User Migration
 - [ ] TASK-013 User Schema/CRUD
 - [ ] TASK-014 密码哈希与安全模块
 - [ ] TASK-015 注册

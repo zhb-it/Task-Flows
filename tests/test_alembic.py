@@ -22,5 +22,6 @@ def test_alembic_history_runs_offline() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    # No migrations exist yet -> Alembic reports an empty history.
-    assert ("No revisions" in result.stdout) or (result.stdout.strip() == "")
+    # Alembic lists the tracked revisions without a DB connection. After
+    # TASK-012 the initial `users` migration exists and must appear here.
+    assert "create users" in result.stdout, result.stdout
