@@ -6,7 +6,7 @@
 - [x] TASK-003 创建 FastAPI 应用与基础配置
 - [x] TASK-004 配置 PostgreSQL Docker 服务
 - [x] TASK-005 配置 Redis Docker 服务
-- [ ] TASK-006 配置 SQLAlchemy Async Session/Base
+- [x] TASK-006 配置 SQLAlchemy Async Session/Base
 - [ ] TASK-007 初始化 Alembic
 - [ ] TASK-008 实现 `/health`
 - [ ] TASK-009 启动 Compose 并验证 API/PostgreSQL/Redis

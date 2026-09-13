@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `app/db/` 异步数据库模块：`base.py`（`declarative_base`）、`session.py`（异步 `engine` + `async_session_factory` + `get_db` 依赖）；`tests/test_db.py` 离线验证引擎/会话工厂/`get_db` 契约（TASK-006）
 - `docker-compose.yml` 增补 redis 服务（`redis:7`、端口 `6379:6379`、命名卷 `redis_data`、healthcheck）（TASK-005）
 - `docker-compose.yml`（postgres 服务：`postgres:16`、端口 `5432:5432`、命名卷 `postgres_data`、healthcheck）与 `.env.example` 增补 `POSTGRES_*`（TASK-004）
 - FastAPI 应用实例、`app/core/config.py` 配置系统（pydantic-settings 读取 `.env`）、`tests/test_app.py` 冒烟测试、`pyproject.toml`（pytest 配置）（TASK-003）
