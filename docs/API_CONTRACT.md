@@ -43,6 +43,39 @@ Response `201 Created`：
 - 用户名或邮箱已存在 → `409 Conflict`：`{"detail": "..."}`。
 - 缺少必填字段 → `422 Unprocessable Entity`。
 
+### POST `/api/v1/auth/login`（TASK-016 已实现）
+
+Request：
+
+```json
+{
+  "username": "alice",
+  "password": "S3cret-Passw0rd!"
+}
+```
+
+`username` 为账号标识（对应 `users.username` 列）。
+
+Response `200 OK`：
+
+```json
+{
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "token_type": "bearer"
+  },
+  "message": "success"
+}
+```
+
+- `access_token` 为 HS256 签名的 JWT，claims：`sub`（用户 id，字符串）、`type`（`"access"`）、`iat`、`exp`（默认 30 分钟后过期，由 `ACCESS_TOKEN_EXPIRE_MINUTES` 控制）。
+- 客户端使用方式：`Authorization: Bearer <access_token>`。
+- 用户名不存在或密码错误 → `401 Unauthorized`：`{"detail": "Invalid username or password"}`（两种情形文案一致，避免用户名枚举），响应头含 `WWW-Authenticate: Bearer`。
+- 密码正确但账号被禁用（`is_active=false`）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。
+- 缺少必填字段 → `422 Unprocessable Entity`。
+- 响应永不包含 `password` 或 `password_hash`。
+- 本 TASK 只签发 Access Token；Refresh Token / JTI（`POST /api/v1/auth/refresh`）属 TASK-018。
+
 ## User
 - GET `/api/v1/users/me`
 

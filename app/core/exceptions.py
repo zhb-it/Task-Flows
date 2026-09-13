@@ -12,11 +12,28 @@ class AppError(Exception):
 
     status_code: int = 500
     detail: str = "Internal server error"
+    #: Optional extra HTTP response headers (e.g. ``WWW-Authenticate`` on 401).
+    headers: dict[str, str] | None = None
 
     def __init__(self, detail: str | None = None) -> None:
         if detail is not None:
             self.detail = detail
         super().__init__(self.detail)
+
+
+class UnauthorizedError(AppError):
+    """401 Unauthorized — credentials missing, invalid, or token unusable."""
+
+    status_code = 401
+    detail = "Not authenticated"
+    headers = {"WWW-Authenticate": "Bearer"}
+
+
+class ForbiddenError(AppError):
+    """403 Forbidden — authenticated but not permitted (or account disabled)."""
+
+    status_code = 403
+    detail = "Forbidden"
 
 
 class ConflictError(AppError):

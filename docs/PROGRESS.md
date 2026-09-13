@@ -34,7 +34,7 @@ TASK-016 登录与 Access Token
 - None
 
 ## Next
-TASK-016 登录与 Access Token（Phase 2 用户与认证）
+TASK-017 `/users/me`（Phase 2 用户与认证）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
