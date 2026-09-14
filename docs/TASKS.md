@@ -61,7 +61,7 @@
 ## Phase 8：Redis 与 Celery
 - [x] TASK-045 Redis 连接与 Key 约定
 - [x] TASK-046 ZSET + Lua 滑动窗口限流
-- [ ] TASK-047 限流测试
+- [x] TASK-047 限流测试
 - [ ] TASK-048 Celery App/Worker
 - [ ] TASK-049 通知异步任务
 - [ ] TASK-050 日志归档/附件清理任务

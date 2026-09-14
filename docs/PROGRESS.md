@@ -7,7 +7,7 @@ In Progress
 Phase 8：Redis 与 Celery
 
 ## Current Task
-TASK-046 ZSET + Lua 滑动窗口限流（已完成）
+TASK-047 限流测试（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -56,6 +56,7 @@ TASK-046 ZSET + Lua 滑动窗口限流（已完成）
 - [x] TASK-044 评论/附件测试
 - [x] TASK-045 Redis 连接与 Key 约定
 - [x] TASK-046 ZSET + Lua 滑动窗口限流
+- [x] TASK-047 限流测试
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -65,7 +66,7 @@ TASK-046 ZSET + Lua 滑动窗口限流（已完成）
 - None
 
 ## Next
-TASK-047 限流测试（Phase 8 Redis 与 Celery）
+TASK-048 Celery App/Worker（Phase 8 Redis 与 Celery）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -122,6 +123,8 @@ TASK-046 完成 ZSET + Lua 滑动窗口限流（**Phase 8 第 2 个任务**）�
 **收尾补充（同属 TASK-046，纠正上段滞后数字）**：上段写作时的 19 项 / 570 passed 为中间态。补齐「延迟上界」相关测试后，`tests/test_rate_limit.py` 共 **22 项**（新增：`test_redis_client_has_socket_timeouts`、`test_middleware_declares_call_timeout_bound`、`test_unreachable_redis_fails_open_within_bound`），全量 **573 passed**。此三项来自本 TASK 最严重的真实缺陷（见下）。**另发现并修复**：全量回归出现 2 failed（571 passed）——`test_refresh.py` 两个用例断言 401 却得 429，根因是**所有测试文件共用同一来源地址**因而共享同一 IP 限流键，`test_refresh.py` 单文件请求数逾 60/min 触发限流。修复：新增 `tests/conftest.py` 的 autouse fixture **默认关闭限流**，`test_rate_limit.py` 在用例内显式开启；刻意不采用「每个文件独占 IP」——那只是把耦合藏得更深。见 DECISIONS 021。**延迟上界缺陷（最严重）**：`.env` 的 `REDIS_URL` 指向的不是本项目 Redis（compose 映射为宿主 6389，6379 上是另一个要求 AUTH 的实例），客户端不带密码 → `-NOAUTH` → 按默认重试直到宽松默认超时（实测单次 PING 失败 **5.02s**）；限流对每个请求都访问 Redis，成本被乘到全站（单个用例从 <1s 涨到 27s、全量从 5 分钟劣化到 15+ 分钟并看似卡死）。修复三处：`app/db/redis.py` 显式 `socket_timeout`/`socket_connect_timeout=1.0s`、中间件加 `asyncio.timeout(2.0)` 双保险、`.env` 端口与主机名改对——修复后单次限流调用 **0.6ms**。**第二个环境陷阱**：Windows 上 `localhost` 优先解析到 IPv6 `::1`（`getaddrinfo` 实测 `::1` 排在 `127.0.0.1` 前），而容器只发布 IPv4，即便端口改对写 `localhost:6389` 仍会挂超时；`.env` 中 `DATABASE_URL`/`REDIS_URL` **一律改用 `127.0.0.1`**。见 DECISIONS 019。
 
 **遗留约束（记入 TASK-060）**：IP 维度使用 `request.client.host`，在 Nginx 反代后所有请求的来源地址都会变成 Nginx 的地址，届时 IP 维度会退化为「所有匿名用户共享一个配额」。接入反代时必须一并解决（按部署拓扑决定是否信任反代写入的头），见 DECISIONS 018。
+
+TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未改应用代码**——同 TASK-040/044 先例，无需重建镜像/容器冒烟）。**范围界定**：TASK-046 已有 22 项细粒度测试，本 TASK **不重复**，只测「必须借助真实用户 + 真实业务端点 + 真实审计表 + 真实 Redis 键空间才能观察到」的跨模块性质。**方法论（同 TASK-043/044「先探测再断言」）**：先跑一次性探测脚本观测 10 个交叉面——跨端点配额、多用户隔离、换 IP、写副作用、审计、登录暴力破解、键命名空间与 TTL、匿名洪水、404 路径、响应体泄露——**据观测结果**决定断言；脚本用完即删、不入库。探测结果：**十个面全部行为正确，未发现缺陷**（换 IP 绕不过 user 维度；429 零副作用；被限流请求零审计日志；登录暴力破解被挡；限流键全部在 `taskflow:ratelimit:*` 且都有 TTL）。因此本 TASK 的产出是**契约固化**而非修复。交付 `tests/test_rate_limit_integration.py` **15 项**，分四组：**①限流 × 认证**（登录暴力破解 → `401×3+429×2`；限流前后都不泄露账号是否存在——存在/不存在的用户文案逐字一致；匿名洪水被挡在认证之前 → 429 先于 401；同一用户换 4 个独占 IP 仍在第 4 次被限——换 IP 绕不过 user 维度）；**②限流 × 业务副作用**（`POST /tasks` 连打 5 次 → `201×3+429×2` 且库中任务数恰好 3，证明 429 真的挡住执行而非「先做再报错」；被限流的流转请求零审计日志，只有真正成功的那次留下 1 条 `task:transition`；额度跨端点共享；两个用户额度独立；20 并发分属两用户时各自恰好放行 3 次——原子性 × 隔离性叠加）；**③限流 × 运维**（用「跑前/跑后 `SCAN taskflow:*` 取差集」断言新增键全部以 `taskflow:ratelimit:` 开头且有 TTL，取差集是为了不受遗留键干扰且**不 FLUSHDB**；不存在的路径同样吃配额，防随机路径枚举）；**④限流 × 错误契约**（429 体不含 user id / 来源 IP / `taskflow` 前缀 / 堆栈；429 与 401/403/404 **同信封** `{"detail"}`；放行请求业务结果 201 与配额头同时正确；`rate_limit_enabled=False` 后已被限死的身份立刻恢复——误伤时不改代码不重启的逃生舱）。**测试有效性验证（变异测试，4 个变异全部被杀死）**：去掉 429 分支 → 13 failed；身份维度退化为只用 IP → 3 failed（恰好三项 user 隔离用例，说明断言精准）；Lua 去掉 `PEXPIRE` → 1 failed；`member` 改用固定字符串 → 10 failed。还原后源码 blob hash 与 HEAD 逐字符一致。**验证**：`tests/test_rate_limit_integration.py` **15 passed**；全量 **588 passed**（573 + 15）。文档：TASKS.md 勾选 TASK-047；TESTING.md 新增「限流整合验收（TASK-047）」章节；DECISIONS.md 新增 022（配额身份级共享，跨端点）/023（限流不落审计）/024（429 先于认证且不泄露内部标识）/025（TASK-047 定位为整合验收 + 先探测再断言 + 变异结果）；PROGRESS 推进至 TASK-048。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
