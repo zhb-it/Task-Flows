@@ -96,5 +96,34 @@ pytest、pytest-asyncio、httpx。
 
 零残留策略同前：审计日志 → 附件 → 评论 → 任务 → 项目 → 团队 → 用户。
 
+## Redis 连接与 Key 约定（TASK-045）
+`tests/test_redis.py` 24 项，Phase 8 首个任务。**不实现限流**（那是 TASK-046），只交付连接层与 Key 约定这两项「后续所有 Redis 代码都要踩在上面」的地基。测试分三类：
+
+**1. Key 命名约定（纯函数，离线，13 项）**
+`app/core/redis_keys.py` 是**唯一**的 Key 构造点，必须 100% 覆盖：
+- 形状：`build_key("ratelimit","ip","1.2.3.4")` → `taskflow:ratelimit:ip:1.2.3.4`；`rate_limit_key` / `jwt_blacklist_key` 各自格式。
+- **前缀稳定性显式钉住**：`KEY_PREFIX == "taskflow"`。前缀是数据兼容性契约（改它等于迁移线上所有键），因此断言字面量而非引用常量——否则「常量改了、断言跟着改」的循环会让测试失去意义。
+- 非字符串 part 自动 `str()` 转换（user id 是 `int`，调用方不该被迫手写 `str()`）。
+- **非法输入拒绝而非静默拼接**：空 purpose → `ValueError`；purpose 含 `:` → `ValueError`（会破坏「用途段」结构）；空 jti → `ValueError`。
+- **scope 隔离**：同一标识在 `ip` 与 `user` 两个 scope 下必须是不同键，否则两类流量会互相挤兑配额。
+- 全部 Key 以 `KEY_PREFIX + ":"` 开头——运维 `SCAN taskflow:*` 的安全前提。
+
+**2. 连接层契约（离线，5 项）**
+- **import 阶段不建立连接**：这是关键契约——否则没有 Redis 的环境连应用都 import 不了。单进程内断言 `_client is None` 不可靠（别的用例可能已建好单例），因此**起一个全新子进程**、把 `REDIS_URL` 指向**不可达**的 `127.0.0.1:6399` 再 `import app.main`：若 import 期真的去连接，这里会挂住或报错。通过即证明「懒连接」成立。
+- **连接池单例**：同一进程内两次 `get_redis_client()` 返回同一实例。每次请求新建 client（哪怕同 URL）都会新建连接池，是典型资源泄漏。
+- **`decode_responses=True`**：限流与黑名单逻辑里到处是字符串比较，若每个调用点各自 `decode` 会引入不一致。通过 `connection_pool.connection_kwargs` 断言。
+- **依赖注入语义**：`Depends(get_redis)` yield 的是**共享**客户端，请求结束**不关闭**它（与 `get_db` 的每请求一份、必须关闭形成对比——Redis 客户端是无状态连接池句柄，应跨请求复用）。
+- **`reset_redis` 只清引用不关连接池**：清后 `_client is None`，再取会重建，且新旧 `connection_pool` 不是同一个。
+
+**3. 真实 Redis 连通性（6 项，连不上则 `skip`）**
+连接层的问题（URL 解析、`decode_responses` 实际行为、池生命周期）在假客户端上照不出来，而这恰是本 TASK 的交付物，因此连宿主 Redis 7（宿主 **6389**／容器 6379，与 PostgreSQL 5433/5432 的映射惯例一致）：
+- `PING` 通；`SET`/`GET` 拿到 **`str`** 而非 `bytes`。
+- **Key 构造器产出的键能被真实 Redis 接受**，且 `scan_iter(match="taskflow:test:<token>*")` 能命中——运维清理依赖前缀可扫描。
+- `TTL` 语义可用（限流与黑名单都依赖）。
+- **ZSET 基础设施自检**：`ZADD`/`ZCARD`/`ZREMRANGEBYSCORE`/`ZRANGE`/`ZCOUNT` 全部可用。本 TASK 不实现限流，但要确保 §22 所需的**数据结构在连接层就绪**，否则 TASK-046 会卡在环境问题上。
+- `pipeline(transaction=True)` 可用。
+
+零污染策略：所有键以**本次运行唯一 token** 为中间段（`taskflow:test:<token>:*`），`try/finally` 逐键 `DELETE`；不 `FLUSHDB`（会误删他人数据）。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

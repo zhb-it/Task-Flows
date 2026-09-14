@@ -59,7 +59,7 @@
 - [x] TASK-044 评论/附件测试
 
 ## Phase 8：Redis 与 Celery
-- [ ] TASK-045 Redis 连接与 Key 约定
+- [x] TASK-045 Redis 连接与 Key 约定
 - [ ] TASK-046 ZSET + Lua 滑动窗口限流
 - [ ] TASK-047 限流测试
 - [ ] TASK-048 Celery App/Worker

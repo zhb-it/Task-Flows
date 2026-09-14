@@ -4,25 +4,40 @@ Wires up the application shell, the `/api/v1` routers and a `/health` endpoint.
 The `/health` endpoint probes PostgreSQL and Redis so an orchestrator can tell
 whether the app's dependencies are reachable, but it always returns 200 while
 the process itself is alive (liveness), reporting dependency status in the body.
+
+Redis 探测复用 ``app/db/redis.py`` 的共享客户端（TASK-045）——原先此处
+`Redis.from_url` 一次探测建一个连接池，是资源浪费，也让「应用到底怎么连
+Redis」出现第二份真相。
 """
 
 import asyncio
+from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
-from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError, app_error_handler
+from app.db.redis import close_redis, get_redis_client
 from app.db.session import engine
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """应用生命周期：启动时无需预热，关闭时释放 Redis 连接池。"""
+    yield
+    await close_redis()
+
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
+    lifespan=lifespan,
 )
 
 app.include_router(api_router)
@@ -51,14 +66,13 @@ async def _check_database() -> bool:
 
 
 async def _check_redis() -> bool:
-    """Return True if Redis answers PING within the timeout."""
+    """Return True if Redis answers PING within the timeout.
+
+    复用共享客户端（不关闭它——它属于进程，不属于本次探测）。
+    """
     try:
         async with asyncio.timeout(2):
-            client = Redis.from_url(settings.redis_url)
-            try:
-                return bool(await client.ping())
-            finally:
-                await client.aclose()
+            return bool(await get_redis_client().ping())
     except Exception:
         return False
 

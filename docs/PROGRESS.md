@@ -4,10 +4,10 @@
 In Progress
 
 ## Current Phase
-Phase 7：评论与附件
+Phase 8：Redis 与 Celery
 
 ## Current Task
-TASK-041 Comment（已完成）
+TASK-045 Redis 连接与 Key 约定（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -51,6 +51,10 @@ TASK-041 Comment（已完成）
 - [x] TASK-039 OperationLog
 - [x] TASK-040 状态机与审计测试
 - [x] TASK-041 Comment
+- [x] TASK-042 Attachment
+- [x] TASK-043 上传/下载权限与安全校验
+- [x] TASK-044 评论/附件测试
+- [x] TASK-045 Redis 连接与 Key 约定
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -60,7 +64,7 @@ TASK-041 Comment（已完成）
 - None
 
 ## Next
-TASK-042 Attachment（Phase 7 评论与附件）
+TASK-046 ZSET + Lua 滑动窗口限流（Phase 8 Redis 与 Celery）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -109,6 +113,8 @@ TASK-043 完成 上传/下载权限与安全校验（Phase 7，**安全对抗性
 **环境注意事项（非产品缺陷，勿误判）**：本机 WorkBuddy 沙箱通过注入 `sitecustomize.py` 劫持 `Path.unlink` / `shutil.rmtree` 做「trash 式安全删除」，并有一个**按 turn 累计、阈值 50** 的批量删除守卫。跑全量 pytest 时会因临时目录清理累计超过阈值而抛 `SystemExit: 1`（表现为 `ERROR at setup`），**看起来像大批测试失败，实际是环境拦截**。规避方式：跑测试时设 `CODEBUDDY_SAFE_DELETE_ENABLED=0`（或把 `--basetemp` 指向独立目录并在同一进程内清理），并**不要**在 shell 的第一段命令里用 `shutil.rmtree`（该段未继承环境变量）。
 
 TASK-044 完成 评论/附件测试（Phase 7 收官；**纯测试任务，未改应用代码/迁移**，同 TASK-040 先例）。性质定位：**整合验收**，而非重复 TASK-041（11 项）/042（27 项）/043（19 项）的细粒度断言——那些已充分覆盖单模块行为，缺的是**三个模块放在一起才暴露的跨模块问题**。交付 `tests/test_comment_attachment_flow.py` **16 项**：①**共存**——同一任务上评论与附件交错写入、两条时间线互不污染、跨任务零串联（§16「评论必须属于任务」）、磁盘文件数与该任务目录归属正确；②**审计命名空间不串号**——两类删除写同一张 `operation_logs`，`action`/`resource_type`/`payload` 各归其位（comment id 与 attachment id 可能重号，靠 `(resource_type, resource_id)` 索引分开），并固化契约「创建评论与上传附件**都不写**审计日志」（§16 规则 4 只要求删除写，防后续「顺手加审计」改变 §15 语义边界）；③**§48 越权表现逐字节一致**——局外人对 8 个端点全部 404，「不存在」与「存在但无权」同文案，响应体不含资源标识/内容/`storage`/`traceback`（前端要能用统一逻辑区分 403 与 404，任何一类资源给不同文案都是设计缺陷）；④**认证 ≠ 授权**——无 Token 时 7 个端点全部 **401**；**功能级 403 先于资源级 404**——无全局权限者对真实存在的与不存在的 id **都**得到 403，因此无法用状态码差异枚举 id；⑤**删除权限层级在同一阵容下各自成立**（最易被重构抹平的一条）——评论=作者或团队 OWNER/ADMIN、附件=上传者或团队 OWNER/ADMIN，用同一组用户（owner / 团队 ADMIN / 团队 MEMBER，全局均 admin）同时验证：普通成员删他人两资源都 403 **且文案各自准确**、普通成员删自己两资源都 200、团队 ADMIN 与 OWNER 删他人两资源都 200；互补边界——**member 全局角色**（无 `comment:delete`）删自己的评论仍被功能级 403 先挡；⑥**级联**——删任务时评论与附件**同时**级联清；删用户时其内容随 FK CASCADE 消失但**审计日志保留**（`operation_logs.user_id` 无外键，TASK-039 决策）；⑦**§55.2 事务原子性**——monkeypatch 让 `write_operation_log` 抛错，两类删除均整体回滚（记录仍在、零日志）；附件路径额外固化「先删文件再删记录」的已知取舍（审计失败回滚后物理文件已不在，文件不可回收优于「记录删了文件还在」）；⑧**分页契约一致**——两类列表 skip/limit 语义相同，`limit=0`/`limit=101`/`skip=-1` 均 422；⑨**生命周期独立**——删评论不影响附件，删附件后磁盘与 DB 同步清零无孤儿文件。**测试有效性验证（变异测试）**：临时移除评论删除的资源级授权判定后，`test_delete_authorization_differs_per_resource_same_roster` 立即失败（得到 200 而非 403），证明断言真实承重、非空过；随后还原源码并用 `git hash-object` 核对与 HEAD 的 blob 逐字符一致。**验证**：全量 **527 passed**（511 + 16，零失败零错误）；开发库零残留。因无应用代码变更，**无需重建镜像/容器冒烟**（同 TASK-040/020/025/030 先例）。文档：TESTING.md 新增「评论与附件整合验收（TASK-044）」章节。
+
+TASK-045 完成 Redis 连接与 Key 约定（**Phase 8 首个任务**）。范围界定：开发文档 §21 列出 Redis 五项用途（JWT 黑名单 / API 限流 / Celery Broker / Celery Backend / 后续缓存），§22 要求限流用 ZSET+Lua 滑动窗口。本 TASK **只交付连接层与 Key 约定**这两项地基——**不实现限流**（§22 的 ZSET+Lua 属 TASK-046）、**不接入 JWT 黑名单校验链路**（§19 登出目前靠数据库撤销 Refresh Token 的 jti，Access Token 是无状态的；在 TASK-052+ 通知/黑名单需求到来前不动认证热路径，遵守 §44「不为用缓存而用缓存」与项目规则 §7）。交付物：①**新增 `app/db/redis.py`** —— Redis 连接层**唯一入口**（所有需要 Redis 的代码经此拿客户端，而非各自 `Redis.from_url`）。三项设计取舍：**import 时惰性不连接**（`redis.asyncio` 首次命令才握手，因此无 Redis 环境也能 import 应用——与 `db/session.py` 惯例一致）；**进程内连接池单例**（每次请求新建 client 哪怕同 URL 都会新建连接池，是典型资源泄漏）；**本层不做业务判断**（限流/黑名单语义属调用方）。四个函数：`get_redis_client()`（惰性单例，`Redis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)`）、`get_redis()`（FastAPI 依赖，yield 共享客户端**不关闭**——与 `get_db` 的每请求一份必须关闭形成刻意对比）、`close_redis()`（幂等释放连接池，lifespan shutdown 调用）、`reset_redis()`（测试用，只清引用不关池）。②**新增 `app/core/redis_keys.py`** —— Key 命名**唯一构造点**，把命名收敛到一处避免「两处独立拼串前缀不一致 / 改了一处漏另一处 → 线上限流突然失效 / 无法安全 SCAN 清理」。约定 `taskflow:<purpose>:<identifier>`：`KEY_PREFIX="taskflow"` 全局命名空间（让 `SCAN taskflow:*` 成为安全运维操作）、purpose 段（`ratelimit`/`jwt`/`celery`）与 §21 用途一一对应、identifier 由调用方给业务标识（IP/user id/jti）。`build_key(purpose, *parts)` 拒绝空 purpose 与含 `:` 的 purpose（会破坏用途段结构）、非字符串 part 自动 `str()`（user id 是 int）；`rate_limit_key(scope, identifier)` → `taskflow:ratelimit:<scope>:<id>`（`RATE_LIMIT_SCOPE_IP`/`_USER`，同一标识在不同 scope 下必须是不同键否则两类流量互相挤兑配额）；`jwt_blacklist_key(jti)` → `taskflow:jwt:blacklist:<jti>`（拒绝空 jti）。③**改造 `app/main.py`** —— 删除原先 `/health` 里临时 `Redis.from_url`（一次探测建一个连接池，是资源浪费，也让「应用到底怎么连 Redis」出现第二份真相），新增 `lifespan` asynccontextmanager（shutdown 时 `close_redis()`），`_check_redis` 改为复用共享客户端且**不关闭它**（它属进程不属本次探测）。④**新增 `tests/test_redis.py` 24 项**，分三类：**Key 约定纯函数 13 项**（形状、`KEY_PREFIX` 字面量显式钉住——前缀是数据兼容性契约，改它等同迁移线上所有键，故断言字面量而非引用常量以免形成「常量改了断言跟着改」的循环、非字符串转换、三类非法输入拒绝、scope 隔离、全键同前缀）；**连接层契约 5 项**（import 不连接——用**全新子进程**且把 `REDIS_URL` 指向**不可达**的 6399 再 import `app.main`，通过即证明懒连接成立（单进程内断言 `_client is None` 不可靠）；池单例；`decode_responses=True` 经 `connection_pool.connection_kwargs` 断言；依赖 yield 共享实例且请求结束不关闭；`reset_redis` 只清引用不关池）；**真实连通性 6 项**（连宿主 Redis 7——宿主 **6389**／容器 6379，与 PostgreSQL 5433/5432 映射惯例一致；`PING`/`decode_responses` 实拿 `str`/Key 构造器产出键被真实 Redis 接受且 `scan_iter` 前缀能命中/TTL 语义/**ZSET 五命令自检**（`ZADD`/`ZCARD`/`ZREMRANGEBYSCORE`/`ZRANGE`/`ZCOUNT`——本 TASK 不实现限流但要确保 §22 所需数据结构在连接层就绪，否则 TASK-046 会卡在环境问题）/`pipeline(transaction=True)`）。连接层的问题（URL 解析、`decode_responses` 实际行为、池生命周期）在假客户端上照不出来，而这恰是本 TASK 的交付物，故必须连真实实例；测试用本次运行唯一 token 作中间段、`try/finally` 逐键删除、**不 FLUSHDB**（会误删他人数据）。**验证**：`tests/test_redis.py` **24 passed**；全量 **551 passed**（527 + 24，零失败零错误，含 6 项真实 Redis 连通性）。应用代码变更仅涉及连接层与 `/health` 复用，**未新增 API 路由**（openapi 仍 24 路径），无需容器冒烟（同 TASK-040/044 纯内部改造先例）。文档：TASKS.md 勾选 TASK-045，TESTING.md 新增「Redis 连接与 Key 约定（TASK-045）」章节，PROGRESS.md 修正滞后的 Completed 清单（补 042/043/044）并推进 Current Phase 至 Phase 8。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
