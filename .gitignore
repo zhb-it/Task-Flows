@@ -21,6 +21,7 @@ build/
 
 # Tests and coverage
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -41,3 +42,7 @@ Thumbs.db
 uploads/
 storage/
 *.log
+
+# Agent / IDE local state (not project source)
+.codebuddy/
+.workbuddy/

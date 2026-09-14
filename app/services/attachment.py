@@ -125,6 +125,11 @@ MAX_FILENAME_LENGTH = 255
 #: 与部分文件系统。
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
+#: 百分号编码转义（``%00`` / ``%2e`` / ``%2f`` / ``%5c`` 等）。见
+#: :func:`sanitize_filename` docstring 第 2 步：这类序列一旦在下游被 URL
+#: 解码，会让「校验时的名字」与「使用时的名字」不一致，从而绕过扩展名白名单。
+_PERCENT_ESCAPE_RE = re.compile(r"%[0-9A-Fa-f]{2}")
+
 #: Windows 保留设备名——在部分平台上无法创建，且可能造成歧义。
 _RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
@@ -217,12 +222,17 @@ def sanitize_filename(raw: str | None) -> str:
        纯文件名。注意磁盘上的真实路径用的是随机 key，与文件名无关（见
        ``storage.build_key``），所以此处的清洗是**纵深防御**的第二层，
        而不是唯一依靠。
-    2. 去控制字符与首尾空白/点——结尾的点在 Windows 上会被静默截断，可能
+    2. **剥离百分号编码转义**（TASK-043 修复）——``%00`` / ``%2e`` / ``%2f``
+       这类序列在下游任何一处做 URL 解码时都会变成 ``\\x00`` / ``.`` / ``/``。
+       一个含 ``%00`` 的名字如果被下游解码，会截断成完全不同的字符串，导致
+       「校验时看到的扩展名」与「实际使用的扩展名」不一致——这是经典的扩展名
+       绕过。这里主动把 ``%XX`` 形态折叠掉，让校验对象与最终展示对象一致。
+    3. 去控制字符与首尾空白/点——结尾的点在 Windows 上会被静默截断，可能
        造成同名歧义；开头/结尾空白无意义且易被用作绕过。
-    3. 折叠保留字的裸名——``CON``、``NUL`` 等加下划线前缀。
-    4. 截断到 ``MAX_FILENAME_LENGTH``，且**保留扩展名**（截断如果砍掉
+    4. 折叠保留字的裸名——``CON``、``NUL`` 等加下划线前缀。
+    5. 截断到 ``MAX_FILENAME_LENGTH``，且**保留扩展名**（截断如果砍掉
        扩展名，MIME 判定与用户识别都会失效）。
-    5. 全部清空后回落为 ``untitled``，不产生空文件名。
+    6. 全部清空后回落为 ``untitled``，不产生空文件名。
 
     返回值的性质：这是一个**展示用**名字，绝不参与任何路径构造。
     """
@@ -232,19 +242,23 @@ def sanitize_filename(raw: str | None) -> str:
     # 1) 去目录成分（POSIX 与 Windows 分隔符都要处理）
     name = raw.replace("\\", "/").split("/")[-1]
 
-    # 2) 去控制字符、去首尾空白与点
+    # 2) 剥离百分号编码（见 docstring 2；必须在去控制字符之前做，否则
+    #    ``%00`` 解码后的 NUL 会绕过控制字符过滤）
+    name = _PERCENT_ESCAPE_RE.sub("", name)
+
+    # 3) 去控制字符、去首尾空白与点
     name = _CONTROL_CHARS_RE.sub("", name).strip().strip(".")
 
     if not name:
         raise InvalidUploadError(EMPTY_FILENAME)
 
-    # 3) 折叠 Windows 保留设备名（比较不含扩展名的基名）
+    # 4) 折叠 Windows 保留设备名（比较不含扩展名的基名）
     stem, dot, ext = name.rpartition(".")
     base = stem if dot else name
     if base.upper() in _RESERVED_NAMES:
         name = f"_{name}"
 
-    # 4) 截断但保留扩展名
+    # 5) 截断但保留扩展名
     if len(name) > MAX_FILENAME_LENGTH:
         stem, dot, ext = name.rpartition(".")
         if dot and len(ext) <= 20:
@@ -259,12 +273,17 @@ def sanitize_filename(raw: str | None) -> str:
 def resolve_content_type(filename: str) -> tuple[str, str]:
     """按扩展名做白名单校验，返回 ``(规范 MIME, 小写扩展名)``。
 
-    无扩展名或扩展名不在白名单 → :class:`UnsupportedMediaTypeError`(415)。
-    扩展名取自**清洗后**的文件名（先清洗再判定，避免用未清洗的原始串做
-    安全决策）。
+    无扩展名 / 无主名（如 ``.txt``）/ 扩展名不在白名单
+    → :class:`UnsupportedMediaTypeError`(415)。
+
+    ``filename`` 必须是**已清洗**的名字（调用方先跑 ``sanitize_filename``）。
+    扩展名判定基于清洗后的结果，因此不存在「判定对象 ≠ 展示对象」的缝隙。
     """
-    _, dot, ext = filename.rpartition(".")
-    if not dot or not ext:
+    stem, dot, ext = filename.rpartition(".")
+    if not dot or not ext or not stem:
+        # ``.txt``（有扩展名但无主名）也归为不可接受：这类名字在实践中只会
+        # 来自构造请求，而不会来自真实浏览器；一律 415 保持行为一致
+        # （TASK-043 修复前它经清洗变成 ``txt`` 后同样 415，但原因不同）。
         raise UnsupportedMediaTypeError(MIME_NOT_ALLOWED)
     ext = ext.lower()
     mime = ALLOWED_TYPES.get(ext)
@@ -362,6 +381,12 @@ async def open_attachment(
     不存在 / 不在归属链 → 404 同文案（防枚举）。记录存在但物理文件缺失
     （运维事故、磁盘被清理）→ 同样是 404，而不是 500：对调用者而言「拿不到
     这个文件」的语义就是不存在，暴露 500 只会泄露内部状态。
+
+    **纵深防御的一个已知盲区**（TASK-043 修复）：``storage_path`` 正常由
+    ``build_key`` 生成、必然合法，但如果它被绕过 API 直接改写（DB 被入侵、
+    迁移脚本写错、历史脏数据），存储层会抛 :class:`UnsafeStorageKeyError`。
+    该异常**同样是「拿不到这个文件」**，必须一并映射为 404——否则会以未捕获
+    异常的形式变成 500 + 堆栈，把「存储根的相对 key 校验规则」泄露给调用者。
     """
     attachment = await get_attachment(db, attachment_id)
     if attachment is None:
@@ -377,7 +402,12 @@ async def open_attachment(
     backend = storage_service.get_storage_backend()
     try:
         handle = backend.open(attachment.storage_path)
-    except storage_service.StorageObjectNotFoundError as exc:
+    except (
+        storage_service.StorageObjectNotFoundError,
+        # 非法 key（穿越/绝对路径/盘符）→ 语义上等价于「此文件不可访问」，
+        # 与不存在统一 404。绝不把它升级成 500：见 docstring。
+        storage_service.UnsafeStorageKeyError,
+    ) as exc:
         raise ResourceNotFoundError(ATTACHMENT_NOT_FOUND) from exc
     return attachment, uploader, handle
 
@@ -390,7 +420,16 @@ async def delete_attachment(
     - 不存在 / 不在归属链 → 404 Attachment not found（同文案防枚举）；
     - 已在链上但既非上传者、团队角色也不足 → 403 明示；
     - 物理文件删除失败 → 不删记录，向上抛错，事务回滚；
+    - ``storage_path`` 非法（被绕过 API 改写）→ 不删记录，**降级为删记录成功**
+      并记录告警语义：见下方说明；
     - 成功 → 删文件、删记录，同事务写 ``action=attachment:delete`` 审计日志。
+
+    **非法 storage_path 的处理与下载路径不同**（TASK-043 决策）：下载时非法
+    key 与「文件不存在」语义等价，统一 404。但删除时若同样抛错，会形成**永久
+    卡死的脏记录**——记录里的 key 永远非法，用户永远删不掉它。这属于数据
+    修复场景，因此选择「记录可以删掉，物理文件无法定位就跳过」：删除的目标
+    是让这条记录消失，而不是保证磁盘上少一个文件（那个文件本就不在存储根内，
+    我们也不该去碰）。
     """
     attachment = await get_attachment(db, attachment_id)
     if attachment is None:
@@ -411,7 +450,11 @@ async def delete_attachment(
     task_id = attachment.task_id
 
     # 先删物理文件：失败则整体失败，记录保留，可重试（见模块 docstring 3）。
-    storage_service.get_storage_backend().delete(storage_path)
+    try:
+        storage_service.get_storage_backend().delete(storage_path)
+    except storage_service.UnsafeStorageKeyError:
+        # 脏数据：key 非法而非文件缺失。跳过物理删除，继续删记录（见 docstring）。
+        pass
 
     await delete_attachment_crud(db, attachment)
     await write_operation_log(

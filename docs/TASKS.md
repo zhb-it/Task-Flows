@@ -55,7 +55,7 @@
 ## Phase 7：评论与附件
 - [x] TASK-041 Comment
 - [x] TASK-042 Attachment
-- [ ] TASK-043 上传/下载权限与安全校验
+- [x] TASK-043 上传/下载权限与安全校验
 - [ ] TASK-044 评论/附件测试
 
 ## Phase 8：Redis 与 Celery
