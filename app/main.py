@@ -20,6 +20,7 @@ from sqlalchemy import text
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError, app_error_handler
+from app.core.middleware import RateLimitMiddleware
 from app.db.redis import close_redis, get_redis_client
 from app.db.session import engine
 
@@ -39,6 +40,10 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+
+# 限流在路由分发之前生效（§22）。用中间件而非路由依赖，是为了让新增端点
+# 自动受到保护，不会因为忘记声明依赖而留下无保护入口。
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(api_router)
 

@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/taskflow"
     redis_url: str = "redis://redis:6379/0"
 
+    # Rate limit（§22 滑动窗口）
+    # 规格未给出具体数值，这里采用可经 .env 覆盖的默认值（见 DECISIONS 015）。
+    # window_seconds 同时作为 ZSET key 的 TTL：窗口内没有新请求时键自动回收。
+    rate_limit_requests: int = 60
+    rate_limit_window_seconds: int = 60
+    rate_limit_enabled: bool = True
+
     # Auth
     jwt_secret_key: str = "change-me"
     access_token_expire_minutes: int = 30

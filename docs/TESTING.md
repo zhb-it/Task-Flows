@@ -125,5 +125,48 @@ pytest、pytest-asyncio、httpx。
 
 零污染策略：所有键以**本次运行唯一 token** 为中间段（`taskflow:test:<token>:*`），`try/finally` 逐键 `DELETE`；不 `FLUSHDB`（会误删他人数据）。
 
+## 滑动窗口限流（TASK-046）
+`tests/test_rate_limit.py` 22 项，Phase 8 第 2 个任务。**全部连真实 Redis**（宿主 6389），不可达则 `skip`——理由见 DECISIONS 016：限流被击穿的三个常见根因（判断/写入竞态、member 不唯一导致 ZSET 折叠、TTL 缺失导致无界增长）在假客户端上一个都测不出来，而那正是本 TASK 的交付物。
+
+**1. Lua 脚本语义（9 项）**
+- **额度精确**：窗口内恰好放行 `limit` 次，第 `limit+1` 次起拒绝；`current` 在额度内递增、超限后停在 `limit`（不因被拒而虚增）。
+- **被拒不写入 ZSET**：连续 10 次被拒后 `ZCARD` 仍等于额度。若写入了，持续攻击会让 ZSET 无界增长，且窗口永远滚不过去（每分钟都有新成员）——等于把自己永久锁死。
+- **TTL 有界**：`SET` 后 `0 < PTTL <= 窗口毫秒数`（§22 第 5 步）。
+- **滑动恢复**：1 秒窗口 + 限 2 次，睡 1.1 秒后额度恢复，且旧成员已被 `ZREMRANGEBYSCORE` 清掉（`ZCARD == 1`）。
+- **`Retry-After` 由最早成员推算**：额度 1、窗口 30 秒，被拒时 `0 < retry_after <= 30`。
+- **member 唯一性是隐式契约**（显式钉住）：同一 member 发 3 次 → `ZCARD == 1`（折叠）；唯一 member → `ZCARD == 3`。防止将来有人图省事用固定字符串（如 IP）作 member 而被击穿。
+- **并发原子性**（§22 明确要求，核心用例）：20 个并发请求 gather，放行数**恰好**等于额度 5，`ZCARD == 5`。这是必须用 Lua 的直接证据——若「读计数 → 判断 → 写入」拆成多条命令，并发下会全部放行。
+- 非法参数（`limit=0` / `window_seconds=0`）→ `ValueError`。
+- `enforce_rate_limit` 仅在拒绝时抛 429，放行时无操作。
+
+**2. 中间件契约（9 项）**
+- `/health` **不限流**（连续 5 次 200）——否则编排器探针会消耗额度甚至被拒；`/api/v1` 受限。
+- **429 响应体用项目统一信封**：`set(body.keys()) == {"detail"}`、含「Rate limit exceeded」、带 `Retry-After >= 1`（§26）。
+- 放行响应带 `X-RateLimit-Limit` / `X-RateLimit-Remaining` 配额头。
+- **已认证按 user 维度**：同一 user 第二次请求即 429，且 `taskflow:ratelimit:user:<id>` 键确实存在；同一 IP 的匿名请求不受该 user 消耗影响。
+- **非法 Token 退化为 IP 维度**：首个请求仍得 401（限流不改变认证语义），第二个按 IP 上 429。
+- `rate_limit_enabled=False` 完全不限流。
+- **Redis 故障 fail-open**：monkeypatch 让 `check_rate_limit` 抛 `ConnectionError`，5 次请求仍到达业务层（401），无一返回 429——限流不应成为新的单点故障。
+- **IP 与 user 两层配额互不消耗**（隔离性）。
+
+**3. 配额配置（1 项，离线）**：`rate_limit_requests` / `rate_limit_window_seconds` / `rate_limit_enabled` 有可用默认值且类型正确。
+
+**3. 配额配置与延迟上界（4 项，离线）**
+- 配额配置有可用默认值且类型正确（见 DECISIONS 015）。
+- **Redis 客户端必须设置 `socket_timeout` / `socket_connect_timeout`**（DECISIONS 019）。
+- 中间件必须声明单次调用的延迟上界（`RATE_LIMIT_CALL_TIMEOUT_SECONDS` 在 `(0, 5]`）。
+- **连真实不可达地址**（`127.0.0.1:1`）验证「fail-open + 延迟有上界」：请求仍到达业务层（401）且单请求耗时 <5s。
+
+**测试套件级配置（`tests/conftest.py`）**
+限流中间件对每个 `/api/v1` 请求生效后，全量回归出现 2 个失败——`test_refresh.py` 的两个用例断言 401 却得到 **429**。根因：所有测试文件共用同一来源地址（`ASGITransport` 默认 `127.0.0.1`），因此共享同一个 IP 维度限流键，而单文件的请求数就超过 60 次/分钟。这是**测试间的隐式耦合**（结果取决于此前跑过多少测试），不是实现缺陷。修法：`conftest.py` 用 autouse fixture **默认关闭限流**，`test_rate_limit.py` 在用例内显式开启并调小额度。详见 DECISIONS 021。
+
+**测试隔离的关键手法**：中间件按 `request.client.host` 取 IP 维度标识，而 `ASGITransport` 默认所有用例都是 `127.0.0.1` —— 前一个用例消耗的额度会泄漏到后一个，产生「莫名先到 429」的假失败（本文件首轮开发时确实踩到：`X-RateLimit-Remaining` 得到 7 而非 9）。因此限流用例经 `ASGITransport(client=("10.99.x.y", 0))` 分配**独占 IP**，用完删除该 IP 的键。认证类用例还需把 `get_db` 覆盖到**宿主 5433 的真实开发库**：`.env` 的 `localhost:5432` 是另一台 PostgreSQL，不覆盖会在连接阶段抛错、掩盖真正的中间件行为。
+
+**测试有效性验证（变异测试）**：把 Lua 中的 `if current >= max_requests then` 改为 `if false and current >= max_requests then`（永不超限）后，**10 个用例立即失败**（含 `test_allows_up_to_limit_then_rejects`、`test_rejected_requests_are_not_recorded`、`test_concurrent_requests_do_not_breach_limit`、`test_api_is_rate_limited`、`test_429_body_and_headers_follow_project_contract`），证明断言真实承重、非空过；随后已还原源码并核验。
+
+**峰值发现（TASK-046 附带修复的环境缺陷，见 DECISIONS 019）**：接入限流后全量测试从约 5 分钟劣化到 15 分钟以上并看似卡死，单个用例从 <1s 涨到 **27s**。三层根因：①`.env` 的 `REDIS_URL=redis://localhost:6379/0` 指向的**不是本项目 Redis**（compose 把项目 Redis 发布在宿主 **6389**，而 6379 上另一个 Redis 需要 AUTH）；②客户端不带密码 → NOAUTH → 按默认重试直到宽松的默认超时（实测单次 PING 失败 **5.02s**）；③限流对每个请求都访问 Redis，把该成本乘到全站。另有 Windows 陷阱：`localhost` 优先解析到 IPv6 `::1`，而 Docker 只发布 IPv4。修复：客户端显式设置 socket 超时（1.0s）、中间件加 `asyncio.timeout` 兜底（2.0s）、`.env` 改用 `127.0.0.1` + 正确端口（5433 / 6389）。修复后限流单次调用实测 **0.6ms**，全量回归回到 5m49s。
+
+**阈值说明**：§22 未定义数值，采用 `60 次 / 60 秒`（可经 `.env` 的 `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS` / `RATE_LIMIT_ENABLED` 覆盖），见 DECISIONS 015。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

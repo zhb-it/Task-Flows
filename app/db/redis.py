@@ -31,6 +31,19 @@ settings = get_settings()
 #: 进程内共享的客户端。``None`` 表示尚未创建（或已关闭）——见 ``get_redis_client``。
 _client: Redis | None = None
 
+#: Redis 调用的硬超时（秒）。
+#:
+#: 为什么必须显式设置：``redis.asyncio`` 的默认 socket 超时很宽松，而 Redis
+#: 不可达时（TCP 连上但不应答、或跨网络黑洞）每个命令会**阻塞到默认超时**。
+#: 限流中间件对每个请求都要访问 Redis，若不设超时，Redis 一挂就会让**所有
+#: API 请求**各自多等数秒——远超限流本身的价值。这是 TASK-046 期间由测试
+#: 暴露的真实缺陷（单个用例因此从 <1s 涨到 27s）。
+#:
+#: 取值理由：健康的 Redis 在同一机房/本机应 <10ms；1 秒给足余量，又能把故障
+#: 时的单请求额外延迟封顶在 1 秒。配合中间件的 fail-open，Redis 故障表现为
+#:「限流暂时失效 + 每请求最多 1 秒额外延迟」，而不是「服务不可用」。
+REDIS_SOCKET_TIMEOUT_SECONDS = 1.0
+
 
 def get_redis_client() -> Redis:
     """返回进程内共享的 Redis 客户端（惰性创建）。
@@ -44,6 +57,8 @@ def get_redis_client() -> Redis:
             settings.redis_url,
             encoding="utf-8",
             decode_responses=True,
+            socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+            socket_connect_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
         )
     return _client
 

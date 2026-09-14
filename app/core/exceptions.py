@@ -58,6 +58,23 @@ class ResourceNotFoundError(AppError):
     detail = "Resource not found"
 
 
+class RateLimitExceededError(AppError):
+    """429 Too Many Requests — 滑动窗口内请求数超过配额（项目文档 §22 / §26）。
+
+    `Retry-After` 告诉客户端还要等多久（秒），符合 RFC 9110 对 429 的建议；
+    没有它客户端只能盲目重试，反而加剧限流。
+    """
+
+    status_code = 429
+    detail = "Too many requests"
+
+    def __init__(self, detail: str | None = None, retry_after: int | None = None) -> None:
+        super().__init__(detail)
+        if retry_after is not None:
+            # 不允许 0 或负数——那会让客户端立刻重试并再次被拒。
+            self.headers = {"Retry-After": str(max(1, int(retry_after)))}
+
+
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
     """Render domain errors with the project error envelope (项目文档 §26).
 
