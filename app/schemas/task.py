@@ -69,5 +69,29 @@ class TaskRead(BaseModel):
     due_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: 负责人列表（TASK-036 内嵌决策）——Service 层批量查询组装；
+    # 新建任务恒空列表，不缺省为 None 以稳定前端渲染。
+    assignees: list["TaskAssigneeRead"] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TaskAssigneeCreate(BaseModel):
+    """POST /tasks/{task_id}/assignees 请求体：仅目标用户 id。
+
+    合法性（用户存在且是任务所属团队成员）由 Service 层校验——
+    不合法 404 同文案（TASK-036 决策），Schema 只做形状校验。
+    """
+
+    user_id: int
+
+
+class TaskAssigneeRead(BaseModel):
+    """任务负责人条目（TaskRead.assignees 内嵌项）。"""
+
+    user_id: int
+    username: str
+    assigned_at: datetime
+
+
+TaskRead.model_rebuild()

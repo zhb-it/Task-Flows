@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-035 Task 查询过滤/分页/排序（已完成）
+TASK-036 TaskAssignee 多人分配（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -45,6 +45,7 @@ TASK-035 Task 查询过滤/分页/排序（已完成）
 - [x] TASK-033 Task Service
 - [x] TASK-034 Task API
 - [x] TASK-035 Task 查询过滤/分页/排序
+- [x] TASK-036 TaskAssignee 多人分配
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -54,7 +55,7 @@ TASK-035 Task 查询过滤/分页/排序（已完成）
 - None
 
 ## Next
-TASK-036 TaskAssignee 多人分配（Phase 5 任务核心）
+TASK-037 状态机规则（Phase 6 状态机与审计）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -83,6 +84,8 @@ TASK-033 完成 Task Service（TASK-033 决策，用户确认：①创建授权 
 TASK-034 完成 Task API（Phase 5：五端点挂载 /api/v1——POST /tasks 201 TODO 起步、GET /tasks?project_id={id} 必填 query 参数（缺失 422）、GET/PATCH/DELETE /tasks/{task_id}；授权语义沿用 TASK-033 决策，无新决策）。tests/test_task_api.py 10 项 HTTP 端到端（真实产品应用+真实 Token）：创建 201/无全局权限 403/非成员与不存在 404 同文案/请求体带 status 被忽略（额外字段默认忽略，核心契约恒 TODO）、成员读可见+局外人 404（详情与列表）、PATCH exclude_unset（显式 null 清空 description、未传 title 保持、status 不可触达）、删除双 403 形态辨析——member 全局角色无 task:delete 被功能级 403 挡住，资源级 403（Only team owner or admin can delete tasks）由「全局 admin+团队 MEMBER」触发、owner 删除 200+复查 404。全量 390 passed，零残留；Docker 重建后真实容器冒烟 6 项 PASS。
 
 TASK-035 完成 Task 查询过滤/分页/排序（TASK-035 决策，用户确认：①分页沿用 skip/limit——与 teams/projects 同惯例，响应仍为纯列表 {data: [...]}，skip≥0、limit 1-100 默认 100；②过滤范围 = status 枚举精确 + priority 枚举精确 + keyword 标题模糊——%/_/\ 通配符转义后按字面 ILIKE 匹配、纯空白视为未传，负责人筛选依赖 TASK-036 TaskAssignee 暂不做；③排序 = sort 白名单 id/created_at/due_at/priority（TaskSortField StrEnum，非法 422 防注入）+ order asc/desc，**priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序**（Service 层 SQL case 映射）；④project_id 保持必填，跨项目「我的任务」视图留待 TASK-036 后再议）。交付：app/schemas/task.py 增补 TaskSortField/TaskSortOrder；app/crud/task.py 的 list_tasks_by_project 演进为过滤/分页/排序查询（排序子句由 Service 传入，CRUD 保持纯数据操作）；app/services/task.py 的 list_tasks 扩展参数并做 keyword 转义/白名单映射（可见性 404 契约不变）；app/api/v1/tasks.py 的 GET /tasks 挂载全部 query 参数。新增 tests/test_task_query_api.py 8 项 HTTP 端到端（status 过滤含 fixture 直插 IN_PROGRESS/DONE 行——POST 只能建 TODO；priority 过滤；keyword 大小写不敏感 + % 字面匹配 + 空白忽略；分页窗口/超界空列表/边界 422；sort=id 与 priority 业务序双向、due_at desc；非法 sort/order/limit/skip/status 422；过滤+分页组合与局外人 404 可见性不变）。全量 398 passed，开发库零残留；Docker 重建镜像后真实容器冒烟 10 项 PASS（过滤/排序/分页/422 全链路，冒烟数据 API+DB 双通道清理干净）。
+
+TASK-036 完成 TaskAssignee 多人分配（Phase 5 收官；TASK-036 决策，用户确认：①分配/移除授权 = 功能级 **task:update**（分配是更新行为，不新增 seed 权限项）+ 资源级**任务所属团队成员即可**——协作式，member 可分配他人与自领；②目标用户不存在或非任务所属团队成员 → 404 `User not found` 同文案（防枚举）；目标已是负责人 → 409 `User already assigned to this task`；目标非该任务负责人 → 404 `Assignee not found`；任务不在归属链 → 404 `Task not found`；③TaskRead 内嵌 `assignees: [{user_id, username, assigned_at}]`——创建/详情/列表/更新响应统一内嵌，Service 批量 IN 查询组装避免 N+1，未分配恒空列表；④GET /tasks 增可选 `assignee_id` 负责人筛选）。交付：app/models/task_assignee.py（复合主键 (task_id, user_id) 落实规格 §5 UNIQUE；assigned_by_id 最小审计推断设计；user_id 单列索引）+ 迁移 b90b4cff0f64（information_schema/pg_indexes 实证复合 PK、三 FK 全 CASCADE、索引）；app/crud/task_assignee.py（flush-only：add/remove/is_assignee/list_assignees/list_assignees_for_tasks 批量/filter_tasks_by_assignee「我的任务」原语）；app/crud/task.py 的 list_tasks_by_project 增 assignee_id exists 过滤；app/services/task.py 增 assign_task/unassign_task/assignees_map；app/api/v1/tasks.py 增 POST /tasks/{id}/assignees 与 DELETE /tasks/{id}/assignees/{user_id}，全部任务响应经 _serialize_task(s) 内嵌 assignees。新增 tests/test_task_assignee_api.py 8 项 HTTP 端到端（内嵌渲染、member 分配他人+自领、重复 409、目标不存在/非成员 404 同文案、无全局权限 403 与 IDOR 404 辨析、移除 200→404、assignee_id 过滤全生命周期、多负责人与删任务级联清分配行 DB 实证）；tests/test_task_crud.py 的 TaskRead 字段集断言同步 assignees。全量 406 passed（team_api 一例 DB 连接超时为瞬时抖动，重跑即绿）；零残留。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

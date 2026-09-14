@@ -18,7 +18,11 @@
 from sqlalchemy import case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    ResourceNotFoundError,
+)
 from app.crud.project import get_project, is_project_visible
 from app.crud.task import (
     create_task as create_task_crud,
@@ -27,15 +31,31 @@ from app.crud.task import (
     list_tasks_by_project,
     update_task as update_task_crud,
 )
+from app.crud.task_assignee import (
+    add_task_assignee,
+    is_task_assignee,
+    list_assignees_for_tasks,
+    remove_task_assignee,
+)
+from app.crud.user import get_user
 from app.models.task import Task
 from app.models.team_member import TeamRole
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskSortField, TaskUpdate
+from app.schemas.task import (
+    TaskAssigneeCreate,
+    TaskAssigneeRead,
+    TaskCreate,
+    TaskSortField,
+    TaskUpdate,
+)
 from app.services.team import team_membership
 
 TASK_NOT_FOUND = "Task not found"
 PROJECT_NOT_FOUND = "Project not found"  # 与项目创建同一文案模式：目标不可见
 NOT_MANAGER = "Only team owner or admin can delete tasks"
+USER_NOT_FOUND = "User not found"  # 目标用户不存在或非任务所属团队成员（同文案防枚举）
+ASSIGNEE_NOT_FOUND = "Assignee not found"
+ALREADY_ASSIGNED = "User already assigned to this task"
 
 #: priority 业务权重（URGENT > HIGH > MEDIUM > LOW）——sort=priority 时
 #: 按业务序而非字母序排（TASK-035 决策）。
@@ -97,16 +117,19 @@ async def list_tasks(
     status: str | None = None,
     priority: str | None = None,
     keyword: str | None = None,
+    assignee_id: int | None = None,
     skip: int = 0,
     limit: int = 100,
     sort: TaskSortField = TaskSortField.ID,
     order: str = "asc",
 ) -> list[Task]:
-    """项目下任务列表（TASK-035：多条件过滤 + 分页 + 排序）。
+    """项目下任务列表（TASK-035：多条件过滤 + 分页 + 排序；TASK-036 增
+    assignee_id 负责人筛选——存在子查询，不校验目标用户可见性，无行即空列表）。
 
     - 项目不可见 / 不存在 → 404（沿用 TASK-034 契约，IDOR 防枚举）；
     - 过滤：status / priority 精确匹配 + keyword 标题 ILIKE——通配符
-      （% _ \\）转义后按字面匹配，纯空白 keyword 视为未传；
+      （% _ \\）转义后按字面匹配，纯空白 keyword 视为未传；assignee_id
+      精确匹配某负责人（TASK-036）；
     - 分页：skip/limit（与 teams/projects 同惯例，边界由 Router 校验）；
     - 排序：sort 白名单（TaskSortField）+ order（asc/desc）；priority
       按业务权重而非字母序。
@@ -134,6 +157,7 @@ async def list_tasks(
         status=status,
         priority=priority,
         keyword=keyword_clause,
+        assignee_id=assignee_id,
         skip=skip,
         limit=limit,
         order_by=order_clause,
@@ -176,6 +200,80 @@ async def _is_task_visible(db: AsyncSession, task: Task, user_id: int) -> bool:
     return await is_project_visible(
         db, project_id=task.project_id, user_id=user_id
     )
+
+
+async def assign_task(
+    db: AsyncSession, user: User, task_id: int, payload: TaskAssigneeCreate
+) -> TaskAssigneeRead:
+    """分配任务负责人（TASK-036 决策，用户确认）：
+
+    - 功能级 task:update（Router 依赖）+ 资源级：调用者与目标都必须是
+      任务所属团队成员——协作式分配，member 可分、可自领；
+    - 任务不在归属链 → 404 Task not found（IDOR 防枚举）；
+    - 目标用户不存在或不是任务所属团队成员 → 404 User not found
+      （同文案，不向调用者区分两种失败，防用户 id 枚举；目标用户表
+      无团队信息本身不构成资源泄露）；
+    - 目标已是负责人 → 409（复合主键兜底，Service 先查给干净文案）；
+    - ``assigned_by_id`` = 调用者（最小审计，删用户随 CASCADE 清理，
+      追溯由 OperationLog TASK-039 承担）。
+    """
+    task = await _get_task_on_chain(db, user, task_id)
+    project = await get_project(db, task.project_id)
+    assert project is not None  # 归属链判定已通过，项目必然存在
+
+    target = await get_user(db, payload.user_id)
+    if target is None or await team_membership(
+        db, project.team_id, payload.user_id
+    ) is None:
+        raise ResourceNotFoundError(USER_NOT_FOUND)
+
+    if await is_task_assignee(db, task_id=task.id, user_id=payload.user_id):
+        raise ConflictError(ALREADY_ASSIGNED)
+
+    row = await add_task_assignee(
+        db, task_id=task.id, user_id=payload.user_id, assigned_by_id=user.id
+    )
+    await db.commit()
+    return TaskAssigneeRead(
+        user_id=payload.user_id, username=target.username, assigned_at=row.assigned_at
+    )
+
+
+async def unassign_task(
+    db: AsyncSession, user: User, task_id: int, target_user_id: int
+) -> None:
+    """移除任务负责人：授权同分配（团队成员即可）。
+
+    目标不是该任务的负责人 → 404 Assignee not found（任务不在归属链
+    仍为 404 Task not found，见 _get_task_on_chain）。
+    """
+    task = await _get_task_on_chain(db, user, task_id)
+    removed = await remove_task_assignee(
+        db, task_id=task.id, user_id=target_user_id
+    )
+    if not removed:
+        raise ResourceNotFoundError(ASSIGNEE_NOT_FOUND)
+    await db.commit()
+
+
+async def assignees_map(
+    db: AsyncSession, task_ids: list[int]
+) -> dict[int, list[TaskAssigneeRead]]:
+    """批量取任务负责人明细（Router 组装 TaskRead.assignees 内嵌字段）。
+
+    列表场景一次 IN 查询（无 relationship，TASK-031 决策延续）；
+    不在结果中的任务 id 恒为空列表（新任务/未分配）。
+    """
+    grouped = await list_assignees_for_tasks(db, task_ids)
+    return {
+        task_id: [
+            TaskAssigneeRead(
+                user_id=row.user_id, username=username, assigned_at=row.assigned_at
+            )
+            for row, username in rows
+        ]
+        for task_id, rows in grouped.items()
+    }
 
 
 async def _get_task_on_chain(

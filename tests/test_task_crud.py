@@ -158,6 +158,8 @@ def test_task_create_accepts_all_priority_values():
 
 def test_task_read_exposes_all_columns():
     model_fields = set(TaskRead.model_fields)
+    # TASK-036 起内嵌 assignees（[{user_id, username, assigned_at}]），
+    # 其余仍是 tasks 表十列的直读映射。
     assert model_fields == {
         "id",
         "project_id",
@@ -169,6 +171,7 @@ def test_task_read_exposes_all_columns():
         "due_at",
         "created_at",
         "updated_at",
+        "assignees",
     }
 
 

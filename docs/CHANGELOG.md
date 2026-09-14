@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- TaskAssignee 多人分配（TASK-036，Phase 5 收官）：POST /api/v1/tasks/{task_id}/assignees（201，需 task:update + 归属链上团队成员即可——协作式可分配他人与自领；请求体 {user_id}；目标用户不存在或非任务所属团队成员 404 User not found 同文案、重复分配 409、任务不在归属链 404 Task not found）、DELETE /api/v1/tasks/{task_id}/assignees/{user_id}（200，授权同分配；目标非该任务负责人 404 Assignee not found）。**决策**：功能级用 task:update（分配是更新行为，不新增 seed 权限项）；TaskRead 内嵌 assignees [{user_id, username, assigned_at}]（创建/详情/列表/更新统一，批量 IN 查询避免 N+1，未分配恒空列表）；GET /tasks 增 assignee_id 负责人筛选。交付：app/models/task_assignee.py（复合主键 (task_id, user_id) 落实规格 §5 UNIQUE，assigned_by_id 最小审计推断设计）+ 迁移 b90b4cff0f64、app/crud/task_assignee.py（flush-only）、services/task.py 增 assign/unassign/assignees_map。tests/test_task_assignee_api.py 8 项 HTTP 端到端 + test_task_crud.py 字段集断言同步。全量 406 passed，零残留。
+
+### Added
 - Task 列表多条件过滤/分页/排序（TASK-035）：GET /api/v1/tasks?project_id={id} 演进为多条件查询，响应仍为纯列表。**决策**：分页沿用 skip/limit（skip≥0、limit 1-100 默认 100，与 teams/projects 同惯例）；过滤 = status/priority 枚举精确 + keyword 标题模糊（%/_/\ 转义后按字面 ILIKE、纯空白视为未传；负责人筛选依赖 TASK-036 暂不做）；排序 = sort 白名单 id/created_at/due_at/priority + order asc/desc（TaskSortField StrEnum 校验，非法 422），priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序；project_id 保持必填。交付：schemas/task.py 增 TaskSortField/TaskSortOrder、crud/task.py 的 list_tasks_by_project 支持过滤分页排序（排序子句由 Service 传入）、services/task.py 扩展 list_tasks（keyword 转义 + 白名单映射 + 可见性 404 契约不变）、api/v1/tasks.py 挂载 query 参数。tests/test_task_query_api.py 8 项 HTTP 端到端（status 过滤用 fixture 直插非 TODO 行、keyword 通配符字面匹配、分页边界 422、priority 业务序双向、组合查询与可见性不变）。全量 398 passed，零残留，Docker 容器冒烟 10 项 PASS。
 
 ### Added

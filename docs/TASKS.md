@@ -44,7 +44,7 @@
 - [x] TASK-033 Task Service
 - [x] TASK-034 Task API
 - [x] TASK-035 Task 查询过滤/分页/排序
-- [ ] TASK-036 TaskAssignee 多人分配
+- [x] TASK-036 TaskAssignee 多人分配
 
 ## Phase 6：状态机与审计
 - [ ] TASK-037 状态机规则

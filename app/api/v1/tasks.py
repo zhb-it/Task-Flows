@@ -17,6 +17,17 @@ TASK-035 列表查询（用户确认决策）：`GET /tasks?project_id={id}` 演
 `sort`（id/created_at/due_at/priority 白名单）+ `order`（asc/desc），
 默认 id 升序。`project_id` 保持必填（跨项目「我的任务」视图留待
 TASK-036 assignee 后再议）。
+
+TASK-036 多人分配（用户确认决策）：
+
+- `POST /tasks/{task_id}/assignees` / `DELETE .../assignees/{user_id}`：
+  功能级 `task:update`（分配是更新行为，seed 权限清单不新增项）+
+  资源级团队成员即可（协作式，可自领）；目标用户不存在或非任务所属
+  团队成员 → 404 `User not found`（同文案防枚举）；重复分配 409；
+  目标非该任务负责人 → 404 `Assignee not found`。
+- `TaskRead.assignees` 内嵌 `[{user_id, username, assigned_at}]`——
+  详情/列表/创建/更新响应统一内嵌，批量 IN 查询避免 N+1。
+- `GET /tasks` 增 `assignee_id` 可选过滤（负责人筛选）。
 """
 
 from typing import Annotated
@@ -30,6 +41,8 @@ from app.models.task import TaskPriority, TaskStatus
 from app.models.user import User
 from app.schemas.common import SuccessResponse
 from app.schemas.task import (
+    TaskAssigneeCreate,
+    TaskAssigneeRead,
     TaskCreate,
     TaskRead,
     TaskSortField,
@@ -39,6 +52,29 @@ from app.schemas.task import (
 from app.services import task as task_service
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def _serialize_task(
+    db: AsyncSession, task
+) -> TaskRead:
+    """TaskRead + assignees 内嵌（单任务场景）。"""
+    mapping = await task_service.assignees_map(db, [task.id])
+    payload = TaskRead.model_validate(task)
+    payload.assignees = mapping.get(task.id, [])
+    return payload
+
+
+async def _serialize_tasks(
+    db: AsyncSession, tasks: list
+) -> list[TaskRead]:
+    """TaskRead + assignees 内嵌（列表场景，一次批量查询）。"""
+    mapping = await task_service.assignees_map(db, [t.id for t in tasks])
+    out = []
+    for t in tasks:
+        payload = TaskRead.model_validate(t)
+        payload.assignees = mapping.get(t.id, [])
+        out.append(payload)
+    return out
 
 
 @router.post(
@@ -57,7 +93,7 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
 ) -> SuccessResponse[TaskRead]:
     task = await task_service.create_task(db, user, payload)
-    return SuccessResponse(data=TaskRead.model_validate(task))
+    return SuccessResponse(data=await _serialize_task(db, task))
 
 
 @router.get(
@@ -86,6 +122,10 @@ async def list_tasks(
         str | None,
         Query(max_length=200, description="Case-insensitive title substring"),
     ] = None,
+    assignee_id: Annotated[
+        int | None,
+        Query(description="Filter tasks assigned to this user (TASK-036)"),
+    ] = None,
     skip: Annotated[int, Query(ge=0, description="Pagination offset")] = 0,
     limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 100,
     sort: TaskSortField = TaskSortField.ID,
@@ -99,12 +139,13 @@ async def list_tasks(
         status=status_filter,
         priority=priority,
         keyword=keyword,
+        assignee_id=assignee_id,
         skip=skip,
         limit=limit,
         sort=sort,
         order=order,
     )
-    return SuccessResponse(data=[TaskRead.model_validate(t) for t in tasks])
+    return SuccessResponse(data=await _serialize_tasks(db, tasks))
 
 
 @router.get(
@@ -122,7 +163,7 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ) -> SuccessResponse[TaskRead]:
     task = await task_service.get_task_for_user(db, user, task_id)
-    return SuccessResponse(data=TaskRead.model_validate(task))
+    return SuccessResponse(data=await _serialize_task(db, task))
 
 
 @router.patch(
@@ -141,7 +182,7 @@ async def update_task(
     db: AsyncSession = Depends(get_db),
 ) -> SuccessResponse[TaskRead]:
     task = await task_service.update_task(db, user, task_id, payload)
-    return SuccessResponse(data=TaskRead.model_validate(task))
+    return SuccessResponse(data=await _serialize_task(db, task))
 
 
 @router.delete(
@@ -160,4 +201,53 @@ async def delete_task(
     db: AsyncSession = Depends(get_db),
 ) -> SuccessResponse[None]:
     await task_service.delete_task(db, user, task_id)
+    return SuccessResponse(data=None)
+
+
+@router.post(
+    "/{task_id}/assignees",
+    response_model=SuccessResponse[TaskAssigneeRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Assign a user to a task (project team members only)",
+    responses={
+        404: {
+            "description": (
+                "Task not found (or not on caller's team chain) / "
+                "User not found (or not a member of the task's team)"
+            ),
+        },
+        409: {"description": "User already assigned to this task"},
+    },
+)
+async def assign_task(
+    task_id: int,
+    payload: TaskAssigneeCreate,
+    user: Annotated[User, Depends(require_permission("task:update"))],
+    db: AsyncSession = Depends(get_db),
+) -> SuccessResponse[TaskAssigneeRead]:
+    assignee = await task_service.assign_task(db, user, task_id, payload)
+    return SuccessResponse(data=assignee)
+
+
+@router.delete(
+    "/{task_id}/assignees/{user_id}",
+    response_model=SuccessResponse[None],
+    status_code=status.HTTP_200_OK,
+    summary="Remove an assignee from a task (project team members only)",
+    responses={
+        404: {
+            "description": (
+                "Task not found (or not on caller's team chain) / "
+                "Assignee not found"
+            ),
+        },
+    },
+)
+async def unassign_task(
+    task_id: int,
+    user_id: int,
+    user: Annotated[User, Depends(require_permission("task:update"))],
+    db: AsyncSession = Depends(get_db),
+) -> SuccessResponse[None]:
+    await task_service.unassign_task(db, user, task_id, user_id)
     return SuccessResponse(data=None)

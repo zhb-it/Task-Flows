@@ -282,9 +282,13 @@ Request：
 > **TASK-034 已实现：五端点挂载完成。** 授权两层（TASK-032/033 决策）：授权两层：功能级（task:create/read/update/delete）+ 资源级（本注，IDOR 契约：不在归属链一律 404 同文案；调用者已在归属链上时明示 403）——创建/更新 = 项目所属团队成员即可（task:create/task:update + team_members 有行）；删除 = 团队角色 OWNER/ADMIN（403 文案 `Only team owner or admin can delete tasks`，与种子设计对齐：member 全局角色有 task:update 无 task:delete）；创建时项目不存在或非成员统一 404 `Project not found`（类比 POST /projects 对不可见团队报 `Team not found`）。TASK-032 Schema 决策：POST 创建请求体**不含 `status`**——新任务一律 TODO 起步，状态流转只能走 transition API（TASK-038），杜绝绕过状态机直接建出非 TODO 任务（Decision 005）；PATCH 请求体同样不含 status / project_id / creator_id。title 1-200，priority 枚举 LOW/MEDIUM/HIGH/URGENT（默认 MEDIUM），due_at 可空。
 - POST `/api/v1/tasks`
 - GET `/api/v1/tasks?project_id={id}` → **TASK-035 已实现：多条件过滤 + 分页 + 排序**（响应仍为纯列表 `{data: [TaskRead...]}`）。`project_id` 必填（缺失 422）；过滤：`status`（枚举精确，非法 422）、`priority`（枚举精确）、`keyword`（标题大小写不敏感子串 ILIKE，`%`/`_`/`\` 转义后按字面匹配，纯空白视为未传）；分页：`skip`（默认 0，≥0）、`limit`（默认 100，1-100）；排序：`sort` 白名单 `id|created_at|due_at|priority`（默认 id）+ `order` `asc|desc`（默认 asc），**priority 按业务权重（URGENT > HIGH > MEDIUM > LOW）而非字母序**。项目不存在或不在归属链 404 `Task not found`。需 `task:read`。
-- GET `/api/v1/tasks/{task_id}`
-- PATCH `/api/v1/tasks/{task_id}`
+- GET `/api/v1/tasks/{task_id}` → **TASK-036 起响应内嵌 `assignees: [{user_id, username, assigned_at}]`**（升序，未分配恒空列表）；其余契约不变。
+- PATCH `/api/v1/tasks/{task_id}` → 响应同样内嵌 `assignees`。
 - DELETE `/api/v1/tasks/{task_id}`
+- **TASK-036 已实现：分配/移除负责人（用户确认决策）**——功能级 `task:update`（分配是更新行为，不新增 seed 权限项）+ 资源级**任务所属团队成员即可**（协作式，member 可分配他人与自领）：
+  - POST `/api/v1/tasks/{task_id}/assignees` → 201 `{data: {user_id, username, assigned_at}}`；请求体 `{user_id}`。目标用户不存在**或**不是任务所属团队成员 → 404 `User not found`（同文案防枚举）；目标已是负责人 → 409 `User already assigned to this task`；任务不在归属链 → 404 `Task not found`；无全局权限 → 403 `Permission denied: task:update`。`assigned_by` = 调用者（表内 `assigned_by_id`，最小审计）。
+  - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}` → 200 `{data: null}`；授权同分配；目标非该任务负责人 → 404 `Assignee not found`。
+  - GET `/api/v1/tasks` 增可选 `assignee_id` query 参数（负责人精确筛选，TASK-035 过滤家族扩展）；TaskRead 全端点（创建/详情/列表/更新）统一内嵌 `assignees`，删除任务时分配行随 FK CASCADE 清理。
 - POST `/api/v1/tasks/{task_id}/transition`
 - POST `/api/v1/tasks/{task_id}/assignees`
 - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}`

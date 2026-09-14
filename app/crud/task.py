@@ -16,10 +16,11 @@ Service 层传入（白名单映射与 priority 业务权重在 Service，本层
 
 from datetime import datetime
 
-from sqlalchemy import asc, select
+from sqlalchemy import asc, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
+from app.models.task_assignee import TaskAssignee
 
 
 async def create_task(
@@ -58,6 +59,7 @@ async def list_tasks_by_project(
     status: str | None = None,
     priority: str | None = None,
     keyword: str | None = None,
+    assignee_id: int | None = None,
     skip: int = 0,
     limit: int = 100,
     order_by=None,
@@ -65,7 +67,8 @@ async def list_tasks_by_project(
     """Tasks of a project with optional filtering / paging / ordering.
 
     `order_by` 是完整的排序子句（Service 层传入 `Task.col.asc()/desc()`，
-    默认 id 升序）；keyword 已由 Service 层做通配符转义。
+    默认 id 升序）；keyword 已由 Service 层做通配符转义；`assignee_id`
+    过滤经 task_assignees exists 子查询（TASK-036 决策，负责人筛选）。
     """
     stmt = select(Task).where(Task.project_id == project_id)
     if status is not None:
@@ -74,6 +77,13 @@ async def list_tasks_by_project(
         stmt = stmt.where(Task.priority == priority)
     if keyword:
         stmt = stmt.where(Task.title.ilike(keyword))
+    if assignee_id is not None:
+        stmt = stmt.where(
+            exists().where(
+                TaskAssignee.task_id == Task.id,
+                TaskAssignee.user_id == assignee_id,
+            )
+        )
     stmt = stmt.order_by(order_by if order_by is not None else asc(Task.id))
     result = await db.execute(stmt.offset(skip).limit(limit))
     return list(result.scalars().all())

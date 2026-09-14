@@ -150,6 +150,22 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - **索引（DB_SCHEMA「Task 索引」清单）**：复合 `(project_id, status)`、`(creator_id)`、`due_at` 部分索引 `WHERE status IN ('TODO','IN_PROGRESS','REVIEW')`（仅未完成/未取消任务）。
 - 迁移：`migrations/versions/6f1cfcc35abe_create_tasks_table.py`（autogenerate，pg_constraint / pg_indexes / information_schema 实证双 CHECK、双 CASCADE、部分索引谓词）。
 
+## 任务分配表（TASK-036 已实现）
+规格 §5 硬约束 `UNIQUE(task_id, user_id)` 由**复合主键**天然落实。源文档未定义该表字段，`assigned_by_id` 为 TASK-036 推断设计（最小审计——记录谁做的分配，追溯由 OperationLog TASK-039 承担）：
+
+**task_assignees**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| task_id | BIGINT | **复合主键之一**，FK → `tasks(id)` **ON DELETE CASCADE**——删任务清分配行 |
+| user_id | BIGINT | **复合主键之一**，FK → `users(id)` **ON DELETE CASCADE**，单列索引——删用户清分配行不卡删除（与 creator_id 同决策），索引服务于 assignee_id 过滤与「我的任务」反查 |
+| assigned_by_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE CASCADE**——分配操作者（推断设计） |
+| assigned_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，内嵌响应按此升序 |
+
+- 复合主键 `(task_id, user_id)` = 规格 §5 的 UNIQUE 约束（information_schema / pg_indexes 实证：`task_assignees_pkey` + `ix_task_assignees_user_id`）。
+- 不建 Task -> assignees relationship（延续 TASK-031 决策）：读取由 Service 批量 IN 查询组装 TaskRead.assignees（列表场景避免 N+1）。
+- 迁移：`migrations/versions/b90b4cff0f64_create_task_assignees.py`（autogenerate，information_schema 实证复合 PK、三 FK 全 CASCADE、user_id 索引）。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE
