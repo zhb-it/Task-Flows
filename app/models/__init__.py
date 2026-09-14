@@ -5,6 +5,7 @@ Importing this package registers every model on the shared
 against the full set of tables.
 """
 
+from app.models.attachment import Attachment
 from app.models.permission import Permission
 from app.models.project import Project
 from app.models.refresh_token import RefreshToken
@@ -20,6 +21,7 @@ from app.models.user import User
 from app.models.user_role import UserRole
 
 __all__ = [
+    "Attachment",
     "Permission",
     "Project",
     "RefreshToken",

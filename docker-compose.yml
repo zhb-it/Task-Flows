@@ -19,6 +19,13 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      # Attachment storage (TASK-042 / §17, §51). The named volume below keeps
+      # uploaded files across container rebuilds; without it every `up --build`
+      # would silently orphan the DB rows pointing at them.
+      UPLOAD_DIR: /app/storage
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-10485760}
+    volumes:
+      - attachment_storage:/app/storage
     ports:
       - "8000:8000"
     depends_on:
@@ -71,3 +78,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  attachment_storage:

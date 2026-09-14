@@ -303,9 +303,23 @@ Request：
 - DELETE `/api/v1/comments/{comment_id}`（TASK-041）—— 删除评论。功能级 `comment:delete`（种子仅 admin）+ 资源级 **评论作者本人或任务所属团队 OWNER/ADMIN**（两者都不是 → 403 `Only team owner or admin or the comment author can delete comments`）；评论不存在/所属任务不在归属链 → 404 `Comment not found`（同文案防枚举）；**删除写 OperationLog**（§16 规则 4，`action=comment:delete`、`payload={task_id, comment_id}`，与删除同事务）。
 
 ## Attachment
-- POST `/api/v1/tasks/{task_id}/attachments`
-- GET `/api/v1/attachments/{attachment_id}`
-- DELETE `/api/v1/attachments/{attachment_id}`
+（TASK-042 已实现；上传要求见开发文档 §17，端点为 §25.7。注：另有一个删除端点，
+支撑 §17「删除需权限 + 清理物理文件」）
+
+- POST `/api/v1/tasks/{task_id}/attachments`（TASK-042）—— 上传附件。功能级 `attachment:upload`（admin/member 均持有）+ 资源级归属链（Service 校验，非成员/任务不存在 → 404 `Task not found` 防枚举）。请求为 `multipart/form-data`，文件字段名 **`file`**；`Content-Type` 由客户端自报但**不采信**，一律按扩展名判定。201 返回 `AttachmentRead`（`id/task_id/uploader_id/uploader/filename/content_type/size/created_at`）。
+  - **大小限制**：超过 `MAX_UPLOAD_SIZE`（默认 10485760 = 10MB）→ **413** `{"detail": "Uploaded file is too large"}`。校验在流式写入过程中按块累计，**不信任 Content-Length**；超限即中止并清理半成品文件，不产生任何元数据。
+  - **MIME 白名单**：扩展名不在白名单（`png/jpg/jpeg/gif/webp/bmp/pdf/txt/md/csv/json/doc/docx/xls/xlsx/ppt/pptx/zip/gz`）或无扩展名 → **415** `{"detail": "File type is not allowed"}`。扩展名大小写不敏感（`.PNG` 通过）。**默认拒绝**：未列入的类型一律拒绝。
+  - **文件名安全处理**：客户端文件名被清洗后仅作展示字段——去目录成分（POSIX `/` 与 Windows `\` 双分隔符）、去控制字符（含 CR/LF）、去首尾点与空白、折叠 Windows 保留设备名（`CON.txt` → `_CON.txt`）、超长时截断但保留扩展名。`../../../../etc/passwd.txt` → `passwd.txt`。
+  - **不允许路径穿越**：磁盘 key 由服务端生成为 `tasks/{task_id}/{32位随机hex}{扩展名}`（如 `tasks/12/ab12cd34….pdf`），**不含任何用户输入**，因此同名文件重复上传互不覆盖；`storage_path` 落库为**相对 key**（不含绝对路径），存储层再做「解析后仍在根目录内」的结构层断言（双层防护）。注入后缀（如 `../../evil`）会被拒绝。
+  - **空文件** → **400** `{"detail": "Uploaded file is empty"}`，已落盘的空文件即时回收。
+- GET `/api/v1/tasks/{task_id}/attachments`（TASK-042）—— 附件列表。**功能级复用 `task:read`**（§6 权限清单无 attachment:read，附件属于任务，与评论列表同处理）+ 资源级归属链；`created_at` 升序，分页 `skip`/`limit`（`le=100`）；响应 `list[AttachmentRead]`。
+- GET `/api/v1/attachments/{attachment_id}`（TASK-042）—— 下载附件。功能级 `attachment:download`（admin/member 均持有）+ 资源级归属链校验（§17「下载检查任务访问权限」）；不存在/不在归属链 → 404 `Attachment not found`（同文案防枚举）。
+  - **响应为文件流**（非 JSON，因此不包 `SuccessResponse`）：`Content-Type` 为入库时的规范 MIME；`Content-Disposition: attachment; filename*=UTF-8''{百分号编码文件名}`（RFC 5987 形式，结构上杜绝响应头注入，非 ASCII 文件名如 `报告.pdf` 亦安全）；`Content-Length` 为入库 size；固定 `X-Content-Type-Options: nosniff`（阻止浏览器嗅探内容类型，防存储型 XSS）。
+  - 元数据存在但物理文件缺失（外部清理/运维事故）→ 同样是 404 `Attachment not found`，而非 500（不泄露内部状态）。
+- DELETE `/api/v1/attachments/{attachment_id}`（TASK-042，§17 清理要求）—— 删除附件。功能级**复用 `attachment:upload`**（§6 无 attachment:delete；能上传即能管理自己的上传物）+ 资源级 **上传者本人或任务所属团队 OWNER/ADMIN**（两者都不是 → 403 `Only team owner or admin or the uploader can delete attachments`）；不存在/不在归属链 → 404 `Attachment not found`（同文案防枚举）。
+  - 删除顺序为**先删物理文件、再删元数据记录**：文件删除失败则不删记录并向上抛错（可重试），避免产生「记录没了、文件永久留在磁盘」的不可回收泄漏。
+  - **写 OperationLog**：`action=attachment:delete`、`payload={task_id, attachment_id, filename}`，与删除同事务提交。
+  - 删任务 / 删用户级联清附件**元数据**（FK ON DELETE CASCADE）；物理文件的批量回收由 Celery 清理任务负责（§17 / TASK-050）。
 
 ## Notification
 - GET `/api/v1/notifications`

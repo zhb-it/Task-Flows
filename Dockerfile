@@ -19,7 +19,10 @@ COPY migrations ./migrations
 COPY pyproject.toml ./pyproject.toml
 
 # Run as a non-root user.
+# `storage` is the attachment upload root (UPLOAD_DIR, §17 / TASK-042): it must
+# exist and be writable by appuser, otherwise uploads fail with EACCES.
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/storage \
     && chown -R appuser:appuser /app
 USER appuser
 

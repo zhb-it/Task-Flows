@@ -166,6 +166,47 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - 不建 Task -> assignees relationship（延续 TASK-031 决策）：读取由 Service 批量 IN 查询组装 TaskRead.assignees（列表场景避免 N+1）。
 - 迁移：`migrations/versions/b90b4cff0f64_create_task_assignees.py`（autogenerate，information_schema 实证复合 PK、三 FK 全 CASCADE、user_id 索引）。
 
+## 评论表（TASK-041 已实现）
+字段取自开发文档 §16。TASK-041 用户确认的决策：
+
+**comments**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| task_id | BIGINT | NOT NULL，FK → `tasks(id)` **ON DELETE CASCADE**——评论必须属于任务（§16 规则 2），删任务级联清其全部评论 |
+| user_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE CASCADE**，索引——评论是用户产出内容，删用户级联清其评论（与 `tasks.creator_id` 同惯例） |
+| content | TEXT | NOT NULL，非空由 Schema 校验（1–2000 字符） |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新——本 TASK 不做编辑端点（§25.6 仅 POST/GET/DELETE），编辑能力留后续 |
+
+- 索引 `(task_id, created_at)`：评论列表按任务维度 + 时间序查询的主访问路径（§16 未显式定义，按查询模式推断）。
+- 删除评论写 `action=comment:delete` 审计日志（§16 规则 4，复用 OperationLog）。
+- 迁移：`migrations/versions/d7a3b9c1e5f2_create_comments.py`。
+
+## 附件表（TASK-042 已实现）
+字段取自开发文档 §17。TASK-042 用户确认的决策：
+
+**attachments**
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| task_id | BIGINT | NOT NULL，FK → `tasks(id)` **ON DELETE CASCADE**——附件必须属于任务（§17），删任务级联清其附件元数据 |
+| uploader_id | BIGINT | NOT NULL，FK → `users(id)` **ON DELETE CASCADE**，索引——附件是用户产出内容，删用户级联清其元数据 |
+| filename | VARCHAR(255) | NOT NULL——**清洗后**的安全文件名（去目录分隔符/控制字符/首尾点空白、折叠 Windows 保留设备名、截断保留扩展名），仅用于展示与下载响应，**不参与路径构造** |
+| storage_path | VARCHAR(512) | NOT NULL，**UNIQUE**——相对存储 key（如 `tasks/12/ab12cd34.bin`），不含绝对路径；物理位置由 `UPLOAD_DIR` 决定，DB 不绑定部署机器的文件系统布局（§17 预留对象存储迁移） |
+| content_type | VARCHAR(255) | NOT NULL——按**扩展名白名单**校验后的规范 MIME，不采信客户端自报的 Content-Type |
+| size | BIGINT | NOT NULL——**实际写入字节数**（流式落盘累计），不信任 Content-Length |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+
+- 无 CHECK 约束：§17 未定义枚举值集，size/content_type 合法性由 Service 层保证（项目规则 §6）。
+- 索引：`(task_id, created_at)`（附件列表主访问路径）、`storage_path` UNIQUE（防同 key 覆盖）、`(uploader_id)`。
+- §17 上传要求全部在 Service 层实现：大小限制（10MB，超限 413）、MIME 白名单（415）、文件名安全处理、路径穿越防护（双层：语义校验 + 解析后越界断言）、下载检查任务访问权限（归属链 404）。
+- 删除附件写 `action=attachment:delete` 审计日志。
+- 删任务/删用户级联清附件**元数据**；物理文件由 Celery 清理任务负责（§17 / TASK-050）。
+- 迁移：`migrations/versions/e9b4c2d6f8a1_create_attachments.py`。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE
@@ -176,6 +217,7 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - RolePermission(role_id, permission_id) 不允许重复
 - TeamMember(team_id, user_id) 不允许重复
 - TaskAssignee(task_id, user_id) UNIQUE
+- Attachment.storage_path UNIQUE
 - Task status CHECK：TODO / IN_PROGRESS / REVIEW / DONE / CANCELLED
 - Task priority CHECK：LOW / MEDIUM / HIGH / URGENT
 - 必要外键、NOT NULL、CHECK、唯一约束优先由数据库兜底
