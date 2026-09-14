@@ -28,6 +28,13 @@ TASK-036 多人分配（用户确认决策）：
 - `TaskRead.assignees` 内嵌 `[{user_id, username, assigned_at}]`——
   详情/列表/创建/更新响应统一内嵌，批量 IN 查询避免 N+1。
 - `GET /tasks` 增 `assignee_id` 可选过滤（负责人筛选）。
+
+TASK-038 状态流转（用户确认决策）：`POST /tasks/{task_id}/transition`，
+请求体 `{"to_status": "<状态>"}`——功能级 `task:transition`（种子仅
+admin 持有）+ 资源级**任务所属团队成员即可**（协作式，同更新/分配语义）；
+非法流转（相邻回退 / 跨级跳转 / 终态任何出边 / 同状态重复流转）→ 409
+`Invalid status transition`（TASK-037 状态机在 Service 层拦截，Decision 005：
+普通 PATCH 依然不可触达 status）。
 """
 
 from typing import Annotated
@@ -47,6 +54,7 @@ from app.schemas.task import (
     TaskRead,
     TaskSortField,
     TaskSortOrder,
+    TaskTransitionCreate,
     TaskUpdate,
 )
 from app.services import task as task_service
@@ -202,6 +210,30 @@ async def delete_task(
 ) -> SuccessResponse[None]:
     await task_service.delete_task(db, user, task_id)
     return SuccessResponse(data=None)
+
+
+@router.post(
+    "/{task_id}/transition",
+    response_model=SuccessResponse[TaskRead],
+    status_code=status.HTTP_200_OK,
+    summary=(
+        "Transition a task's status via the state machine "
+        "(project team members only; illegal transition → 409)"
+    ),
+    responses={
+        403: {"description": "Missing task:transition permission"},
+        404: {"description": "Task not found (or not on caller's team chain)"},
+        409: {"description": "Invalid status transition"},
+    },
+)
+async def transition_task(
+    task_id: int,
+    payload: TaskTransitionCreate,
+    user: Annotated[User, Depends(require_permission("task:transition"))],
+    db: AsyncSession = Depends(get_db),
+) -> SuccessResponse[TaskRead]:
+    task = await task_service.transition_task(db, user, task_id, payload)
+    return SuccessResponse(data=await _serialize_task(db, task))
 
 
 @router.post(

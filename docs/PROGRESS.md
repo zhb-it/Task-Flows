@@ -7,7 +7,7 @@ In Progress
 Phase 4：团队与项目
 
 ## Current Task
-TASK-037 状态机规则（已完成）
+TASK-038 Transition API（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -47,6 +47,7 @@ TASK-037 状态机规则（已完成）
 - [x] TASK-035 Task 查询过滤/分页/排序
 - [x] TASK-036 TaskAssignee 多人分配
 - [x] TASK-037 状态机规则
+- [x] TASK-038 Transition API
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -89,6 +90,8 @@ TASK-035 完成 Task 查询过滤/分页/排序（TASK-035 决策，用户确认
 TASK-036 完成 TaskAssignee 多人分配（Phase 5 收官；TASK-036 决策，用户确认：①分配/移除授权 = 功能级 **task:update**（分配是更新行为，不新增 seed 权限项）+ 资源级**任务所属团队成员即可**——协作式，member 可分配他人与自领；②目标用户不存在或非任务所属团队成员 → 404 `User not found` 同文案（防枚举）；目标已是负责人 → 409 `User already assigned to this task`；目标非该任务负责人 → 404 `Assignee not found`；任务不在归属链 → 404 `Task not found`；③TaskRead 内嵌 `assignees: [{user_id, username, assigned_at}]`——创建/详情/列表/更新响应统一内嵌，Service 批量 IN 查询组装避免 N+1，未分配恒空列表；④GET /tasks 增可选 `assignee_id` 负责人筛选）。交付：app/models/task_assignee.py（复合主键 (task_id, user_id) 落实规格 §5 UNIQUE；assigned_by_id 最小审计推断设计；user_id 单列索引）+ 迁移 b90b4cff0f64（information_schema/pg_indexes 实证复合 PK、三 FK 全 CASCADE、索引）；app/crud/task_assignee.py（flush-only：add/remove/is_assignee/list_assignees/list_assignees_for_tasks 批量/filter_tasks_by_assignee「我的任务」原语）；app/crud/task.py 的 list_tasks_by_project 增 assignee_id exists 过滤；app/services/task.py 增 assign_task/unassign_task/assignees_map；app/api/v1/tasks.py 增 POST /tasks/{id}/assignees 与 DELETE /tasks/{id}/assignees/{user_id}，全部任务响应经 _serialize_task(s) 内嵌 assignees。新增 tests/test_task_assignee_api.py 8 项 HTTP 端到端（内嵌渲染、member 分配他人+自领、重复 409、目标不存在/非成员 404 同文案、无全局权限 403 与 IDOR 404 辨析、移除 200→404、assignee_id 过滤全生命周期、多负责人与删任务级联清分配行 DB 实证）；tests/test_task_crud.py 的 TaskRead 字段集断言同步 assignees。全量 406 passed（team_api 一例 DB 连接超时为瞬时抖动，重跑即绿）；零残留。
 
 TASK-037 完成状态机规则（Phase 6 首任务；纯规则层，无端点/无迁移；TASK-037 决策，用户确认：①**仅严格前进**——规格只画线性链，相邻回退（IN_PROGRESS→TODO、REVIEW→IN_PROGRESS）与跨级跳转一律非法；②**终态完全封死**——DONE/CANCELLED 无任何出边（含 →CANCELLED），「任意状态→CANCELLED」理解为任意**非终态**，与规格「终态不可流转」无矛盾；③非法流转（含同状态重复流转如 TODO→TODO）→ **409 Conflict** `Invalid status transition`（复用 ConflictError，TASK-038 API 消费时呈现）；④独立模块落位）。交付：app/services/state_machine.py——TRANSITIONS 流转表（from → frozenset(to)，覆盖全部 5 状态）、TERMINAL_STATUSES、can_transition 纯查询、validate_transition（非法抛 ConflictError）、allowed_targets（前端看板拖拽白名单）；不依赖 DB/Session 可离线单测。新增 tests/test_state_machine.py 29 项离线测试（合法前进 3 + 非终态→CANCELLED 3、终态封死 8 + 跨级 6、同状态 5、409 文案与状态码、allowed_targets 全表、StrEnum/str 互操作）。纯规则模块尚未被任何端点 import，无需重建镜像（TASK-038 消费时重建）。
+
+TASK-038 完成 Transition API（Phase 6；TASK-038 决策，用户确认：①请求体 `{"to_status": "<状态>"}`——字段名与 PATCH set 语义及 GET ?status= 过滤区分，非法值/缺失/null → 422；②功能级 `task:transition`（§6 权限清单专门项，种子仅 admin 持有）+ 资源级**任务所属团队成员即可**（协作式，与更新/分配同语义，区别于删除的 OWNER/ADMIN））。交付：app/schemas/task.py 增 TaskTransitionCreate、app/services/task.py 增 transition_task（_get_task_on_chain 404 契约 → validate_transition Service 层拦截 409 → 改 status → commit）、app/api/v1/tasks.py 挂载 POST /tasks/{task_id}/transition（200 返回更新后 TaskRead 含 assignees 内嵌；Decision 005 不破坏——PATCH 依旧不可触达 status）。新增 tests/test_task_transition_api.py 7 项 HTTP 端到端（合法前进链全链 + GET 复查持久化、三个非终态→CANCELLED、11 对非法流转矩阵 409 且 GET 证实状态不变、422 校验三种形态、member/无角色 403 同文案、局外人/不存在 404 防枚举、全局 admin+团队 MEMBER 协作式流转 200）。全量 442 passed（435 + 7），零残留；Docker 重建镜像后真实容器冒烟 11 项 PASS（register→授权→login→建链→TODO→IN_PROGRESS 200→回退/跨级 409→API+SQL 双通道清理→users/tasks/projects/teams 零残留）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

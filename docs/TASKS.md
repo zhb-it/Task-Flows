@@ -48,7 +48,7 @@
 
 ## Phase 6：状态机与审计
 - [x] TASK-037 状态机规则
-- [ ] TASK-038 Transition API
+- [x] TASK-038 Transition API
 - [ ] TASK-039 OperationLog
 - [ ] TASK-040 状态机与审计测试
 

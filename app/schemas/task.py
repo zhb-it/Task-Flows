@@ -94,4 +94,16 @@ class TaskAssigneeRead(BaseModel):
     assigned_at: datetime
 
 
+class TaskTransitionCreate(BaseModel):
+    """``POST /tasks/{task_id}/transition`` 请求体（TASK-038 决策，用户确认）。
+
+    ``to_status`` 为流转目标状态；从当前状态出发是否可达由状态机
+    （``app/services/state_machine.py``）在 Service 层判定，非法 → 409
+    ``Invalid status transition``。Schema 只做形状校验——值必须是
+    ``TaskStatus`` 五个合法状态之一，否则 422。
+    """
+
+    to_status: TaskStatus
+
+
 TaskRead.model_rebuild()

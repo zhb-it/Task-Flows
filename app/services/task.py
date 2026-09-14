@@ -38,7 +38,7 @@ from app.crud.task_assignee import (
     remove_task_assignee,
 )
 from app.crud.user import get_user
-from app.models.task import Task
+from app.models.task import Task, TaskStatus
 from app.models.team_member import TeamRole
 from app.models.user import User
 from app.schemas.task import (
@@ -46,8 +46,10 @@ from app.schemas.task import (
     TaskAssigneeRead,
     TaskCreate,
     TaskSortField,
+    TaskTransitionCreate,
     TaskUpdate,
 )
+from app.services.state_machine import validate_transition
 from app.services.team import team_membership
 
 TASK_NOT_FOUND = "Task not found"
@@ -254,6 +256,28 @@ async def unassign_task(
     if not removed:
         raise ResourceNotFoundError(ASSIGNEE_NOT_FOUND)
     await db.commit()
+
+
+async def transition_task(
+    db: AsyncSession, user: User, task_id: int, payload: TaskTransitionCreate
+) -> Task:
+    """状态流转（TASK-038 决策，用户确认）：
+
+    - 功能级 ``task:transition``（Router 依赖层）+ 资源级**任务所属团队
+      成员即可**（协作式，与更新/分配同语义；区别于删除的 OWNER/ADMIN）；
+    - 任务不在归属链 / 不存在 → 404 Task not found（IDOR 防枚举）；
+    - 非法流转——相邻回退、跨级跳转、终态（DONE/CANCELLED）任何出边、
+      同状态重复流转——→ 409 ``Invalid status transition``（TASK-037 决策；
+      规格 §11「非法状态流转必须在 Service 层拦截」，状态机
+      ``validate_transition`` 在此被 API 消费）；
+    - 成功 → 更新 status 并返回任务（Router 组装 TaskRead + assignees）。
+    """
+    task = await _get_task_on_chain(db, user, task_id)
+    validate_transition(TaskStatus(task.status), payload.to_status)
+    task.status = payload.to_status.value
+    updated = await update_task_crud(db, task)
+    await db.commit()
+    return updated
 
 
 async def assignees_map(

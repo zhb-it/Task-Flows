@@ -289,7 +289,11 @@ Request：
   - POST `/api/v1/tasks/{task_id}/assignees` → 201 `{data: {user_id, username, assigned_at}}`；请求体 `{user_id}`。目标用户不存在**或**不是任务所属团队成员 → 404 `User not found`（同文案防枚举）；目标已是负责人 → 409 `User already assigned to this task`；任务不在归属链 → 404 `Task not found`；无全局权限 → 403 `Permission denied: task:update`。`assigned_by` = 调用者（表内 `assigned_by_id`，最小审计）。
   - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}` → 200 `{data: null}`；授权同分配；目标非该任务负责人 → 404 `Assignee not found`。
   - GET `/api/v1/tasks` 增可选 `assignee_id` query 参数（负责人精确筛选，TASK-035 过滤家族扩展）；TaskRead 全端点（创建/详情/列表/更新）统一内嵌 `assignees`，删除任务时分配行随 FK CASCADE 清理。
-- POST `/api/v1/tasks/{task_id}/transition` → **TASK-037 已定义状态机规则（TASK-038 端点消费）**——合法流转表（决策，用户确认）：仅严格前进 TODO→IN_PROGRESS→REVIEW→DONE + 非终态（TODO/IN_PROGRESS/REVIEW）→CANCELLED；**终态完全封死**（DONE/CANCELLED 无任何出边，含 →CANCELLED）；相邻回退（IN_PROGRESS→TODO、REVIEW→IN_PROGRESS）与跨级跳转非法；**非法流转（含同状态重复流转）→ 409 Conflict `Invalid status transition`**。规则落位 `app/services/state_machine.py`（TRANSITIONS / can_transition / validate_transition / allowed_targets），status 仍不允许经普通 PATCH 修改（Decision 005）。
+- POST `/api/v1/tasks/{task_id}/transition` → **TASK-038 已实现**（流转规则 = TASK-037 状态机，用户确认）：仅严格前进 TODO→IN_PROGRESS→REVIEW→DONE + 非终态（TODO/IN_PROGRESS/REVIEW）→CANCELLED；**终态完全封死**（DONE/CANCELLED 无任何出边，含 →CANCELLED）；相邻回退（IN_PROGRESS→TODO、REVIEW→IN_PROGRESS）与跨级跳转非法。规则落位 `app/services/state_machine.py`（TRANSITIONS / can_transition / validate_transition / allowed_targets），status 仍不允许经普通 PATCH 修改（Decision 005）。
+  - **请求体**（TASK-038 决策，用户确认）：`{"to_status": "IN_PROGRESS"}`——`to_status` 必须为五个合法状态之一，非法值 / 缺失 / null → `422`。
+  - 授权：功能级 `task:transition`（§6 权限清单专门项，种子仅 admin 持有，member → `403 Permission denied: task:transition`）+ 资源级**任务所属团队成员即可**（协作式，与更新/分配同语义，区别于删除的 OWNER/ADMIN）；任务不在归属链或不存在 → `404 {"detail": "Task not found"}`（同文案，IDOR 防枚举）。
+  - Response `200 OK`：`{"data": TaskRead, "message": "success"}`——更新后的任务（含 assignees 内嵌）。
+  - 非法流转（相邻回退 / 跨级跳转 / 终态任何出边 / 同状态重复流转）→ `409 Conflict`：`{"detail": "Invalid status transition"}`，任务状态不被改动。
 - POST `/api/v1/tasks/{task_id}/assignees`
 - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}`
 
