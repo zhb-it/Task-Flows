@@ -53,7 +53,7 @@
 - [x] TASK-040 状态机与审计测试
 
 ## Phase 7：评论与附件
-- [ ] TASK-041 Comment
+- [x] TASK-041 Comment
 - [ ] TASK-042 Attachment
 - [ ] TASK-043 上传/下载权限与安全校验
 - [ ] TASK-044 评论/附件测试

@@ -4,10 +4,10 @@
 In Progress
 
 ## Current Phase
-Phase 6：状态机与审计
+Phase 7：评论与附件
 
 ## Current Task
-TASK-040 状态机与审计测试（已完成）
+TASK-041 Comment（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -50,6 +50,7 @@ TASK-040 状态机与审计测试（已完成）
 - [x] TASK-038 Transition API
 - [x] TASK-039 OperationLog
 - [x] TASK-040 状态机与审计测试
+- [x] TASK-041 Comment
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -59,7 +60,7 @@ TASK-040 状态机与审计测试（已完成）
 - None
 
 ## Next
-TASK-041 Comment（Phase 7 评论与附件）
+TASK-042 Attachment（Phase 7 评论与附件）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -98,6 +99,8 @@ TASK-038 完成 Transition API（Phase 6；TASK-038 决策，用户确认：①�
 TASK-039 完成 OperationLog 审计日志（Phase 6；TASK-039 决策，用户确认：①`operation_logs.user_id` **不加外键**——审计日志独立于用户生命周期，删用户后日志完整保留且不卡删除，user_id 仍 NOT NULL（每条日志由已认证用户产生）；②埋点范围 = **仅 transition**（协作式且 §15 payload 示例恰好对应流转，Phase 6 审计主题自洽，不跨未完成的创建/删除评论功能）；③日志查询授权 = **资源级隔离**——`GET /logs` 仅返回当前用户自己的日志，`GET /logs/{type}/{id}` 须验证用户对资源的归属权限）。交付：app/models/operation_log.py（id/user_id/resource_type/resource_id/action/payload JSONB/created_at；§15 三索引全落实——(resource_type,resource_id)、(user_id,created_at DESC)、GIN(payload)）+ 迁移 c5f8e1a2b3d4（已 `DATABASE_URL=...5433` upgrade head，information_schema/pg_indexes 实证 jsonb 列与三个索引）；app/crud/operation_log.py（flush-only：create/list_by_user/list_by_resource，按 created_at DESC 分页）；app/schemas/operation_log.py（OperationLogRead，payload 原样透传）；app/services/operation_log.py（write_operation_log 仅 flush 由调用方提交 + list_user_logs + list_resource_logs 资源级归属校验，非 task 类型/非成员 → 404 防枚举）；app/api/v1/logs.py（GET /logs、GET /logs/{resource_type}/{resource_id}，require_permission("log:read")，分页 skip/limit）注册进 api_router；app/services/task.py 的 transition_task 在同一事务内写 `action=task:transition` / `payload={old_status,new_status}` 审计行。新增 tests/test_operation_log_api.py 6 项 HTTP 端到端（transition 写日志且 GET /logs 与 GET /logs/task/{id} 均返回、资源级隔离只看自己、非成员 404、非 task 类型 404、分页 DESC、无 log:read 角色 403）。全量 448 passed（442 + 6），零残留；Docker 重建镜像后真实容器冒烟 5 项 PASS（/health → transition 200 → GET /logs payload 正确 → GET /logs/task/{id} 同条 → 清理零残留）。
 
 TASK-040 完成状态机与审计测试（Phase 6 收官；纯测试任务，未改应用代码，无迁移，无需重建镜像——同 TASK-020/025/030 先例）。先对开发文档 §35「Task 重点测试」（状态正常流转/非法状态流转/DONE 不允许回退）、§56 Phase 8「状态机」验收条款（状态枚举/transition API/Service 状态机/非法状态拦截/操作日志）、§55.3 链路（状态变更 → 写 OperationLog → 提交）逐条核对，确认 TASK-037/038/039 分散模块已覆盖细粒度规则与端点，补上此前缺失的**整合验收链路与事务原子性**：新增 tests/test_state_machine_audit_flow.py 6 项——①§56 Phase 8 完整链路演示（TODO→IN_PROGRESS→REVIEW→DONE 跑通 + DONE→TODO 被拒绝，规格原文两条）；②§35 状态正常流转（每跳 200 且持久化）；③§35 非法流转 + DONE 不回退（跨级/同状态/终态出边全 409 且状态不动）；④审计 ⇄ 状态一致性（三次成功流转 → 三条日志，old_status/new_status 与状态链严格衔接）；⑤被拒流转不产生日志；⑥**§55.3 事务原子性**（monkeypatch 让 write_operation_log 抛异常 → 任务状态一并回滚仍 TODO 且库中零日志，证明「状态变更 + 写日志 + 提交」同事务、不存在状态变了但没日志的不一致）。TESTING.md 增补「状态机与审计（TASK-040）」章节。全量 454 passed（448 + 6），零残留。Phase 6 状态机与审计全部收官。
+
+TASK-041 完成 Comment 评论（Phase 7 起点；TASK-041 决策，用户确认：①`comments.user_id` **FK→users ON DELETE CASCADE**——评论是用户产出内容，删用户级联清其评论（与 tasks.creator_id 同惯例），审计追溯由 OperationLog 承担；②删除授权 = 功能级 `comment:delete` + 资源级**评论作者本人或任务所属团队 OWNER/ADMIN**（两者都不是 → 403），与删除任务的 OWNER/ADMIN 语义一致且尊重作者删自己评论的需求；③**不做编辑端点**——§16 有 updated_at 但 §25.6 端点清单仅 POST/GET/DELETE，字段由 DB 维护，编辑能力留后续 TASK）。交付：app/models/comment.py（id/task_id FK CASCADE/user_id FK CASCADE/content TEXT/created_at/updated_at；索引 (task_id, created_at) 复合 + user_id 单列）+ 迁移 d7a3b9c1e5f2（已 upgrade head，information_schema/pg_constraint/pg_indexes 实证双 FK confdeltype='c' 与索引）；app/crud/comment.py（flush-only：create/get/list_by_task（join users 取 username 防 N+1）/delete）；app/schemas/comment.py（CommentCreate content 1-2000、CommentRead 内嵌 username）；app/services/comment.py（create_comment/list_comments 归属链校验 404 防枚举；delete_comment 双层授权——作者或团队 OWNER/ADMIN 否则 403、不在链 404 同文案、**删除同事务写 action=comment:delete 审计日志**§16 规则 4）；app/api/v1/comments.py（POST/GET /tasks/{task_id}/comments + DELETE /comments/{comment_id}）注册进 api_router。**读取功能级权限复用 task:read**（§6 清单无 comment:read，评论是任务一部分，有据可依的推断）。新增 tests/test_comment_api.py 11 项 HTTP 端到端（创建 201 内嵌 username、时间升序列表、functional 403、局外人/不存在任务 404、作者删自己 200 且审计行字段精确、团队 ADMIN 删他人 200、团队成员删他人 403 文案、member 作者删自己因无 comment:delete 被功能级 403 先挡、局外人删 404 双形态、422 三种、删任务级联清评论）。全量 465 passed（454 + 11），零残留；Docker 重建镜像后真实容器冒烟 6 项 PASS（/health → POST 201 → GET 列表 → DELETE 200 且写审计日志 → 删除后列表空 → 清理零残留）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

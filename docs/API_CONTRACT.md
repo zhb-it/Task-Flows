@@ -298,9 +298,9 @@ Request：
 - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}`
 
 ## Comment
-- POST `/api/v1/tasks/{task_id}/comments`
-- GET `/api/v1/tasks/{task_id}/comments`
-- DELETE `/api/v1/comments/{comment_id}`
+- POST `/api/v1/tasks/{task_id}/comments`（TASK-041）—— 发表评论。功能级 `comment:create`（admin/member 均持有）+ 资源级归属链（Service 校验，非成员/任务不存在 → 404 `Task not found` 防枚举）；请求体 `{content: str}`（1-2000，越界/缺失 → 422）；201 返回 `CommentRead`（`id/task_id/user_id/username/content/created_at/updated_at`）。§16 规则 1/2：须有任务访问权且评论属于任务。
+- GET `/api/v1/tasks/{task_id}/comments`（TASK-041）—— 评论列表。**功能级复用 `task:read`**（§6 权限清单无 comment:read，评论是任务一部分）+ 资源级归属链；`created_at` 升序（讨论时间线），分页 `skip`/`limit`（`le=100`）；响应 `list[CommentRead]`。
+- DELETE `/api/v1/comments/{comment_id}`（TASK-041）—— 删除评论。功能级 `comment:delete`（种子仅 admin）+ 资源级 **评论作者本人或任务所属团队 OWNER/ADMIN**（两者都不是 → 403 `Only team owner or admin or the comment author can delete comments`）；评论不存在/所属任务不在归属链 → 404 `Comment not found`（同文案防枚举）；**删除写 OperationLog**（§16 规则 4，`action=comment:delete`、`payload={task_id, comment_id}`，与删除同事务）。
 
 ## Attachment
 - POST `/api/v1/tasks/{task_id}/attachments`
