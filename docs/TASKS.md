@@ -56,7 +56,7 @@
 - [x] TASK-041 Comment
 - [x] TASK-042 Attachment
 - [x] TASK-043 上传/下载权限与安全校验
-- [ ] TASK-044 评论/附件测试
+- [x] TASK-044 评论/附件测试
 
 ## Phase 8：Redis 与 Celery
 - [ ] TASK-045 Redis 连接与 Key 约定
