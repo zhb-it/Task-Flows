@@ -313,8 +313,9 @@ Request：
 - PATCH `/api/v1/notifications/read-all`
 
 ## Logs
-- GET `/api/v1/logs`
-- GET `/api/v1/logs/{resource_type}/{resource_id}`
+- GET `/api/v1/logs` —— 操作审计日志（TASK-039）。功能级 `log:read`（admin/member 均持有）；**仅返回当前用户自己**的日志（资源级隔离，最小暴露面）；分页 `skip`/`limit`（`le=100`）；响应 `list[OperationLogRead]`：`id / user_id / resource_type / resource_id / action / payload(JSONB) / created_at`，按 `created_at DESC`。
+- GET `/api/v1/logs/{resource_type}/{resource_id}` —— 某资源的操作日志；功能级 `log:read` + **资源级归属校验**（task：调用者须在目标任务的团队链上，否则 404 防枚举；非 `task` 资源类型 → 404 暂不支持）；分页同 `GET /logs`。
+- 埋点：TASK-038 `POST /tasks/{task_id}/transition` 成功时，在同一事务内写入 `action=task:transition`、`payload={old_status, new_status}` 的日志（§15 示例字段）。
 
 ## Health
 - GET `/health`

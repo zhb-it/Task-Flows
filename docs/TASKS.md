@@ -49,7 +49,7 @@
 ## Phase 6：状态机与审计
 - [x] TASK-037 状态机规则
 - [x] TASK-038 Transition API
-- [ ] TASK-039 OperationLog
+- [x] TASK-039 OperationLog
 - [ ] TASK-040 状态机与审计测试
 
 ## Phase 7：评论与附件

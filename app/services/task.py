@@ -49,6 +49,7 @@ from app.schemas.task import (
     TaskTransitionCreate,
     TaskUpdate,
 )
+from app.services.operation_log import write_operation_log
 from app.services.state_machine import validate_transition
 from app.services.team import team_membership
 
@@ -273,9 +274,19 @@ async def transition_task(
     - 成功 → 更新 status 并返回任务（Router 组装 TaskRead + assignees）。
     """
     task = await _get_task_on_chain(db, user, task_id)
+    old_status = task.status
     validate_transition(TaskStatus(task.status), payload.to_status)
     task.status = payload.to_status.value
     updated = await update_task_crud(db, task)
+    #: 审计埋点（TASK-039）：同一事务内写入，业务回滚则日志不落库。
+    await write_operation_log(
+        db,
+        user_id=user.id,
+        resource_type="task",
+        resource_id=task.id,
+        action="task:transition",
+        payload={"old_status": old_status, "new_status": task.status},
+    )
     await db.commit()
     return updated
 

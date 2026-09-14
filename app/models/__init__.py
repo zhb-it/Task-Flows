@@ -14,6 +14,7 @@ from app.models.task import Task
 from app.models.task_assignee import TaskAssignee
 from app.models.team import Team
 from app.models.team_member import TeamMember
+from app.models.operation_log import OperationLog
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -27,6 +28,7 @@ __all__ = [
     "TaskAssignee",
     "Team",
     "TeamMember",
+    "OperationLog",
     "User",
     "UserRole",
 ]
