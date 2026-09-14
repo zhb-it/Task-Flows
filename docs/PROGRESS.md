@@ -7,7 +7,7 @@ In Progress
 Phase 6：状态机与审计
 
 ## Current Task
-TASK-039 OperationLog（已完成）
+TASK-040 状态机与审计测试（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -49,6 +49,7 @@ TASK-039 OperationLog（已完成）
 - [x] TASK-037 状态机规则
 - [x] TASK-038 Transition API
 - [x] TASK-039 OperationLog
+- [x] TASK-040 状态机与审计测试
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -58,7 +59,7 @@ TASK-039 OperationLog（已完成）
 - None
 
 ## Next
-TASK-040 状态机与审计测试（Phase 6 状态机与审计）
+TASK-041 Comment（Phase 7 评论与附件）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -95,6 +96,8 @@ TASK-037 完成状态机规则（Phase 6 首任务；纯规则层，无端点/�
 TASK-038 完成 Transition API（Phase 6；TASK-038 决策，用户确认：①请求体 `{"to_status": "<状态>"}`——字段名与 PATCH set 语义及 GET ?status= 过滤区分，非法值/缺失/null → 422；②功能级 `task:transition`（§6 权限清单专门项，种子仅 admin 持有）+ 资源级**任务所属团队成员即可**（协作式，与更新/分配同语义，区别于删除的 OWNER/ADMIN））。交付：app/schemas/task.py 增 TaskTransitionCreate、app/services/task.py 增 transition_task（_get_task_on_chain 404 契约 → validate_transition Service 层拦截 409 → 改 status → commit）、app/api/v1/tasks.py 挂载 POST /tasks/{task_id}/transition（200 返回更新后 TaskRead 含 assignees 内嵌；Decision 005 不破坏——PATCH 依旧不可触达 status）。新增 tests/test_task_transition_api.py 7 项 HTTP 端到端（合法前进链全链 + GET 复查持久化、三个非终态→CANCELLED、11 对非法流转矩阵 409 且 GET 证实状态不变、422 校验三种形态、member/无角色 403 同文案、局外人/不存在 404 防枚举、全局 admin+团队 MEMBER 协作式流转 200）。全量 442 passed（435 + 7），零残留；Docker 重建镜像后真实容器冒烟 11 项 PASS（register→授权→login→建链→TODO→IN_PROGRESS 200→回退/跨级 409→API+SQL 双通道清理→users/tasks/projects/teams 零残留）。
 
 TASK-039 完成 OperationLog 审计日志（Phase 6；TASK-039 决策，用户确认：①`operation_logs.user_id` **不加外键**——审计日志独立于用户生命周期，删用户后日志完整保留且不卡删除，user_id 仍 NOT NULL（每条日志由已认证用户产生）；②埋点范围 = **仅 transition**（协作式且 §15 payload 示例恰好对应流转，Phase 6 审计主题自洽，不跨未完成的创建/删除评论功能）；③日志查询授权 = **资源级隔离**——`GET /logs` 仅返回当前用户自己的日志，`GET /logs/{type}/{id}` 须验证用户对资源的归属权限）。交付：app/models/operation_log.py（id/user_id/resource_type/resource_id/action/payload JSONB/created_at；§15 三索引全落实——(resource_type,resource_id)、(user_id,created_at DESC)、GIN(payload)）+ 迁移 c5f8e1a2b3d4（已 `DATABASE_URL=...5433` upgrade head，information_schema/pg_indexes 实证 jsonb 列与三个索引）；app/crud/operation_log.py（flush-only：create/list_by_user/list_by_resource，按 created_at DESC 分页）；app/schemas/operation_log.py（OperationLogRead，payload 原样透传）；app/services/operation_log.py（write_operation_log 仅 flush 由调用方提交 + list_user_logs + list_resource_logs 资源级归属校验，非 task 类型/非成员 → 404 防枚举）；app/api/v1/logs.py（GET /logs、GET /logs/{resource_type}/{resource_id}，require_permission("log:read")，分页 skip/limit）注册进 api_router；app/services/task.py 的 transition_task 在同一事务内写 `action=task:transition` / `payload={old_status,new_status}` 审计行。新增 tests/test_operation_log_api.py 6 项 HTTP 端到端（transition 写日志且 GET /logs 与 GET /logs/task/{id} 均返回、资源级隔离只看自己、非成员 404、非 task 类型 404、分页 DESC、无 log:read 角色 403）。全量 448 passed（442 + 6），零残留；Docker 重建镜像后真实容器冒烟 5 项 PASS（/health → transition 200 → GET /logs payload 正确 → GET /logs/task/{id} 同条 → 清理零残留）。
+
+TASK-040 完成状态机与审计测试（Phase 6 收官；纯测试任务，未改应用代码，无迁移，无需重建镜像——同 TASK-020/025/030 先例）。先对开发文档 §35「Task 重点测试」（状态正常流转/非法状态流转/DONE 不允许回退）、§56 Phase 8「状态机」验收条款（状态枚举/transition API/Service 状态机/非法状态拦截/操作日志）、§55.3 链路（状态变更 → 写 OperationLog → 提交）逐条核对，确认 TASK-037/038/039 分散模块已覆盖细粒度规则与端点，补上此前缺失的**整合验收链路与事务原子性**：新增 tests/test_state_machine_audit_flow.py 6 项——①§56 Phase 8 完整链路演示（TODO→IN_PROGRESS→REVIEW→DONE 跑通 + DONE→TODO 被拒绝，规格原文两条）；②§35 状态正常流转（每跳 200 且持久化）；③§35 非法流转 + DONE 不回退（跨级/同状态/终态出边全 409 且状态不动）；④审计 ⇄ 状态一致性（三次成功流转 → 三条日志，old_status/new_status 与状态链严格衔接）；⑤被拒流转不产生日志；⑥**§55.3 事务原子性**（monkeypatch 让 write_operation_log 抛异常 → 任务状态一并回滚仍 TODO 且库中零日志，证明「状态变更 + 写日志 + 提交」同事务、不存在状态变了但没日志的不一致）。TESTING.md 增补「状态机与审计（TASK-040）」章节。全量 454 passed（448 + 6），零残留。Phase 6 状态机与审计全部收官。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
