@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Task 状态机规则（TASK-037，Phase 6 首任务）：纯规则层模块 app/services/state_machine.py——TRANSITIONS 流转表、TERMINAL_STATUSES 终态集合、can_transition 纯查询、validate_transition 校验、allowed_targets 白名单。**决策**：①仅严格前进（TODO→IN_PROGRESS→REVIEW→DONE），相邻回退与跨级跳转一律非法；②终态完全封死——DONE/CANCELLED 无任何出边（含 →CANCELLED），「任意状态→CANCELLED」限定为任意非终态；③非法流转（含同状态重复流转）→ 409 Conflict `Invalid status transition`；④独立模块，不依赖 DB/Session。TASK-038 transition API 消费本模块；status 仍不允许经普通 PATCH 修改（Decision 005）。tests/test_state_machine.py 29 项离线测试。纯规则模块未被端点 import，无需重建镜像。
 - TaskAssignee 多人分配（TASK-036，Phase 5 收官）：POST /api/v1/tasks/{task_id}/assignees（201，需 task:update + 归属链上团队成员即可——协作式可分配他人与自领；请求体 {user_id}；目标用户不存在或非任务所属团队成员 404 User not found 同文案、重复分配 409、任务不在归属链 404 Task not found）、DELETE /api/v1/tasks/{task_id}/assignees/{user_id}（200，授权同分配；目标非该任务负责人 404 Assignee not found）。**决策**：功能级用 task:update（分配是更新行为，不新增 seed 权限项）；TaskRead 内嵌 assignees [{user_id, username, assigned_at}]（创建/详情/列表/更新统一，批量 IN 查询避免 N+1，未分配恒空列表）；GET /tasks 增 assignee_id 负责人筛选。交付：app/models/task_assignee.py（复合主键 (task_id, user_id) 落实规格 §5 UNIQUE，assigned_by_id 最小审计推断设计）+ 迁移 b90b4cff0f64、app/crud/task_assignee.py（flush-only）、services/task.py 增 assign/unassign/assignees_map。tests/test_task_assignee_api.py 8 项 HTTP 端到端 + test_task_crud.py 字段集断言同步。全量 406 passed，零残留。
 
 ### Added

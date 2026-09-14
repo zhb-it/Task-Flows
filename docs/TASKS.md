@@ -47,7 +47,7 @@
 - [x] TASK-036 TaskAssignee 多人分配
 
 ## Phase 6：状态机与审计
-- [ ] TASK-037 状态机规则
+- [x] TASK-037 状态机规则
 - [ ] TASK-038 Transition API
 - [ ] TASK-039 OperationLog
 - [ ] TASK-040 状态机与审计测试

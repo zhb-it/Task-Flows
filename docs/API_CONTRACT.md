@@ -289,7 +289,7 @@ Request：
   - POST `/api/v1/tasks/{task_id}/assignees` → 201 `{data: {user_id, username, assigned_at}}`；请求体 `{user_id}`。目标用户不存在**或**不是任务所属团队成员 → 404 `User not found`（同文案防枚举）；目标已是负责人 → 409 `User already assigned to this task`；任务不在归属链 → 404 `Task not found`；无全局权限 → 403 `Permission denied: task:update`。`assigned_by` = 调用者（表内 `assigned_by_id`，最小审计）。
   - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}` → 200 `{data: null}`；授权同分配；目标非该任务负责人 → 404 `Assignee not found`。
   - GET `/api/v1/tasks` 增可选 `assignee_id` query 参数（负责人精确筛选，TASK-035 过滤家族扩展）；TaskRead 全端点（创建/详情/列表/更新）统一内嵌 `assignees`，删除任务时分配行随 FK CASCADE 清理。
-- POST `/api/v1/tasks/{task_id}/transition`
+- POST `/api/v1/tasks/{task_id}/transition` → **TASK-037 已定义状态机规则（TASK-038 端点消费）**——合法流转表（决策，用户确认）：仅严格前进 TODO→IN_PROGRESS→REVIEW→DONE + 非终态（TODO/IN_PROGRESS/REVIEW）→CANCELLED；**终态完全封死**（DONE/CANCELLED 无任何出边，含 →CANCELLED）；相邻回退（IN_PROGRESS→TODO、REVIEW→IN_PROGRESS）与跨级跳转非法；**非法流转（含同状态重复流转）→ 409 Conflict `Invalid status transition`**。规则落位 `app/services/state_machine.py`（TRANSITIONS / can_transition / validate_transition / allowed_targets），status 仍不允许经普通 PATCH 修改（Decision 005）。
 - POST `/api/v1/tasks/{task_id}/assignees`
 - DELETE `/api/v1/tasks/{task_id}/assignees/{user_id}`
 
