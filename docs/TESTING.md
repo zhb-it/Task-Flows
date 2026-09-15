@@ -326,5 +326,17 @@ pytest、pytest-asyncio、httpx。
 
 **测试写法要点**：HTTP 头的值在协议层是 latin-1 字节，Starlette 按 latin-1 解码——因此「客户端传非 ASCII」在中间件眼里是 latin-1 乱码。构造探针请求时必须把值按 **UTF-8** 编码成原始字节（忠实模拟线上），否则非 ASCII 用例会在构造阶段就抛 `UnicodeEncodeError`、**永远测不到这条路径**。
 
+## 生产 compose 契约（TASK-059）
+
+`tests/test_prod_compose.py` — **26 项**，全离线（**不启动 Docker**，CI 可直接跑）：解析 `docker-compose.prod.yml`，把「生产必须成立的性质」固化成断言。这类配置最容易被后续改动**静默**破坏——最典型的是「复制粘贴开发 compose」：一旦开发版把 5433/6389 发布到宿主、把 DB 密码当可选项的写法混进生产文件，数据库就直接暴露了，而当时不会有任何测试报警。
+
+- **文件与项目隔离（6 项）**：文件存在且可解析；顶层项目名 `taskflow-prod`（必须区别于开发栈——开发版无顶层 `name`，项目名回落为目录名，同名就会共用 `task-flow_postgres_data` 并连到开发库）；服务集合 = 开发栈四服务且**不含 nginx**（不越界做 TASK-060）；开发栈每个服务在生产都存在；不硬编码 `container_name`（否则与开发栈同名容器冲突且阻碍扩容）；本项目自建镜像用独立 tag 且非 `latest`（只比较带 `build:` 的服务——`postgres:16` / `redis:7` 是官方镜像，两套栈共用同一 tag 属正常）。
+- **端口暴露面（4 项）**：postgres / redis **没有 `ports`**（Redis 无认证、数据库不该对外）；app 端口以 `127.0.0.1:` 开头，且宿主端口可用 `${APP_PORT:-8000}` 覆盖（便于与开发栈并行验证）；**禁止 `env_file`**——宿主 `.env` 的 `DATABASE_URL` / `REDIS_URL` 指向 `127.0.0.1:5433` / `127.0.0.1:6389`，注入容器会覆盖 compose 里正确拼好的容器内地址（服务名），容器随即连不上任何东西，排查成本极高。
+- **生产环境变量（8 项）**：`APP_ENV=production` 且 `LOG_FORMAT` 默认仍为 `auto`（在 production 下解析为 JSON，§33）；`DEBUG=false`（关闭 SQL echo 与 FastAPI debug）；`LOG_REQUESTS` / `RATE_LIMIT_ENABLED` 为 true；两个必需密钥用 `${VAR:?}` 必填语法且**无 `:-默认值` 回落**（只在**非注释行**上检查——注释里解释「不要沿用 change-me」是合法的）；传给容器的每个环境变量名都能在 `Settings.model_fields` 中找到（拼错名字不会报错，只会静默按默认值运行，是「配置不生效」类故障的根源）；worker 与 app 的环境变量完全一致（锚点复用，防「改了 app 忘了改 worker」）；`.env.example` 含生产必填项。
+- **持久化与存储（3 项）**：三个状态卷都在顶层声明并被正确挂载（`postgres_data` / `redis_data` / `attachment_storage` → `/app/storage`）；**无宿主源码 bind mount**（生产镜像自带代码，挂宿主目录不可复现）；Redis `--appendonly yes`（Celery Broker 队列需跨重启存活）。
+- **运行保障（5 项）**：四服务都有健康检查；app / worker 的 `depends_on` 用 `service_healthy`（只等「启动」会让 app 在库就绪前连库失败）；`restart: always`；四服务都配容器日志轮转（`json-file` + `max-size` + `max-file`）；worker 有 `stop_grace_period` 且启动命令采用可配置并发 `${CELERY_CONCURRENCY:-4}`。
+
+**容器冒烟（真实 Docker，非 pytest）**：`docker compose -f docker-compose.prod.yml --env-file .env up -d --build` → 四服务 healthy；`docker port` 实证 app 只有 `127.0.0.1:18080->8000`、postgres / redis 无任何宿主端口；卷为 `taskflow-prod_*` 前缀，同时开发栈保持 healthy（两套栈并存互不影响）；`run --rm app alembic upgrade head` 迁移全部生效 → `/health` 返回 `env=production` / `database=up` / `redis=up`；注册 201 → 登录 200 → `/users/me` 200；容器日志为 §33 的 JSON 十字段（含 `request_id`、`user_id`，且无 SQL echo）；原始 socket 连接 `192.168.1.84:18080` **超时**（反证仅回环可达；用 socket 而非 urllib 是为了绕开环境代理）；`redis-cli config get appendonly` → `yes`；`down -v` 后生产容器与卷零残留、开发栈不受影响。另验证了两条**失败路径**：缺失 `POSTGRES_PASSWORD` / `JWT_SECRET_KEY` 时 compose 报 `required variable ... is missing a value` 且退出码为 1。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

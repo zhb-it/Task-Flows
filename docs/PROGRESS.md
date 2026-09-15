@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-059 Production Compose（Phase 10；§34 Request ID 已于 TASK-057 交付）
+TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；TASK-059 生产 compose 已交付，nginx 服务与 Gunicorn 启动命令在本 TASK 接入）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -68,6 +68,7 @@ TASK-059 Production Compose（Phase 10；§34 Request ID 已于 TASK-057 交付�
 - [x] TASK-056 结构化日志（JSON/文本按环境推导 + 出口脱敏 + 访问日志中间件，`tests/test_logging.py` 41 项，见 DECISIONS 037）
 - [x] TASK-057 Request ID（`X-Request-ID` 单一头 + 客户端值白名单校验 + 独立最外层中间件，`tests/test_request_id.py` 34 项，见 DECISIONS 038）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
+- [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml`：端口内外分离 + 密钥 fail-fast + 卷/项目名隔离，`tests/test_prod_compose.py` 26 项，见 DECISIONS 039）
 
 ## In Progress
 - [ ]
@@ -76,10 +77,11 @@ TASK-059 Production Compose（Phase 10；§34 Request ID 已于 TASK-057 交付�
 - None
 
 ## Next
-TASK-059 Production Compose（Phase 10；其后 TASK-060 Nginx/Gunicorn/Uvicorn、TASK-061 CI、TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
+TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；其后 TASK-061 CI、TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
+TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。
 TASK-019 完成后已重建 app 镜像，并在真实容器上端到端验证 `POST /api/v1/auth/logout`：有效 Token 对登出 → 200 且库中 jti `revoked=true`、之后 refresh 401（§56 Phase 3 验收）；重复登出/伪造签名/类别不符的 Refresh Token → 200 幂等无副作用；跨用户撤销 → 403 且对方 Token 不受影响；禁用账号 → 403；无 Authorization 头 → 401。验证后 users 与 refresh_tokens 两表均 0 行残留。
 TASK-020 为纯测试任务（未改应用代码，无需重建镜像）：§35 八项 Auth 测试要求逐条核对均有专项覆盖，新增 `tests/test_auth_flow.py` 5 项端到端验收链路测试（Phase 2 链路、Phase 3 链路、完整生命周期、三轮独立会话、OpenAPI 验收面），全量 143 passed。
 TASK-021 为纯模型任务（迁移属 TASK-022，无库表操作）：定义 `roles` / `permissions` / `user_roles` / `role_permissions` 四表 ORM（TASK-021 确认的推断设计已登记 DB_SCHEMA.md），新增 `tests/test_rbac_model.py` 22 项离线模型测试，全量 165 passed。
@@ -275,6 +277,26 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 **测试写法发现（非实现缺陷）**：HTTP 头值在协议层是 latin-1 字节、Starlette 按 latin-1 解码，故客户端传非 ASCII（`中文id`）在中间件眼里是 latin-1 乱码。初版测试辅助函数用 latin-1 编码值，遇非 ASCII 直接抛 `UnicodeEncodeError`——等于**永远测不到这条路径**。改为按 UTF-8 编码成原始字节（忠实模拟线上字节），白名单正好拦住这种乱码形态。
 
 **验证**：`tests/test_request_id.py` **34 passed**（0.47s，全离线）；全量 **747 passed**（713 + 34，零失败零错误）；纯工程增量、无端点行为变更。
+
+## TASK-059 完成 Production Compose（Phase 10 第三个任务）
+
+**范围界定**：按 §4 文件清单落地 `docker-compose.prod.yml`。nginx 服务 / `nginx/nginx.conf` / Gunicorn 启动命令属 TASK-060，**刻意不在本 TASK 引入**（规则 §13：只做当前 TASK）。无应用代码变更、无迁移、无新端点。
+
+**四项用户确认的决策（DECISIONS 039）**：①**独立完整文件**（非 `-f base -f prod` 覆盖式）——compose 对 `ports` 是拼接而非覆盖，无法用覆盖文件摘掉开发版发布的 5433/6389；②**端口内外分离**——postgres/redis 零宿主端口，app 只绑 `127.0.0.1:${APP_PORT:-8000}`；③必需密钥 `${JWT_SECRET_KEY:?}` / `${POSTGRES_PASSWORD:?}` **缺失即拒绝启动**；④nginx/Gunicorn 留 TASK-060。
+
+**配套生产化决策**：独立 compose 项目名 `taskflow-prod`（卷/网络/容器名带前缀，防在开发机上启动生产栈时连到开发库）；不设 `container_name`（与开发栈同名容器冲突且阻碍扩容）；`DEBUG=false`（关闭 SQLAlchemy echo 与 FastAPI debug）；容器日志轮转 10MB×3；Redis `--appendonly yes`（Celery Broker 队列需跨重启存活）；`restart: always` + worker `stop_grace_period: 30s`；**禁止 `env_file: .env`**（宿主 `.env` 的 DATABASE_URL/REDIS_URL 指向 127.0.0.1:5433/6389，注入容器会让容器连不上任何东西）。
+
+**本 TASK 暴露的既有缺口（已修）**：①本地 `.env` 缺 `POSTGRES_USER/PASSWORD/DB`——它一直供宿主运行使用，compose 靠默认值兜底，此前从未暴露，直到 `${VAR:?}` 才把它变成硬错误；②`.env.example` 补 `DEBUG` 与生产必填说明；③`requirements.txt` 补 `PyYAML`（compose 契约测试要解析 YAML，否则 TASK-061 的 CI 会缺包失败）。
+
+- `docker-compose.prod.yml`（新建）：四服务生产定义，共用 `x-app-environment` 锚点（app 与 worker 环境变量完全一致）+ `x-logging` 锚点。
+- `tests/test_prod_compose.py`（新建）：**26 项**（文件与项目隔离 6 / 端口暴露面 4 / 生产环境变量 8 / 持久化与存储 3 / 运行保障 5），全离线不启动 Docker。
+- `.env`、`.env.example`、`requirements.txt`、`docs/DEPLOYMENT.md`（生产栈操作手册：迁移/启动/换端口/拆除 + 约束清单）。
+
+**真实容器冒烟（Docker，非 pytest）**：`up -d --build` 后四服务 healthy；`docker port` 实证 app 仅 `127.0.0.1:18080->8000`、postgres/redis 无任何宿主端口；卷为 `taskflow-prod_*`（开发栈同时保持 healthy）；`run --rm app alembic upgrade head` → `/health` 返回 `env=production` / `database=up` / `redis=up`；注册 201 → 登录 200 → `/users/me` 200；容器日志为 §33 JSON 十字段（含 `request_id`、`user_id`，无 SQL echo）；原始 socket 连 `192.168.1.84:18080` 超时（反证仅回环可达）；`redis-cli config get appendonly` → `yes`；**失败路径**：缺 `POSTGRES_PASSWORD` / `JWT_SECRET_KEY` 时 compose 报 `required variable ... is missing a value` 且退出码 1；`down -v` 后容器与卷零残留。
+
+**验证**：`tests/test_prod_compose.py` **26 passed**（0.10s）；全量 **773 passed**（747 + 26，3m29s，零失败零错误）；开发库零残留。
+
+**问题与解决**：①三处首轮失败均为**测试写法缺陷**而非实现缺陷——镜像 tag 比较把官方镜像（postgres:16/redis:7）也算进去了（改为只比较带 `build:` 的服务）、`LOG_FORMAT` 在 compose 文件中是未插值的 `${LOG_FORMAT:-auto}`（改为断言默认值文本）、`change-me` 命中的是自己写的注释（改为只在非注释行上检查）。②端口 8080 被本机其他程序占用导致 app 起不来（`Bind for ... port is already allocated`），换 18080 后正常——这正好验证了 `${APP_PORT}` 覆盖设计的价值。③`urllib` 受环境代理影响，改用**原始 socket** 才得到可信的「仅回环可达」反证。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

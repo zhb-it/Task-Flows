@@ -262,4 +262,20 @@
 - 已知边界（有意接受）：未处理异常由 Starlette 的 `ServerErrorMiddleware` 渲染 500，而它在最外层**之外**，故该响应**没有** `X-Request-ID` 头（要修就得自己渲染 500，等于与框架的错误中间件重复）。这不影响 §34：该请求的日志里仍带着 request_id。已写成测试固化这个边界。
 - 测试发现（非实现缺陷，但暴露了测试写法的失真）：HTTP 头的值在协议层是 **latin-1** 字节并由 Starlette 按 latin-1 解码，因此「客户端传 `中文id`」在中间件眼里是一串 latin-1 乱码（`ä¸æ–‡id`）。初版测试辅助函数用 latin-1 编码值，遇到非 ASCII 直接抛 `UnicodeEncodeError`——等于**永远测不到这条路径**。改为按 UTF-8 编码为原始字节（忠实模拟线上字节），白名单正好拦住这种乱码形态。
 
+## Decision 039：生产 compose 用独立完整文件 + 端口内外分离 + 密钥 fail-fast（用户确认，TASK-059）
+- Problem：§4 文件清单要求 `docker-compose.prod.yml`，但开发文档只定义了**开发环境** compose（§29：postgres/redis/api/celery_worker，nginx 可选）与「生产推荐 Client→Nginx→Gunicorn+Uvicorn Worker」（§31），没有规定生产 compose 的形态与约束：①独立完整文件还是覆盖文件？②哪些端口对宿主暴露？③必需密钥缺失时怎么办？④nginx 是否在本 TASK 引入？
+- Decision（四项经用户确认）：①**独立完整文件**（不采用 `-f docker-compose.yml -f docker-compose.prod.yml` 覆盖式），单独 `-f docker-compose.prod.yml` 启动；②**端口内外分离**——postgres / redis **完全不发布宿主端口**，app 只绑 `127.0.0.1:${APP_PORT:-8000}`（对外暴露由 TASK-060 的 Nginx 承担）；③必需密钥（`JWT_SECRET_KEY`、`POSTGRES_PASSWORD`）用 `${VAR:?}` 必填语法，**未设置或为空即拒绝启动**；④nginx / Gunicorn / Uvicorn worker 留给 TASK-060，本 TASK 只做四服务的生产化。
+- Reason：①compose 的合并语义对 `ports` 是**拼接而非覆盖**，因此「用覆盖文件删掉开发版发布的 5433/6389」做不到——那会让生产库直接暴露在宿主上；独立文件才能保证暴露面可控，代价是四服务定义要维护两份。②Redis 未配 `requirepass`、数据库也不该对外，发布端口等于敞开；app 绑回环既符合「只有 Nginx 对外」的拓扑，又让本 TASK 仍能直接冒烟（用 `APP_PORT` 避开开发栈占用的 8000）。③生产最怕的不是启动失败，而是**带着 `change-me` 默认密钥静默上线**（等于公开 Token 签发权），`${VAR:?}` 把配置缺失变成启动期硬错误。④规则 §13：一次只执行当前 TASK。
+- 同一 TASK 内的配套决策（都与「生产真实性」直接相关）：
+  - **独立 compose 项目名 `taskflow-prod`**：卷 / 网络 / 容器名都带前缀。开发版没有顶层 `name`，项目名回落为目录名——若生产沿用同名，在开发机上启动生产栈会连到 `task-flow_postgres_data`（开发库），是最危险的一类「看起来正常」的串用。
+  - **不设 `container_name`**：固定容器名既与开发栈同名容器冲突，也阻碍扩容。
+  - **`DEBUG=false`**：`Settings.debug` 同时驱动 SQLAlchemy `echo` 与 FastAPI debug，生产开着会把每条 SQL 写进日志（§9 敏感日志）。
+  - **容器日志轮转**（json-file `max-size=10m` / `max-file=3`）：不轮转的容器日志会一直增长到写满宿主磁盘。
+  - **Redis 开启 AOF**（`--appendonly yes`）：Redis 同时是 Celery Broker（§21），不持久化则容器重启即丢队列中的任务。
+  - **`restart: always`**（开发版是 `unless-stopped`）+ **`stop_grace_period: 30s`**：给在途请求 / 任务收尾时间；任务本身幂等（TASK-051 / §24），即使超时被强杀，重投也无重复副作用。
+  - **禁止 `env_file: .env`**：宿主 `.env` 的 `DATABASE_URL` / `REDIS_URL` 指向 `127.0.0.1:5433` / `127.0.0.1:6389`（宿主端口），注入容器会覆盖掉 compose 里正确拼好的容器内地址（服务名 `postgres` / `redis`），容器将连不上任何东西。已写成测试禁掉。
+- 同步修正的既有缺口（本 TASK 暴露）：本地 `.env` 缺 `POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB`——它一直供**宿主机**运行使用，compose 靠默认值兜底，所以此前从未暴露；生产 compose 要求它必须有值。`.env.example` 补 `DEBUG` 项与生产必填说明；`requirements.txt` 补 `PyYAML`（生产 compose 契约测试要解析 YAML，否则 TASK-061 的 CI 会因缺包失败）。
+- Trade-off：生产栈与开发栈的服务定义有两份，存在漂移风险；已用 `tests/test_prod_compose.py` 的「生产服务集合 = 开发服务集合 + 生产化约束」交叉校验兜住。
+- 已知边界（有意接受）：`${VAR:?}` 只能拦「未设置 / 为空」，**拦不住「设置成了弱值」**（例如把 `POSTGRES_PASSWORD` 填成 `postgres`）。后者靠部署文档与 `.env.example` 提示；若要强制，需要在应用启动时做密钥强度校验，不在本 TASK 范围。
+
 

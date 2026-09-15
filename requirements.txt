@@ -23,6 +23,8 @@ pwdlib[argon2]==0.3.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx==0.28.1
+# 生产 compose 契约测试（TASK-059）解析 YAML 用；CI 从本文件安装依赖。
+PyYAML==6.0.3
 
 # Production server
 gunicorn==26.2.0

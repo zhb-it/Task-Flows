@@ -1,0 +1,161 @@
+# TaskFlow Pro — 生产环境 Compose（TASK-059；开发文档 §4 文件清单 / §29–§31 / §33）
+#
+# 用法
+#   1) 首次部署先执行迁移（容器不会自动迁移）：
+#        docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
+#   2) 启动：
+#        docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#   3) 本地与开发栈并行验证时，用 APP_PORT 换一个宿主端口：
+#        APP_PORT=8080 docker compose -f docker-compose.prod.yml --env-file .env up -d
+#
+# 与开发版 `docker-compose.yml` 的差异（理由见 DECISIONS 039）
+#   1. 独立 compose 项目名 `taskflow-prod`：网络与数据卷与开发栈完全隔离，
+#      避免在生产 compose 上启动时连到开发库 / 复用开发卷这类串用事故。
+#   2. postgres / redis **不向宿主发布端口**；app 只绑宿主回环 127.0.0.1
+#      （对外暴露由 TASK-060 的 Nginx 承担）。
+#   3. 必需密钥用 ${VAR:?} 必填语法：未设置或为空时 compose 直接拒绝启动，
+#      不会静默沿用开发默认值。
+#   4. APP_ENV=production → §33 自动切到结构化 JSON 日志；DEBUG=false →
+#      关闭 SQLAlchemy echo（否则每条 SQL 都会写进容器日志）。
+#   5. 容器日志轮转（json-file max-size / max-file）：不轮转的容器日志会一直
+#      增长，最终写满宿主磁盘。
+#   6. Redis 开启 AOF：Celery 的 Broker 队列与限流 / 黑名单状态需要跨重启存活。
+#
+# 尚未包含：nginx / Gunicorn / Uvicorn worker 属 TASK-060，届时在本文件新增
+# `nginx` 服务，并把 app 的启动命令从 uvicorn 切到 Gunicorn。
+
+# 独立的 compose 项目名 → 容器、网络、卷都带 `taskflow-prod` 前缀。
+name: taskflow-prod
+
+# app 与 celery_worker 共用同一套环境变量。用锚点复用而不是复制两份，
+# 避免「改了 app 忘了改 worker」导致两者行为不一致（§29 同镜像同配置）。
+x-app-environment: &app-environment
+  APP_ENV: production
+  # 生产不允许暴露调试信息（SQL echo / FastAPI debug）。
+  DEBUG: "false"
+  # 容器内用 compose 服务名访问，而不是宿主的 127.0.0.1:5433。
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the env file}@postgres:5432/${POSTGRES_DB:-taskflow}
+  REDIS_URL: redis://redis:6379/0
+  # 必填且无默认值：生产沿用开发默认密钥（change-me）等于把 Token 签发权公开。
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in the env file - do not reuse the development default}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  # 附件存储（§17）：命名卷保证重建容器不丢已上传文件。
+  UPLOAD_DIR: /app/storage
+  MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-10485760}
+  # 日志（§33）：LOG_FORMAT=auto 在 APP_ENV=production 下即 JSON。
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-auto}
+  LOG_REQUESTS: "true"
+  # 限流（§22）：生产必须开启。
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
+  RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+
+# 容器日志轮转：开发机磁盘小，不轮转的 json-file 日志会持续增长。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # 生产镜像用独立 tag：开发栈重建 `taskflow-app:latest` 不会顺手改掉生产镜像。
+    image: taskflow-app:prod
+    environment:
+      <<: *app-environment
+    volumes:
+      - attachment_storage:/app/storage
+    # 只绑宿主回环：Nginx（TASK-060）在宿主或容器内反代，外部无法直连该端口。
+    # 若部署拓扑中 Nginx 是宿主进程，这里保持回环即可；容器内反代见 TASK-060。
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging: *default-logging
+    restart: always
+    # 默认 10s 会截断在途请求；30s 给正在处理的请求收尾时间。
+    stop_grace_period: 30s
+
+  # Celery worker（§23 / §29）：与 app 同镜像，仅覆盖启动命令。
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: taskflow-app:prod
+    command:
+      ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    environment:
+      <<: *app-environment
+    volumes:
+      - attachment_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # inspect ping：向所有 worker 节点发控制消息，无节点应答时非零退出。
+      test: ["CMD", "celery", "-A", "app.tasks.celery_app", "inspect", "ping", "--timeout", "10"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+    restart: always
+    # worker 收到 SIGTERM 会走 warm shutdown（等当前任务结束）。任务本身幂等
+    # （TASK-051 / §24），因此即使超时被强杀，重投也不会产生重复副作用。
+    stop_grace_period: 30s
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the env file}
+      POSTGRES_DB: ${POSTGRES_DB:-taskflow}
+    # 刻意不发布端口：数据库只在 compose 网络内可达（外部连不上 5432）。
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-taskflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+    restart: always
+
+  redis:
+    image: redis:7
+    # AOF：Broker 队列（§21）与限流 / 黑名单状态需要跨容器重启存活；
+    # 否则重启后队列中的任务与已撤销状态一起消失。
+    command: ["redis-server", "--appendonly", "yes"]
+    # 同样不发布端口：Redis 没有认证，暴露到宿主等于敞开。
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging: *default-logging
+    restart: always
+
+volumes:
+  postgres_data:
+  redis_data:
+  attachment_storage:
