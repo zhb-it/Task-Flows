@@ -145,10 +145,12 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 | due_at | TIMESTAMPTZ | 可空 |
 | created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
 | updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now()，更新时刷新 |
+| search_vector | TSVECTOR | 可空，**DB 端生成列**（TASK-064，规格 §14）：`GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title,'') \|\| ' ' \|\| coalesce(description,''))) STORED`。应用**只读不写**（ORM 侧 `Computed`，SQLAlchemy 自动把它排除在 INSERT/UPDATE 之外） |
 
 - **无 assignee 列**：多人分配由 `task_assignees`（TASK-036）承担，`UNIQUE(task_id, user_id)`（规格 §5）。
 - **索引（DB_SCHEMA「Task 索引」清单）**：复合 `(project_id, status)`、`(creator_id)`、`due_at` 部分索引 `WHERE status IN ('TODO','IN_PROGRESS','REVIEW')`（仅未完成/未取消任务）。
-- 迁移：`migrations/versions/6f1cfcc35abe_create_tasks_table.py`（autogenerate，pg_constraint / pg_indexes / information_schema 实证双 CHECK、双 CASCADE、部分索引谓词）。
+- **搜索索引（TASK-064，规格 §14）**：`GIN (title gin_trgm_ops)`（`ix_tasks_title_trgm`，需 `pg_trgm` 扩展）与 `GIN (search_vector)`（`ix_tasks_search_vector`）。前者让 `keyword` 的 `ILIKE '%x%'` 走索引（B-tree 对非锚定模式无效）；后者支撑全文检索。`keyword` 查询语义**未变**——仍是标题 ILIKE，见 `docs/API_CONTRACT.md`。
+- 迁移：`migrations/versions/6f1cfcc35abe_create_tasks_table.py`（autogenerate，pg_constraint / pg_indexes / information_schema 实证双 CHECK、双 CASCADE、部分索引谓词）；`migrations/versions/6765bdcfa73e_add_task_search_indexes_and_search_vector.py`（TASK-064，`CREATE EXTENSION pg_trgm` + 生成列 + 两个 GIN 索引）。
 
 ## 任务分配表（TASK-036 已实现）
 规格 §5 硬约束 `UNIQUE(task_id, user_id)` 由**复合主键**天然落实。源文档未定义该表字段，`assigned_by_id` 为 TASK-036 推断设计（最小审计——记录谁做的分配，追溯由 OperationLog TASK-039 承担）：
@@ -226,12 +228,14 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - `(project_id, status)`
 - `(creator_id)`
 - `due_at` 部分索引：未完成/未取消任务
+- `GIN (title gin_trgm_ops)`（TASK-064）：模糊匹配索引，`ILIKE '%x%'` 可用
+- `GIN (search_vector)`（TASK-064）：全文检索索引
 
 ## PostgreSQL 能力
 - JSONB：OperationLog payload
 - GIN：JSONB 与搜索
-- pg_trgm：标题模糊搜索
-- tsvector：任务标题+描述全文搜索
+- pg_trgm：标题模糊搜索（TASK-064 已实现——`CREATE EXTENSION pg_trgm` + `ix_tasks_title_trgm`）
+- tsvector：任务标题+描述全文搜索（TASK-064 已实现——`tasks.search_vector` 生成列 + `ix_tasks_search_vector`；注意 `'simple'` 配置**不做中文分词**，故 `keyword` 仍走 `ILIKE`，见 DECISIONS 045）
 
 ## 注意
 具体字段类型、级联策略和全部索引在实现对应 Model 时逐项确认，不凭空增加字段。

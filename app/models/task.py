@@ -14,6 +14,7 @@
         due_at       （可空）
         created_at
         updated_at
+        search_vector （TASK-064：DB 端生成的全文检索列，§14）
 
 Decisions confirmed for TASK-031:
 
@@ -38,6 +39,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -45,6 +47,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -72,6 +75,18 @@ class TaskPriority(enum.StrEnum):
 #: 未完成/未取消（due_at 部分索引的谓词，与 DB_SCHEMA「Task 索引」一致）。
 OPEN_STATUSES = (TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW)
 
+#: 全文检索列的生成表达式（开发文档 §14 原文）。
+#:
+#: 用**两参数**形式 `to_tsvector(regconfig, text)` 而非 `to_tsvector(text)`：
+#: 只有前者是 IMMUTABLE，`GENERATED ... STORED` 才接受它（单参数形式是 STABLE）。
+#: `'simple'` 配置不做词干还原、也**不做中文分词**——中文短语会成为单个 token，
+#: 因此该列对中文内容的检索能力有限，这是刻意按 §14 原文实现并已知的边界
+#: （见 DECISIONS 045）。
+SEARCH_VECTOR_SQL = (
+    "to_tsvector('simple', "
+    "coalesce(title, '') || ' ' || coalesce(description, ''))"
+)
+
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -90,6 +105,17 @@ class Task(Base):
             "due_at",
             postgresql_where="status IN ('TODO', 'IN_PROGRESS', 'REVIEW')",
         ),
+        # TASK-064（开发文档 §14）：pg_trgm 模糊匹配索引，让 keyword 的
+        # `ILIKE '%x%'` 从顺序扫描变成索引扫描（B-tree 对 `%...%` 无效）。
+        # 需要 `CREATE EXTENSION pg_trgm` 先存在——由迁移显式创建。
+        Index(
+            "ix_tasks_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        # 全文检索列的 GIN 索引（列定义见下方 `search_vector`）。
+        Index("ix_tasks_search_vector", "search_vector", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -126,6 +152,16 @@ class Task(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+    #: 全文检索列（TASK-064，开发文档 §14 / DB_SCHEMA「PostgreSQL 能力」）。
+    #:
+    #: 由 **DB 端生成**（`GENERATED ALWAYS AS (<SEARCH_VECTOR_SQL>) STORED`），
+    #: 应用层只读不写——`Computed` 让 SQLAlchemy 自动把它排除在 INSERT/UPDATE
+    #: 之外，无需 Service 层配合。声明在 ORM 里是为了让 `alembic
+    #: revision --autogenerate` 的 diff 保持干净（否则它会被当成「库里多出来的
+    #: 列」而生成一条 drop_column）。
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True), nullable=True
     )
 
     def __repr__(self) -> str:

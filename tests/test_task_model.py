@@ -82,6 +82,8 @@ def test_tasks_column_set():
         "due_at",
         "created_at",
         "updated_at",
+        # TASK-064 新增：DB 端生成的全文检索列（§14 / DB_SCHEMA「PostgreSQL 能力」）。
+        "search_vector",
     }
 
 

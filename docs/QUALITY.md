@@ -19,13 +19,15 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 956 passed
-pytest -q --cov --cov-report=term-missing   # 956 passed，并输出下表
+pytest -q                                  # 982 passed
+pytest -q --cov --cov-report=term-missing   # 982 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-- **956 个用例全部通过**，0 failed / 0 error / 0 skipped（59 个测试文件，869 个
-  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **3m13s**。
+- **982 个用例全部通过**，0 failed / 0 error / 0 skipped（61 个测试文件，895 个
+  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m18s**。
+  （TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*` / 约 3m13s；
+  TASK-064 新增两个模块共 26 项，见 1.2 节末的更新说明。）
 - 覆盖率配置在 `pyproject.toml` 的 `[tool.coverage.*]`（`source = ["app"]`、
   `branch = true`），**CI 不传 `--cov`、不设阈值**——这是 TASK-062 的确认决策
   （见第 8 节 D6）。
@@ -38,12 +40,18 @@ ruff check .                               # All checks passed!
 | `app/core`（配置/安全/中间件/日志） | 441 | 0 | 108 | 100% |
 | `app/crud` | 343 | 0 | 26 | 100% |
 | `app/db`（engine / session / redis） | 38 | 0 | 8 | 100% |
-| `app/models` | 238 | 0 | 0 | 100% |
+| `app/models` | 241 | 0 | 0 | 100% |
 | `app/schemas` | 91 | 0 | 0 | 100% |
 | `app/services` | 724 | 1 | 180 | 99.86% |
 | `app/tasks`（Celery） | 177 | 0 | 32 | 100% |
 | `app/main.py` | 47 | 0 | 0 | 100% |
-| **TOTAL** | **2373** | **1** | **358** | **99.96% 行 / 100% 分支** |
+| **TOTAL** | **2376** | **1** | **358** | **99.96% 行 / 100% 分支** |
+
+> **TASK-064 更新（2026-09-15）**：上表数字已是 TASK-064 完成后的实测值（`models` 由
+> 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与 `SEARCH_VECTOR_SQL`
+> 常量；总语句 2373 → 2376）。用例总数 **956 → 982**（新增 `test_task_search_indexes.py`
+> 14 项 + `test_docs_consistency.py` 12 项）。未覆盖行数与分支数**未变**——新代码
+> 全部被覆盖。TASK-062 完成当时的基线是 956 passed / 2373 语句。
 
 **唯一的未覆盖行**：`app/services/attachment.py:179`——`_UploadReader.readable()`
 返回 `True`。这是 starlette `UploadFile` 协议要求的**纯声明式**方法（无分支、无
@@ -52,7 +60,7 @@ ruff check .                               # All checks passed!
 
 **双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 16 个模型
 里 `__repr__` 的 **32 条语句**排除在分母外。若把它们计入，数字是
-**2405 语句 / 33 未覆盖 / 98.63% 行**。之所以排除，是因为它们无业务语义；之所以
+**2408 语句 / 33 未覆盖 / 98.63% 行**。之所以排除，是因为它们无业务语义；之所以
 在此写明，是因为「99.96%」这个数字**依赖于该配置**——不披露就是误导。
 
 ---
@@ -88,15 +96,15 @@ Notification / Redis 限流 / Celery——每一项都有对应的迁移、Servi
 
 | 要求 | 结论 | 证据 |
 | --- | --- | --- |
-| PostgreSQL / Alembic | ✅ | 13 个迁移；`tests/test_alembic.py` + CI 的「迁移可逆性」三步（`upgrade → downgrade base → upgrade`，`set -euo pipefail`） |
+| PostgreSQL / Alembic | ✅ | 14 个迁移；`tests/test_alembic.py` + CI 的「迁移可逆性」三步（`upgrade → downgrade base → upgrade`，`set -euo pipefail`） |
 | Foreign Key | ✅ | 迁移里逐表声明；`ON DELETE CASCADE` 用于纯从属表，`RESTRICT` 用于主体链 |
 | Unique Constraint | ✅ | 如 `uq_team_members_team_user`、`task_assignees` 复合主键、`attachments.storage_path` |
 | CHECK Constraint | ✅ | 如 `ck_team_members_role_id`、Task status / priority 枚举 |
-| GIN | ✅ | `ix_operation_logs_payload`（`postgresql_using='gin'`，JSONB） |
+| GIN | ✅ | `ix_operation_logs_payload`（JSONB）、`ix_tasks_title_trgm`、`ix_tasks_search_vector` |
 | JSONB | ✅ | `operation_logs.payload`、`operation_logs_archive.payload` |
 | 合理索引 | ✅ | `ix_tasks_project_id_status`、`ix_tasks_due_at_open`（部分索引 `WHERE status IN (...)`）、`ix_comments_*`、`ix_attachments_*`、`ix_notifications_user_*` 等 |
-| **pg_trgm** | ❌ **未实现** | 见第 8 节 D5 |
-| **tsvector** | ❌ **未实现** | 见第 8 节 D5 |
+| **pg_trgm** | ✅ **已实现（TASK-064）** | `CREATE EXTENSION pg_trgm` + `ix_tasks_title_trgm`（`GIN (title gin_trgm_ops)`）；`EXPLAIN` 实证 `ILIKE '%x%'` 由顺序扫描转为 `Bitmap Index Scan`。原为 TASK-062 记录的缺口，见第 8 节 D5 |
+| **tsvector** | ✅ **已实现（TASK-064）** | `tasks.search_vector`（`GENERATED ALWAYS AS (to_tsvector('simple', title ‖ ' ' ‖ description)) STORED`）+ `ix_tasks_search_vector`。**注意**：`'simple'` 配置不做中文分词，故 `keyword` 查询仍走 `ILIKE`（见 D5 与 DECISIONS 045） |
 
 ### 3.3 工程化（9 项）—— 全部 ✅
 
@@ -269,7 +277,9 @@ GitHub Actions（`.github/workflows/ci.yml`，三 job） / README / `.env.exampl
 只会多一层适配而无收益。`test_quality_checks.py` 把豁免**白名单化**——除
 `UploadFile` 之外的任何 fastapi 名字出现在 Service 层都会让测试变红。
 
-### D5 §57「数据库」清单里的 `pg_trgm` 与 `tsvector` **未实现**
+### D5 §57「数据库」清单里的 `pg_trgm` 与 `tsvector` —— **原为未实现，已由 TASK-064 补齐**
+
+**TASK-062 当时的记录（保留，不改写历史）：**
 
 - §57 的数据库清单列了 `pg_trgm`，`docs/DB_SCHEMA.md` 另列了 `tsvector`（任务标题+描述
   全文搜索）。**两项在当前迁移中都不存在**（实测全仓库 0 处引用，仅出现在文档里）。
@@ -277,11 +287,34 @@ GitHub Actions（`.github/workflows/ci.yml`，三 job） / README / `.env.exampl
   没有 trigram 索引，也没有 `tsvector` 列/GIN 索引。
 - **影响**：功能上可用（模糊搜索能搜到），**性能上随 tasks 增长线性劣化**——`ILIKE '%x%'`
   无法用 B-tree 索引，走顺序扫描。
-- **处置**：本轮**未实现**（TASK-062 的定位是测试与质量检查，不是加特性；擅自新增
-  schema 变更与迁移会扩大本次改动面）。此处**明确记录为未完成项**，并建议后续单开一个
-  TASK：`CREATE EXTENSION pg_trgm` + `GIN (title gin_trgm_ops)`，或加 `search_vector`
-  `tsvector` 生成列 + GIN 索引。
-- 已同步在 `docs/TASKS.md` 的 TASK-062 条目中标记为遗留项。
+- **处置**：TASK-062 **未实现**（该轮的定位是测试与质量检查，不是加特性；擅自新增
+  schema 变更与迁移会扩大改动面），明确记录为未完成项并建议后续单开一个 TASK。
+
+**TASK-064 的处置（已实现）：**
+
+- 迁移 `migrations/versions/6765bdcfa73e_add_task_search_indexes_and_search_vector.py`：
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm`（先于建索引，`gin_trgm_ops` 由扩展提供）
+  + `ix_tasks_title_trgm`（`GIN (title gin_trgm_ops)`）
+  + `tasks.search_vector`（`GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title,'')
+  || ' ' || coalesce(description,''))) STORED`）+ `ix_tasks_search_vector`（`GIN`）。
+- **性能缺口关闭**：`EXPLAIN` 实证 `ILIKE '%login%'` 的执行计划由顺序扫描变为
+  `Bitmap Index Scan on ix_tasks_title_trgm`；中文模式 `'%登录缺陷%'` 同样走该索引。
+- **`keyword` 查询语义不变**（仍是标题 `ILIKE`，`docs/API_CONTRACT.md` 零改动）——
+  **不是**改写成 `search_vector @@ tsquery`。理由：`'simple'` 配置不做中文分词，
+  `'修复登录缺陷'` 会成为一个**单独 token**，`to_tsquery('simple','登录')` 命中 0 条，
+  而 `ILIKE '%登录%'` 命中 1 条；本项目内容是中文，切过去会让子串检索**静默失效**。
+  该边界由 `tests/test_task_search_indexes.py::test_chinese_substring_matches_ilike_but_not_the_full_text_index`
+  双向断言固化（见 DECISIONS 045）。
+- 证据：`tests/test_task_search_indexes.py`（14 项，覆盖离线声明层 / 真实落库层 /
+  执行计划层 / 中文边界 / keyword 语义未变）；`pg_extension` 有 `pg_trgm 1.6`；
+  `information_schema` 显示 `is_generated='ALWAYS'`、`data_type='tsvector'`；
+  `pg_indexes` 显示 `USING gin (title gin_trgm_ops)` 与 `USING gin (search_vector)`；
+  迁移在一次性探针库上完成 CI 等价的 `upgrade → downgrade base → upgrade` 往返。
+- **遗留的、已披露的能力边界**：`'simple'` 配置对英文只做小写化、不做词干还原
+  （`login` 与 `logins` 不互相命中），中文无分词；要更强能力需引入 `zhparser` /
+  `pg_jieba` 等外部扩展，本轮**刻意不引入**（规则 §6「不要为了炫技增加数据库高级功能」）。
+  `keyword` 因此仍以 `ILIKE` 为准，`search_vector` 是**已可用的全文检索能力**而非
+  keyword 的实现路径。
 
 ### D6 覆盖率**不设 CI 门禁**（有意为之）
 
@@ -292,6 +325,22 @@ CI 的 pytest job **不传 `--cov`**，也不设 `fail_under`。理由：本次�
 ### D7 唯一未覆盖行
 
 `app/services/attachment.py:179`（`_UploadReader.readable()`）。属第 1.2 节的刻意排除项。
+
+### D8 进度文档的一致性原先只靠人工核验（已由 TASK-064 转为 CI 断言）
+
+- **问题**：`docs/PROGRESS.md` 的回写**四次**出现「编辑报成功但内容没落盘」
+  （TASK-048 / 049 / 051 / 062），表现是 `## Current Task` 更新了、`## Completed` 与
+  `## Next` 停在上一轮。这类缺失不报错、不影响任何测试，唯一的表现是文档说谎；
+  两次是提交后人工核验才发现。
+- **处置**：新增 `scripts/check_docs.py`（可手动执行的一致性检查，退出码 0/1）与
+  `tests/test_docs_consistency.py`（12 项）——后者让 **CI 的 pytest 自动拦截**。
+  校验的不变量含：`## Completed` 与 `docs/TASKS.md` 的勾选集合/顺序一致、
+  **`## Completed` 最后一条 == `## Current Task`**、`## Next` == 第一个未勾选任务、
+  `## Current Phase` 与当前任务所属 Phase 一致。
+- **不空转的保证**：测试用**合成文档**构造 9 种矛盾，断言检查器真的会报出来——
+  一个「永远返回空列表」的假检查器也能让「仓库文件一致」那条断言通过。
+- **取舍**：纯文档问题从此也会让 CI 变红。这是有意的——该问题的历史成本（四次静默
+  说谎、两次靠人发现）高于偶尔一次红的打扰（见 DECISIONS 045）。
 
 ---
 

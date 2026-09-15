@@ -395,7 +395,7 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 - `pytest-cov==7.1.0` 进 `requirements-dev.txt`（**不进** `requirements.txt`：那是 Dockerfile 装进生产镜像的文件）。与 ruff 同样的问题——本机 PyPI 清华镜像没有它，安装需指定官方源 + 代理。
 - 配置在 `pyproject.toml`：`[tool.coverage.run]`（`source = ["app"]`、`branch = true`）+ `[tool.coverage.report]`（`show_missing = true`、`exclude_also = ["def __repr__"]`）。**CI 不传 `--cov`、不设 `fail_under`**——本轮测量的目的是「找出值得补的分支」，而不是维持一条数字线；设阈值会催生为达标而写的空测试（Phase 14 明确告诫）。
 - 命令：`pytest -q --cov --cov-report=term-missing`。
-- **基线（2026-09-15）**：**956 passed**，全量 2373 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2405 / 33 / **98.63%**。
+- **基线（2026-09-15）**：**982 passed**，全量 2376 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2408 / 33 / **98.63%**。（TASK-062 完成当时为 956 passed / 2373 语句；TASK-064 新增两个模块共 26 项后为当前值，`models` 层 +3 语句来自 `search_vector` 列与 `SEARCH_VECTOR_SQL`。）
 - 唯一未覆盖行是 `app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法），属**刻意不测**（为数字而测无业务价值的代码被 Phase 14 明令禁止）。
 
 ### 新增测试模块（4 个，80 个用例）
@@ -409,6 +409,44 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 
 - **开发库零残留复核**：全量运行后用 SQL 直查 13 张业务表，**全部 0 行**。该复核**发现并修复了一处此前未被察觉的污染**——`operation_logs.user_id` 刻意无外键（TASK-039 决策：审计日志要比用户活得久），因此不会被 `delete(User)` 级联清理。残留 507 行（全为 `task:transition`）；逐文件测量进一步定位到**三个**泄漏源：`tests/test_task_transition_api.py`（主犯）、`tests/test_notification_api.py`（每轮 2 行）、`tests/test_notification_e2e.py`（每轮 1 行）。三者 teardown 已补齐并清空存量孤儿行，复测均 leaked=0（见 DECISIONS 044）。
 - **`ruff check .`** → `All checks passed!`（exit 0，与 CI 的 lint job 同一条命令）。
+
+## 任务搜索索引与全文检索列（TASK-064）
+
+落实开发文档 §14 / §57 的 `pg_trgm` 与 `tsvector`。完整决策与踩坑记录见 `docs/DECISIONS.md` 的 Decision 045。
+
+### 三层断言（`tests/test_task_search_indexes.py`，14 项）
+
+「加了一个索引」与「索引真的被用上」是两件事，所以分三层钉：
+
+1. **离线声明层**（不需数据库）：生成列是 `persisted=True` 的 `Computed` 且表达式含 `to_tsvector('simple'` 与 title/description 两侧；`insert(Task).values(...)` 的编译结果**不含** `search_vector`（应用只读的静态保证）；两个索引在 Model 上声明为 GIN、其中 title 带 `gin_trgm_ops`。
+2. **真实落库层**：`pg_extension` 有 `pg_trgm`；`information_schema` 显示该列 `data_type='tsvector'` 且 `is_generated='ALWAYS'`；`pg_indexes` 定义含 `USING gin (search_vector)` 与 `gin_trgm_ops`；插入任务后 DB 自动填充向量且 **description 也在里面**；改标题后向量**自动重算**（证明无需 Service 维护）。
+3. **执行计划层**：`EXPLAIN` 实证 `ILIKE '%login%'` 走 `ix_tasks_title_trgm`、中文 `ILIKE '%登录缺陷%'` 同样走它、`search_vector @@ to_tsquery(...)` 走 `ix_tasks_search_vector`。
+
+### 两个必须知道的写法约束
+
+- **`EXPLAIN` 前一律 `SET LOCAL enable_seqscan = off`**。测试库 `tasks` 通常只有个位数行，这种规模下优化器**必然**选择顺序扫描——直接 EXPLAIN 会得到「索引没被用」的**假阴性**。排除顺序扫描后验证的是「索引对该查询形状**可用**」（这才是指针存在的意义）；真实数据量下选不选它是优化器的成本决策。
+- **编译查询要用 asyncpg dialect**（`postgresql.asyncpg.dialect()`）。用 psycopg2 dialect 编译 `literal_binds` 会把 `%login%` 转义成 `%%login%%`，塞进 `text()` 不会还原——双写通配符在 LIKE 语义下恰好等价，于是测试**看起来是绿的**，但断言里的 SQL 与被测 SQL 已对不上号。
+
+### 中文边界（`test_chinese_substring_matches_ilike_but_not_the_full_text_index`）
+
+把「`keyword` 继续走 `ILIKE` 而不是 `search_vector`」的**依据**固化成断言：`to_tsvector('simple')` 不做中文分词，`修复登录缺陷` 会成为**单个 token**，于是 `to_tsquery('simple','登录')` 命中 **0** 条、`ILIKE '%登录%'` 命中 **1** 条。将来若有人把 keyword 改到 tsvector 上，中文子串检索会静默失效，这条断言会立刻变红。pg_trgm 按字符组切分、与语言无关，这才是中文场景可用的组合。
+
+### 语义未变的守护
+
+`test_keyword_filter_still_matches_substrings_case_insensitively`：直接调 CRUD 的 `list_tasks_by_project(keyword=...)`，断言仍是**大小写不敏感的标题子串匹配**且只命中一条——本 TASK 只加索引、不改查询。接口层的 keyword 契约由 `tests/test_task_query_api.py`（TASK-035）覆盖。
+
+## 进度文档一致性护栏（TASK-064）
+
+`docs/PROGRESS.md` 的回写**四次**出现「编辑报成功但内容没落盘」（TASK-048 / 049 / 051 / 062），表现为 `## Current Task` 更新了、而 `## Completed` 与 `## Next` 停在上一轮。它不报错、不影响任何测试，唯一表现是文档说谎。因此把「核验」变成可执行断言：
+
+- **`scripts/check_docs.py`**：手动执行的一致性检查，退出码 0/1 并逐条打印矛盾。校验 6 条不变量——`## Current Task` 以 `TASK-NNN` 开头且该任务在 `docs/TASKS.md` 中存在**并已勾选**；`## Completed` 与 TASKS.md 的已勾选任务**集合与顺序都相同**；**`## Completed` 的最后一条就是 `## Current Task`**（这是四次事故的直接探针）；`## Next` 指向 TASKS.md 中**第一个未勾选**任务；`## Current Phase` 与 Current Task 所属 Phase 一致；结构坏掉不得静默通过。
+- **`tests/test_docs_consistency.py`（12 项）**：第一层断言**仓库真实的两个文档一致**（CI 已在跑 pytest，等于自动门禁）；第二层用**合成文档**构造 9 种矛盾，断言检查器**真的会报出来**。第二层不能省——没有它，一个「永远返回空列表」的假检查器也能让第一层通过（即本项目在 `test_missing_idempotency_key_generates_one` 上踩过的假绿）。
+- **取舍**：纯文档问题从此也会让 CI 变红。这是有意的：该问题的历史成本高于偶尔一次红的打扰。
+
+### 非 pytest 的验证（TASK-064）
+
+- **迁移可逆性（CI 等价）**：在**一次性探针库**上复现 CI 的三步 `alembic upgrade head → downgrade base → upgrade head`，三步均 OK；往返后 16 张业务表齐全、`search_vector` 为 `tsvector`、`pg_trgm=1.6`、tasks 的 5 个 `ix_tasks_*` 索引全部存在。探针库用完即删（`DROP DATABASE ... WITH (FORCE)`），**开发库未参与**——比在开发库上跑 `downgrade base` 安全得多（那会连 RBAC 种子一起拆掉）。
+- **执行计划人工复核**：除测试断言外，另在 `plan_cache_mode` 的 `auto` / `force_custom_plan` / `force_generic_plan` 三种取值下确认绑定参数形式都能用上索引（生产默认是 `auto`）。
 
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

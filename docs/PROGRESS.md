@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
+TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（Phase 10；落实 TASK-062 记录的 §57 遗留项，编号晚于 TASK-063 但按用户指示先执行）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -72,6 +72,7 @@ TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
 - [x] TASK-060 Nginx/Gunicorn/Uvicorn（`nginx/nginx.conf` + 唯一入口反代 + Gunicorn/UvicornWorker；覆盖式 `X-Forwarded-For` 与信任网段判定解决 DECISIONS 018 遗留约束；`tests/test_client_ip.py` 26 项 + `tests/test_nginx_config.py` 32 项，见 DECISIONS 040/041/042）
 - [x] TASK-061 GitHub Actions CI（`.github/workflows/ci.yml` 三 job：ruff lint / pytest（service 端口贴测试硬编码的 5433+6389 + 迁移可逆性验证）/ docker build；`requirements-dev.txt` 与 `[tool.ruff]` 钉死版本与规则集；`tests/test_ci_workflow.py` 35 项，见 DECISIONS 043）
 - [x] TASK-062 完整测试与质量检查（956 passed；覆盖率 2373 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支，仅本地基线与文档、不进 CI 门禁；新增 4 个测试模块 80 项——存储安全守卫 / 有价值分支 / 质量契约 / N+1 运行时护栏；顺带修复 2 处生产缺陷（并发注册 409 兜底不可达、非字符串日志消息绕过脱敏）与 3 处测试自身残留，订正 3 处文档矛盾，`docs/QUALITY.md` 新建，见 DECISIONS 044）
+- [x] TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（落实 §57 与 §14：`CREATE EXTENSION pg_trgm` + `GIN (title gin_trgm_ops)` + `search_vector` 生成列 + `GIN (search_vector)`；`EXPLAIN` 实证 `ILIKE '%x%'` 由顺序扫描转为 `Bitmap Index Scan`，`keyword` 查询语义不变；附带把「PROGRESS 三处核验」变成 CI 自动拦截的 `scripts/check_docs.py` + `tests/test_docs_consistency.py`，见 DECISIONS 045）
 
 ## In Progress
 - [ ]
@@ -80,7 +81,7 @@ TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
 - None
 
 ## Next
-TASK-063 README 与面试技术难点（Phase 10 收尾；TASK-062 已完成，见 DECISIONS 044）
+TASK-063 README 与面试技术难点（Phase 10 收尾；TASK-064 已完成，见 DECISIONS 045）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -388,6 +389,36 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **`pytest-cov` 不在 PyPI 清华镜像**：与 ruff 同样需官方源 + 代理安装（`--index-url https://pypi.org/simple --proxy http://127.0.0.1:7897`），已记入 `docs/QUALITY.md` 的复现步骤。
 
 **文档产物**：`docs/QUALITY.md`（**新建**，本 TASK 主产物）；`docs/API_CONTRACT.md` 订正第 340 行的分页信封描述（原写法与同文件其余 6 处及实现逐一矛盾）；`docs/PROJECT_SPEC.md` 技术栈订正为 Python 3.13 并写明本地 venv 3.14.6 的偏差风险；`docs/ARCHITECTURE.md` 性能原则订正为「显式批量 IN 查询」并说明 §46 原文本就允许批量查询；`docs/TESTING.md` 新增「覆盖率基线与质量契约（TASK-062）」章节；`docs/DECISIONS.md` 新增 044；`docs/TASKS.md` 勾选 TASK-062 并记录 `pg_trgm`/`tsvector` 遗留项。
+
+## TASK-064 完成数据库搜索索引 `pg_trgm` / `tsvector`（Phase 10；落实 TASK-062 的 §57 遗留项）
+
+**范围与编号**：TASK-062 的质量检查把「§57 数据库清单的 `pg_trgm` 与 `docs/DB_SCHEMA.md` 的 `tsvector` 均未落地」记为遗留项（当时 `keyword` 用 `ILIKE '%x%'`，无索引，随 `tasks` 行数线性劣化）。本 TASK 处理它，并把同轮浮现的第二个问题——**`docs/PROGRESS.md` 的进度行第四次「编辑报成功但内容没落盘」**（TASK-048/049/051/062）——一并根治。两项口径经**用户确认**（DECISIONS 045）：①搜索索引**按 §14 原文两者都实现**（trigram 索引 + `search_vector` 生成列），`keyword` 查询**语义不变**、仍走标题 `ILIKE`；②防丢机制做成**契约测试 + 检查脚本**（CI 自动拦截），而不是写一条靠人自觉的 SOP。编号挂在 TASK-063 之后但按用户指示先执行。
+
+**实现**
+- `app/models/task.py`：新增 `search_vector` 列——`TSVECTOR` + `Computed(SEARCH_VECTOR_SQL, persisted=True)`（DB 端 `GENERATED ALWAYS AS (...) STORED`，应用只读；`Computed` 让 SQLAlchemy 自动把它排除在 INSERT/UPDATE 之外，无需 Service 配合）；`__table_args__` 新增 `ix_tasks_title_trgm`（`postgresql_using="gin"` + `ops={"title": "gin_trgm_ops"}`）与 `ix_tasks_search_vector`（GIN）。把列与索引声明在 ORM 上是刻意的：否则 `alembic revision --autogenerate` 会把它们当成「库里多出来的东西」而生成一条 `drop_column`。
+- `migrations/versions/6765bdcfa73e_add_task_search_indexes_and_search_vector.py`（**新建**，autogenerate 后手工调整）：`CREATE EXTENSION IF NOT EXISTS pg_trgm` **先于**建索引（`gin_trgm_ops` 这个 operator class 由扩展提供，顺序反了会直接报错）；`op.add_column` 建生成列；两个 `create_index`。`downgrade` **逆序**（先索引、后列）且**刻意不 `DROP EXTENSION`**——扩展是数据库级对象，一次表级回滚不应连带拆掉可能被别处依赖的全局扩展，配合 `IF NOT EXISTS` 保持幂等可重放。
+- `tests/test_task_search_indexes.py`（**新建**，14 项）：三层守护——**离线声明层**（生成列 `persisted=True`、表达式含 `to_tsvector('simple'` 与 title/description、`insert(Task).values(...)` 编译结果不含 `search_vector`、两个索引的 GIN/`gin_trgm_ops` 声明）；**真实落库层**（`pg_extension` 有 `pg_trgm`、`is_generated='ALWAYS'` 且 `data_type='tsvector'`、`pg_indexes` 定义含 `USING gin (search_vector)` 与 `gin_trgm_ops`、插入任务后 DB 自动填好且 description 也在向量里、改标题后向量自动重算）；**执行计划层**（`ILIKE '%login%'` 走 `ix_tasks_title_trgm`、中文 `ILIKE '%登录缺陷%'` 同样走它、`search_vector @@ tsquery` 走 `ix_tasks_search_vector`）。
+- `tests/test_task_search_indexes.py::test_chinese_substring_matches_ilike_but_not_the_full_text_index`：把「`keyword` 继续走 `ILIKE`」的**依据**固化成断言——`to_tsvector('simple')` 不做中文分词，`修复登录缺陷` 会成为**单个 token**，于是 `to_tsquery('simple','登录')` 命中 0 条而 `ILIKE '%登录%'` 命中 1 条。若将来有人把 `keyword` 改到 `search_vector` 上，中文检索会静默失效，此断言立刻变红。pg_trgm 按字符组切分、与语言无关，这才是中文场景可用的组合。
+- `scripts/check_docs.py`（**新建**）：把「核验 `docs/PROGRESS.md`」变成一条可执行命令（退出码 0/1 + 逐条打印矛盾）。校验 6 条不变量：`## Current Task` 以 `TASK-NNN` 开头且该任务存在并已勾选；`## Completed` 与 `docs/TASKS.md` 的已勾选任务**集合与顺序都相同**；`## Completed` 的**最后一条**就是 `## Current Task`（这条正是四次事故的落点）；`## Next` 指向 TASKS.md 中第一个未勾选任务；`## Current Phase` 与 Current Task 所属 Phase 一致；结构坏掉（解析不出任务条目/缺章节）不得静默通过。
+- `tests/test_docs_consistency.py`（**新建**，12 项）：第一层断言**仓库真实的两个文档一致**（CI 的 pytest 会在每次提交时执行，等于自动门禁）；第二层用**合成文档**构造 9 种矛盾（Completed 少最后一条 / 漏中间条目 / Next 指回已完成 / Phase 不匹配 / Current Task 未勾选 / Current Task 不存在 / 章节内容丢了 `TASK-NNN` 前缀 / 缺章节 / 无任务条目），断言检查器**真的会报出来**——没有这一层，一个「永远返回空列表」的假检查器也能让第一层通过，那正是本项目在别处踩过的假绿。
+- `tests/test_task_model.py`：`test_tasks_column_set` 的列集断言加入 `search_vector`（tasks 表合法地多了一列，TASK-031 的严格相等断言必须同步）。
+- `.github/workflows/ci.yml`：把注释里写死的「13 个迁移」改为「全部迁移」，避免新增迁移后注释立刻过期。
+
+**验证**
+- `tests/test_task_search_indexes.py` **14 passed**；`tests/test_docs_consistency.py` **12 passed**；`scripts/check_docs.py` 退出码 0（输出「docs/TASKS.md 与 docs/PROGRESS.md 一致」）。
+- **执行计划硬证据**（真实 PG 16.15，`SET LOCAL enable_seqscan = off`）：`ILIKE '%login%'` → `Bitmap Index Scan on ix_tasks_title_trgm`；`ILIKE '%登录%'`（中文 2 字）与 `'%登录缺陷%'`（4 字）同样走该索引；`search_vector @@ to_tsquery('simple','login')` → `Bitmap Index Scan on ix_tasks_search_vector`。生产默认 `plan_cache_mode=auto` 下**绑定参数**形式也走索引（另在 `force_custom_plan` / `force_generic_plan` 下复核可用性）。
+- **落库实证**：`information_schema` 显示 `is_generated='ALWAYS'`、`data_type='tsvector'`、生成表达式为 `to_tsvector('simple'::regconfig, ((COALESCE(title,'')::text || ' '::text) || COALESCE(description,''::text)))`；`pg_indexes` 显示 `USING gin (title gin_trgm_ops)` 与 `USING gin (search_vector)`；`pg_extension` 有 `pg_trgm 1.6`。
+- **中文 tokenization 实证**：`'Fix Login Bug'` → `'bug':3 'fix':1 'login':2`；`'修复登录缺陷'` → `'修复登录缺陷':1`（整串一个 token，这就是 tsvector 不参与 `keyword` 的原因）。
+- **迁移可逆性（CI 等价）**：在**一次性探针库**上复现 CI 的三步 `upgrade head → downgrade base → upgrade head`，三步均 OK，往返后 16 张业务表齐全、`search_vector` 为 `tsvector`、`pg_trgm=1.6`、tasks 的 5 个 `ix_tasks_*` 索引全部存在；探针库用完即删（`DROP DATABASE ... WITH (FORCE)`），**开发库全程未参与**。另在开发库做定向 `downgrade -1 → upgrade head` 往返验证。
+- 全量测试与 lint 结果见提交信息；开发库逐表核对零残留。
+
+**问题与解决**
+- **`literal_binds` 编译要用 asyncpg dialect**：用 psycopg2 dialect 编译会把 `%login%` 转义成 `%%login%%`，塞进 `text()` 不还原——双写通配符恰好在 LIKE 语义下等价，于是测试**看起来是绿的**，但断言里的 SQL 与被测 SQL 已经对不上。改用 `postgresql.asyncpg.dialect()` 后字面量正确。
+- **`AsyncSession` 没有 `exec_driver_sql`**：那是 `Connection` 的方法，改用 `session.execute(text(...))`。
+- **小表直接 `EXPLAIN` 会假阴性**：测试库 `tasks` 只有个位数行，优化器必然选顺序扫描——直接 EXPLAIN 会得出「索引没被用」的错误结论。统一 `SET LOCAL enable_seqscan = off`，把断言限定在「索引对该查询形状**可用**」（这才是索引的意义；真实数据量下选不选它是成本决策）。这一条已写进测试模块 docstring 与本节，避免后人误读。
+- **探针脚本路径多套了一层 `dirname`**：`os.path.dirname(os.path.dirname(__file__))` 把项目根算成了上一级，alembic 报 `No 'script_location' key found in configuration`——错误信息指向配置，真实原因是 cwd 错了。
+
+**文档产物**：`docs/DB_SCHEMA.md`（任务表新增 `search_vector` 行与搜索索引说明、「Task 索引」与「PostgreSQL 能力」两节标记为已实现）；`docs/QUALITY.md`（D5 从「未实现」改为「已由 TASK-064 实现」并保留原记录）；`docs/DECISIONS.md` 新增 045；`docs/TESTING.md` 新增两节（搜索索引测试策略、文档一致性护栏）；`docs/TASKS.md` 新增 TASK-064 条目并把 TASK-062 的遗留项标记为已处理。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

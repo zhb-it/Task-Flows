@@ -24,8 +24,9 @@
 # ## 关于迁移可逆性（§37「如果条件允许增加 Alembic migration test」）
 #
 # CI 先把空库迁到 head，再 downgrade 回 base，再迁回 head，最后才跑 pytest：
-#   - 前两步验证 13 个迁移的 `downgrade()` 真的可用（防止「只有 upgrade 能跑、
+#   - 前两步验证**全部**迁移的 `downgrade()` 真的可用（防止「只有 upgrade 能跑、
 #     downgrade 早已腐坏」——这种腐坏平时不会被发现，真需要回滚时才炸）；
+#     （此处刻意不写迁移条数：每新增一个迁移都要来改注释，而漏改就会让注释说谎。）
 #   - 最后一步顺便让 pytest 用上真实的迁移产物建表，而不是依赖 `create_all`。
 #     测试因此隐式验证了「迁移产出的 schema 足以支撑全部用例」。
 
