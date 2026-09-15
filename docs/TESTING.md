@@ -208,5 +208,24 @@ pytest、pytest-asyncio、httpx。
 
 零残留策略同前：审计日志 → 任务 → 项目 → 团队 → 用户；Redis 键只删本次新增（差集），不 `FLUSHDB`。
 
+## Celery App / Worker（TASK-048）
+
+`tests/test_celery_app.py`，11 项，全部不依赖真实 Redis（Broker → Worker → Backend 真实链路由 compose 部署冒烟负责，见下）：
+
+- **Broker/Backend 派生规则（2 项）**：默认回落 `REDIS_URL`（DECISIONS 026）；显式 `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` 可覆盖。
+- **序列化安全（1 项）**：`accept_content` 恰为 `{json}`，禁 pickle（DECISIONS 027）。
+- **可靠性参数（4 项）**：`task_acks_late` / `task_reject_on_worker_lost` / `worker_prefetch_multiplier=1`（at-least-once 投递三件套，规则 §8 落点）；`task_track_started`；软/硬超时从配置接线且硬 > 软；默认值合理。
+- **键约定（1 项）**：broker 与 backend 的 `global_keyprefix` 均为 `taskflow:`（TASK-045 约定）。
+- **任务执行（2 项）**：`app.ping` 已注册；eager 模式执行返回 `pong`。
+- **import 安全（1 项）**：子进程在 `REDIS_URL` 指向不可达地址时导入 `app.tasks.celery_app` 必须即时成功——Celery 连接是惰性的，防止有人在模块顶层加预连接。
+
+**配置缓存纪律**：`get_settings` 是 `lru_cache` 的，凡覆盖环境变量的用例前后都要 `cache_clear`（本文件用 `_fresh_settings_cache` autouse fixture 局部处理）。
+
+**compose 部署冒烟（真实链路）**：
+1. `docker compose up -d --build` 四服务全部 Up（worker 带 `celery inspect ping` 健康检查）；
+2. `celery inspect ping` → `1 node online`；
+3. app 容器内 `ping.delay().get()` → `pong, SUCCESS`（完整经过 Redis Broker → Worker → Redis Backend）；
+4. `redis-cli --scan` 实测全部 Celery 键都在 `taskflow:` 前缀之下。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

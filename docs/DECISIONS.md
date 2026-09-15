@@ -165,3 +165,21 @@
 - Reason：①TASK-043/044 已证明「先探测再断言」能定位到真实缺陷，而凭推测写断言常常测了个空；②本轮探测确认十个面全部行为正确（未发现缺陷），因此 TASK-047 的产出是**契约固化**而非修复——价值在于让「按端点限流」「限流写审计」「去掉 TTL」「member 用固定串」这类改动立刻失败。
 - Trade-off：契约固化型测试在「代码没变」时永远不会失败，看起来像没干活。因此本文件配套做了变异测试（4 个变异全部被杀死，见下），证明断言真实承重。
 - **变异测试结果（TASK-047）**：①去掉 429 分支 → 13 failed；②身份维度退化为只用 IP → 3 failed（恰好是三项 user 隔离用例）；③去掉 `PEXPIRE` → 1 failed（键 TTL 用例）；④`member` 改用固定字符串 → 10 failed（含并发用例）。四个变异全部被杀死，还原后源码 blob hash 与 HEAD 逐字符一致。
+
+## Decision 026：Celery Broker/Backend 均用 Redis，留空回落 `REDIS_URL`
+- Problem：§21 规定 Redis 兼任 Celery Broker 与 Backend，但未给连接配置；是给 Broker/Backend 各配独立 URL，还是复用限流那个 Redis 实例？
+- Decision：`celery_broker_url` / `celery_result_backend` 两个配置项**默认留空**，留空即回落到 `redis_url`。部署冒烟证明全链路可用（ping 任务 `SUCCESS`）。
+- Reason：本项目规模（单机 compose、任务量以「每次用户操作几条通知」计）远未到需要独立 Broker 实例的程度；Redis 7 单实例处理限流 + 队列绰绰有余。留空的回落式设计保留隔离选项——出现瓶颈时改两个环境变量即可迁移，不用动代码。
+- Trade-off：限流与队列共享实例，极端队列积压会挤占 Redis 资源拖慢限流。观察期内可接受；届时优先按 db 隔离（如 backend 用 db 1），再考虑独立实例。
+
+## Decision 027：可靠性参数锁进测试——at-least-once 投递 + JSON-only
+- Problem：规则 §8 要求异步任务考虑 retry / timeout / failure / idempotency。TASK-048 阶段还没有业务任务（TASK-049/050 才有），§8 在 App 层的落点是什么？
+- Decision：把 App 级语义锁死并用 11 项测试钉住：①`task_acks_late=True` + `task_reject_on_worker_lost=True` + `worker_prefetch_multiplier=1` → **at-least-once 投递**（Worker 崩溃/被杀消息不丢、会重投）；②`task_soft_time_limit=300` / `task_time_limit=600` 双超时（软超时给任务清理机会，硬超时杀进程兜底）；③`accept_content=["json"]` 禁 pickle——pickle 反序列化即执行任意代码，任务消息所在 Redis 一旦被写入恶意消息就是 RCE；④`task_track_started=True` 区分排队/执行中。
+- Reason：①§8 明言「不要假设 Celery 任务只执行一次」——App 层先承认 at-least-once，业务任务的幂等责任（TASK-049/050/051）才有明确前提；②JSON-only 是安全默认值，没有理由豁免；③超时数值规格未给（同 DECISIONS 015 的处理方式），取保守默认并允许 env 覆盖。
+- Trade-off：at-least-once 意味着重复执行可能产生重复副作用，幂等负担在业务任务侧；JSON-only 意味着任务参数只能是可 JSON 化的标量/结构（本项目够用）。
+
+## Decision 028：Celery 在 Redis 中的键统一挂 `taskflow:` 前缀
+- Problem：TASK-045 键约定要求本项目所有 Redis 键以 `taskflow:` 开头；Celery 的 broker 队列键与结果元数据键默认不带前缀（如 `celery-task-meta-<id>`），会破坏「`taskflow:*` 之外的键都不属于本项目」的运维约定。
+- Decision：broker 与 backend 均设 `global_keyprefix="taskflow:"`（`CELERY_KEY_PREFIX` 常量），部署冒烟实测所有键（含 `_kombu.binding.*` 与 `celery-task-meta-*`）都在前缀之下。
+- Reason：一个实例上混着多个项目时（本机正是如此——6389 上曾有别的 Redis 实例），按前缀识别归属、按前缀清理是 TASK-045 已确立的纪律，Celery 不能例外。
+- Trade-off：依赖 kombu 的 `global_keyprefix` 实现，属传输层选项而非 Celery 官方一等配置；已用容器冒烟实证生效，并用 `test_redis_key_prefix_applies_to_broker_and_backend` 锁住配置。
