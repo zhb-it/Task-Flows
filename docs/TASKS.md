@@ -78,7 +78,7 @@
 - [x] TASK-057 Request ID（`X-Request-ID` 单一头 + 客户端值白名单校验 + 独立最外层中间件，见 DECISIONS 038）
 - [x] TASK-058 Dockerfile
 - [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml` + 端口内外分离 + 密钥 fail-fast，见 DECISIONS 039）
-- [ ] TASK-060 Nginx/Gunicorn/Uvicorn
+- [x] TASK-060 Nginx/Gunicorn/Uvicorn（唯一入口反代 + 覆盖式 `X-Forwarded-For` + 信任网段判定 + Gunicorn/UvicornWorker，见 DECISIONS 040/041/042）
 - [ ] TASK-061 GitHub Actions CI
 - [ ] TASK-062 完整测试与质量检查
 - [ ] TASK-063 README 与面试技术难点

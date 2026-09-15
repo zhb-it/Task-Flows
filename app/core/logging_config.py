@@ -244,7 +244,11 @@ class TextFormatter(logging.Formatter):
         user_id = user_id_var.get()
         if user_id is not None:
             ctx.append(f"user_id={user_id}")
-        for key in ("method", "path", "status_code", "duration"):
+        # 结构化访问日志字段：只渲染这张白名单里的键（而不是把所有 extra 都打出来），
+        # 避免任意 `extra=` 把一行日志撑爆或混进非预期内容。
+        # 新增字段时必须同时加进这里——**否则它只在生产 JSON 里存在**：开发环境
+        # 看不到，而开发环境恰恰是人看日志的地方（TASK-060 加 client_ip 时实测踩到）。
+        for key in ("method", "path", "status_code", "duration", "client_ip"):
             if key in record.__dict__:
                 ctx.append(f"{key}={record.__dict__[key]}")
         if ctx:

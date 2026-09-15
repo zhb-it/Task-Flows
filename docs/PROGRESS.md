@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；TASK-059 生产 compose 已交付，nginx 服务与 Gunicorn 启动命令在本 TASK 接入）
+TASK-061 GitHub Actions CI（Phase 10；TASK-060 反代层已交付）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -69,6 +69,7 @@ TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；TASK-059 生产 compose 已交付�
 - [x] TASK-057 Request ID（`X-Request-ID` 单一头 + 客户端值白名单校验 + 独立最外层中间件，`tests/test_request_id.py` 34 项，见 DECISIONS 038）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 - [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml`：端口内外分离 + 密钥 fail-fast + 卷/项目名隔离，`tests/test_prod_compose.py` 26 项，见 DECISIONS 039）
+- [x] TASK-060 Nginx/Gunicorn/Uvicorn（`nginx/nginx.conf` + 唯一入口反代 + Gunicorn/UvicornWorker；覆盖式 `X-Forwarded-For` 与信任网段判定解决 DECISIONS 018 遗留约束；`tests/test_client_ip.py` 26 项 + `tests/test_nginx_config.py` 32 项，见 DECISIONS 040/041/042）
 
 ## In Progress
 - [ ]
@@ -77,11 +78,11 @@ TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；TASK-059 生产 compose 已交付�
 - None
 
 ## Next
-TASK-060 Nginx/Gunicorn/Uvicorn（Phase 10；其后 TASK-061 CI、TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
+TASK-061 GitHub Actions CI（Phase 10；其后 TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
-TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。
+TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。**（TASK-060 更新：上面「app 绑回环端口」已被取代——反代接入后 app 不再发布任何宿主端口，对外只有 nginx；同一套冒烟验证与零残留结论见 TASK-060 条目。）**
 TASK-019 完成后已重建 app 镜像，并在真实容器上端到端验证 `POST /api/v1/auth/logout`：有效 Token 对登出 → 200 且库中 jti `revoked=true`、之后 refresh 401（§56 Phase 3 验收）；重复登出/伪造签名/类别不符的 Refresh Token → 200 幂等无副作用；跨用户撤销 → 403 且对方 Token 不受影响；禁用账号 → 403；无 Authorization 头 → 401。验证后 users 与 refresh_tokens 两表均 0 行残留。
 TASK-020 为纯测试任务（未改应用代码，无需重建镜像）：§35 八项 Auth 测试要求逐条核对均有专项覆盖，新增 `tests/test_auth_flow.py` 5 项端到端验收链路测试（Phase 2 链路、Phase 3 链路、完整生命周期、三轮独立会话、OpenAPI 验收面），全量 143 passed。
 TASK-021 为纯模型任务（迁移属 TASK-022，无库表操作）：定义 `roles` / `permissions` / `user_roles` / `role_permissions` 四表 ORM（TASK-021 确认的推断设计已登记 DB_SCHEMA.md），新增 `tests/test_rbac_model.py` 22 项离线模型测试，全量 165 passed。
@@ -297,6 +298,33 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 **验证**：`tests/test_prod_compose.py` **26 passed**（0.10s）；全量 **773 passed**（747 + 26，3m29s，零失败零错误）；开发库零残留。
 
 **问题与解决**：①三处首轮失败均为**测试写法缺陷**而非实现缺陷——镜像 tag 比较把官方镜像（postgres:16/redis:7）也算进去了（改为只比较带 `build:` 的服务）、`LOG_FORMAT` 在 compose 文件中是未插值的 `${LOG_FORMAT:-auto}`（改为断言默认值文本）、`change-me` 命中的是自己写的注释（改为只在非注释行上检查）。②端口 8080 被本机其他程序占用导致 app 起不来（`Bind for ... port is already allocated`），换 18080 后正常——这正好验证了 `${APP_PORT}` 覆盖设计的价值。③`urllib` 受环境代理影响，改用**原始 socket** 才得到可信的「仅回环可达」反证。
+
+## TASK-060 完成 Nginx/Gunicorn/Uvicorn（Phase 10 第四个任务）
+
+**范围**：§31 规定生产链路 `Client → Nginx → Gunicorn → Uvicorn Worker → FastAPI`，并列出 Nginx 五项职责（反向代理 / 请求体大小限制 / 基础超时 / **静态附件访问** / 基础安全 Header）与 §4 要求的 `nginx/nginx.conf`。四项文档未定义的契约经**用户确认**（DECISIONS 040）：①Nginx 是容器服务且是**唯一对外入口**（app 连回环端口一并删除）；②§31 的「静态附件访问」实现为**不直出**；③仅 HTTP 80（TLS 由上游终止，证书不进仓库）；④固定 compose 子网 `172.28.0.0/24`。另新增 DECISIONS 041（Gunicorn 进程模型）与 042（真实客户端 IP 的信任模型）。
+
+**实现**
+- `nginx/nginx.conf`（**新建**，§4 文件清单）：反代（`upstream app_backend` + keepalive 32）、`client_max_body_size 12m`（**粗粒度外圈**，严格大于应用 `MAX_UPLOAD_SIZE`，避免超限上传拿到 HTML 错误页而非 §26 JSON 信封）、六个超时、三个安全 Header 带 `always`、`server_tokens off`、`Host $host`（非 `$http_host`）、`X-Request-ID $http_x_request_id` 透传、日志进 `/dev/stdout`（格式含 `rid=$http_x_request_id`，两层日志可凭同一 id 串联）、本地健康探针 `location = /nginx-health`；**`X-Forwarded-For $remote_addr` 覆盖写入**（不是 `$proxy_add_x_forwarded_for`）。
+- `app/core/client_ip.py`（**新建**）：`parse_trusted_proxies`（逗号分隔 IP/CIDR，单 IP 自动补掩码，非法项跳过并告警，`lru_cache`）+ `resolve_client_ip`（**三条同时成立**才采信该头：开关开启、对端在信任网段内、该头恰为一个合法 IP；否则回落到对端地址）。含 IPv4-mapped IPv6 归一。
+- `app/core/config.py`：`trust_proxy_headers=False`、`trusted_proxy_ips=""`（**默认关闭**，未配置反代的环境行为与 TASK-046 完全一致）。
+- `app/core/middleware.py`：`_client_ip` 改为调用上述判定（限流身份与日志共用一处逻辑）；访问日志**新增 `client_ip` 字段**（反代后只记对端地址的话日志全是 nginx 的地址，没有区分度）。
+- `docker-compose.prod.yml`：新增 `nginx` 服务（`nginx:1.27-alpine`、只读挂载配置、`${NGINX_HTTP_PORT:-80}:80`、等 app healthy、探 `/nginx-health`）；**删除 app 的宿主端口**；app 启动命令切 `gunicorn ... --worker-class=uvicorn.workers.UvicornWorker --workers=${WEB_CONCURRENCY:-2} --timeout=60 --graceful-timeout=30`（**不开** `--access-logfile`，避免与应用 §33 访问日志重复）；注入 `TRUST_PROXY_HEADERS=true` / `TRUSTED_PROXY_IPS=172.28.0.0/24` / `FORWARDED_ALLOW_IPS=""`（关掉 ASGI 侧改写，让应用成为唯一判定点）；顶层声明固定子网。
+- `.env.example`：补四个相关配置项与说明。`requirements.txt` 已含 `gunicorn`（此前已备）。
+
+**验证**
+- `tests/test_client_ip.py` **26 passed**（全离线）；`tests/test_nginx_config.py` **32 passed**（全离线）；`tests/test_prod_compose.py` 按新暴露面更新后 **26 passed**；`tests/test_logging.py` **42 passed**（含新增的文本格式 `client_ip` 断言）；**全量 832 passed**（773 + 59，3m00s，零失败零错误）；开发库零残留。
+- **真实容器冒烟**（重建镜像，`NGINX_HTTP_PORT=18081`，五服务 healthy）：
+  - **端口暴露面**：`docker port` 实证**只有 nginx**（`0.0.0.0:18081->80`），app / worker / postgres / redis 全部「未发布任何宿主端口」。
+  - **XFF 覆盖（关键）**：宿主带 `X-Forwarded-For: 1.2.3.4` 经 nginx 请求 → 应用访问日志 `client_ip=172.28.0.1`（= nginx 的 `$remote_addr`），**伪造值未穿透**。
+  - **信任网段采信（关键）**：从 compose 网络内容器（对端 `172.28.0.x` ∈ 信任网段）直连 `app:8000` 并带 `X-Forwarded-For: 203.0.113.7` → 日志 `client_ip=203.0.113.7`（**DECISIONS 018 遗留约束解除**：反代后 IP 维度限流不再退化为共享配额）。
+  - **网段外不采信**：容器内直连（对端 `127.0.0.1` ∉ 网段）带 `X-Forwarded-For: 203.0.113.9` → 日志 `client_ip=127.0.0.1`；同时证明 **`FORWARDED_ALLOW_IPS=""` 确实关掉了 uvicorn 的改写**（否则 uvicorn 会因默认信任 127.0.0.1 而把它改成转发头的值）。
+  - **附件不被直出（IDOR 反证）**：在共享卷里放置 `probe-secret.txt` 后经 nginx 请求 `/probe-secret.txt` 与 `/storage/probe-secret.txt` 均 **404 JSON**（文件确实存在却取不到），证明 §31 的「静态附件访问」没有被实现成绕过鉴权。
+  - **§31 其余职责**：三个安全 Header 在 404/401 上也带；`server_tokens off`（`Server: nginx` 无版本号）；2KB 请求体正常透传（401），13MB 被 nginx 拦为 **413**（其 error log 记 `client intended to send too large body: 13631496 bytes`）。
+  - **Gunicorn**：容器 PID 1 的 cmdline 即 `gunicorn app.main:app --worker-class=uvicorn.workers.UvicornWorker --workers=2 ...`（已验证该模块在容器 Linux 环境可用；Windows 宿主因 `fcntl` 无法导入，这也是 Gunicorn 只能跑在容器里的原因）。
+  - **§34/§22 经反代仍成立**：客户端传入 `X-Request-ID: e2e-trace-0001` 被原样回传、无值时服务端生成；`/api/v1` 响应带 `X-RateLimit-Limit=60 / Remaining=56`，`/health` 不带（限流只覆盖 `/api/v1`）；业务闭环 注册 201 → 登录 200 → `/users/me` 200。
+  - **拆除与残留**：`down -v` 后 prod 容器 / 卷 / 网络**全清**，开发栈（4 服务）全程 healthy 未受影响。
+- **过程中遇到的问题**：①`nginx:1.27-alpine` 镜像拉取被上游镜像站截断（`short read: expected N bytes but got 0: unexpected EOF`），连续重试后成功（属网络环境问题，非配置问题）；②`grep` 类断言两次失败**都是测试写法问题**（`server {` 被跨行正则吞进上一条指令的匹配、`access_log off`（健康探针）被误当成重复声明），已修正解析器与断言；③应用侧**真实缺口两处**：一是 `resolve_client_ip` 初版只对「采信路径」做 IPv4-mapped 归一，回落路径仍返回 `::ffff:203.0.113.7`（由本 TASK 测试捕获并修复）；二是**文本日志漏字段**——访问日志新增的 `client_ip` 只在生产 JSON 里出现，开发文本格式不渲染它（`TextFormatter` 对额外字段是白名单），**pytest 测不出**（用例只断言 JSON 负载），是开发容器冒烟发现的；已把 `client_ip` 加入白名单，并补一项断言防止回归（日志模块 41 → 42 项）。
+- **文档产物**：`docs/DEPLOYMENT.md` 大幅补全（反代层、真实 IP 配置、TLS 现状与后续接入点、两个健康探针的区别）；`docs/TESTING.md` 新增「Nginx 反代与真实客户端 IP（TASK-060）」章节并订正 TASK-059 章节中已过时的两条断言；`docs/DECISIONS.md` 新增 040/041/042 并为 039 补「TASK-060 更新」；TASKS.md 勾选 TASK-060。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

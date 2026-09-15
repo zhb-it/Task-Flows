@@ -5,14 +5,21 @@
 #        docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
 #   2) 启动：
 #        docker compose -f docker-compose.prod.yml --env-file .env up -d --build
-#   3) 本地与开发栈并行验证时，用 APP_PORT 换一个宿主端口：
-#        APP_PORT=8080 docker compose -f docker-compose.prod.yml --env-file .env up -d
+#   3) 换对外端口（与开发栈并行验证、或宿主 80 被占用时）：
+#        NGINX_HTTP_PORT=8080 docker compose -f docker-compose.prod.yml --env-file .env up -d
 #
-# 与开发版 `docker-compose.yml` 的差异（理由见 DECISIONS 039）
+# 暴露面（TASK-060 后）：**只有 Nginx 对外**。
+#   Client → nginx(host:${NGINX_HTTP_PORT:-80}) → app(:8000, 仅 compose 内网)
+#                                                  ↘ celery_worker
+#                                                  ↘ postgres / redis（均不发布端口）
+#
+# 与开发版 `docker-compose.yml` 的差异（理由见 DECISIONS 039 / 040）
 #   1. 独立 compose 项目名 `taskflow-prod`：网络与数据卷与开发栈完全隔离，
 #      避免在生产 compose 上启动时连到开发库 / 复用开发卷这类串用事故。
-#   2. postgres / redis **不向宿主发布端口**；app 只绑宿主回环 127.0.0.1
-#      （对外暴露由 TASK-060 的 Nginx 承担）。
+#   2. **只有 nginx 发布宿主端口**；postgres / redis 完全不发布，app 也只在
+#      compose 网络内可达（TASK-059 时 app 绑 127.0.0.1，TASK-060 接入 Nginx 后
+#      连回环端口也去掉）。这样「只有 Nginx 能连应用」是**结构保证**而非约定：
+#      宿主上任何进程都无法绕过反代直连应用并伪造 X-Forwarded-For。
 #   3. 必需密钥用 ${VAR:?} 必填语法：未设置或为空时 compose 直接拒绝启动，
 #      不会静默沿用开发默认值。
 #   4. APP_ENV=production → §33 自动切到结构化 JSON 日志；DEBUG=false →
@@ -20,9 +27,12 @@
 #   5. 容器日志轮转（json-file max-size / max-file）：不轮转的容器日志会一直
 #      增长，最终写满宿主磁盘。
 #   6. Redis 开启 AOF：Celery 的 Broker 队列与限流 / 黑名单状态需要跨重启存活。
+#   7. 应用启动命令是 Gunicorn + Uvicorn Worker（§31），不是裸 uvicorn。
 #
-# 尚未包含：nginx / Gunicorn / Uvicorn worker 属 TASK-060，届时在本文件新增
-# `nginx` 服务，并把 app 的启动命令从 uvicorn 切到 Gunicorn。
+# 固定的 compose 子网（172.28.0.0/24）与 TRUSTED_PROXY_IPS 必须一致：
+# 前者是 Nginx 所在网段，后者是应用愿意采信 X-Forwarded-For 的对端范围。
+# 两处写死而不是各自用环境变量，是为了让「改了子网忘了改信任网段」这种
+# 静默失效没有发生的机会（tests/test_nginx_config.py 有交叉校验断言）。
 
 # 独立的 compose 项目名 → 容器、网络、卷都带 `taskflow-prod` 前缀。
 name: taskflow-prod
@@ -51,6 +61,16 @@ x-app-environment: &app-environment
   RATE_LIMIT_ENABLED: "true"
   RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
   RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+  # 反向代理信任边界（§31 / DECISIONS 018 遗留约束的解法）：开启后应用会在
+  # 「对端落在下面网段内」时采信 Nginx 覆盖写入的 X-Forwarded-For，否则 IP 维度
+  # 限流会退化成「所有匿名用户共享一份配额」（Nginx 是唯一入口，对端恒为 Nginx）。
+  # 判定逻辑在 app/core/client_ip.py；网段必须与文件末尾 networks 里的子网一致。
+  TRUST_PROXY_HEADERS: "true"
+  TRUSTED_PROXY_IPS: "172.28.0.0/24"
+  # 关掉 uvicorn 的 proxy-headers 重写（默认信任 127.0.0.1）。若开着，客户端 IP
+  # 就会由「ASGI server 一层 + 应用一层」共同决定，两处逻辑可能不一致；
+  # 显式置空让 app/core/client_ip.py 成为**唯一**判定点。
+  FORWARDED_ALLOW_IPS: ""
 
 # 容器日志轮转：开发机磁盘小，不轮转的 json-file 日志会持续增长。
 x-logging: &default-logging
@@ -66,14 +86,34 @@ services:
       dockerfile: Dockerfile
     # 生产镜像用独立 tag：开发栈重建 `taskflow-app:latest` 不会顺手改掉生产镜像。
     image: taskflow-app:prod
+    # §31：生产用 Gunicorn 管理多个 Uvicorn worker 进程（不是裸 `uvicorn`）。
+    #   - `UvicornWorker` 让每个 worker 是 ASGI 异步进程（Dockerfile 的 CMD 里
+    #     那个裸 uvicorn 只起单进程，供开发使用）；
+    #   - `--workers` 由 WEB_CONCURRENCY 覆盖（规格未给数值，取 2 并可调，见 DECISIONS 041）；
+    #   - `--timeout` 是 worker 无响应的判定阈值，`--graceful-timeout` 与下面的
+    #     stop_grace_period 对齐（SIGTERM 后在途请求有同样长的时间收尾）；
+    #   - **不开** `--access-logfile`：访问日志已由应用的 RequestLoggingMiddleware
+    #     按 §33 记录（含 request_id / user_id / duration），再开一份 Gunicorn 的
+    #     会重复输出，正是 TASK-056 在 uvicorn 上踩过的坑。
+    command:
+      [
+        "gunicorn",
+        "app.main:app",
+        "--worker-class=uvicorn.workers.UvicornWorker",
+        "--workers=${WEB_CONCURRENCY:-2}",
+        "--bind=0.0.0.0:8000",
+        "--timeout=60",
+        "--graceful-timeout=30",
+        "--keep-alive=5",
+      ]
     environment:
       <<: *app-environment
     volumes:
       - attachment_storage:/app/storage
-    # 只绑宿主回环：Nginx（TASK-060）在宿主或容器内反代，外部无法直连该端口。
-    # 若部署拓扑中 Nginx 是宿主进程，这里保持回环即可；容器内反代见 TASK-060。
-    ports:
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    # ⚠ 刻意**不发布任何宿主端口**（TASK-059 时是 127.0.0.1:8000）：
+    # Nginx 服务与 app 同在 compose 网络内，反代走服务名 `app:8000`。去掉宿主
+    # 端口之后，「只有 Nginx 能连应用」成为结构保证——宿主上任何进程都无法绕过
+    # 反代直连应用，也就无法伪造 X-Forwarded-For 来冒充其他客户端 IP。
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,6 +160,42 @@ services:
     # （TASK-051 / §24），因此即使超时被强杀，重投也不会产生重复副作用。
     stop_grace_period: 30s
 
+  # Nginx 反向代理（TASK-060；§31）：生产的**唯一**对外入口。
+  #   Client → nginx → app(Gunicorn + UvicornWorker) → FastAPI
+  # 它承担 §31 的五项职责：反向代理、请求体大小限制、基础超时、基础安全 Header，
+  # 以及「静态附件访问」——最后一项在本项目里被有意实现为**不直出**（附件是私有
+  # 资源，直出会绕过 TASK-043 的鉴权），理由见 nginx/nginx.conf 顶部注释与
+  # DECISIONS 040。
+  #
+  # 为什么要有固定的子网：应用侧只采信来自 TRUSTED_PROXY_IPS 网段的对端写入的
+  # X-Forwarded-For，因此「Nginx 在哪一段地址里」必须是一个确定的事实，不能靠
+  # Docker 随机分配（见文件末尾 networks 与 TRUSTED_PROXY_IPS 的对应关系）。
+  nginx:
+    image: nginx:1.27-alpine
+    # 只读挂载配置。这是**配置**而不是应用源码：镜像本身负责运行环境，配置由
+    # 部署方提供（同名测试 test_no_source_code_bind_mounts 对它有显式白名单）。
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    # 这里绑 0.0.0.0 —— 它就是要对外提供服务的那一层（app / postgres / redis
+    # 才需要严格限制）。端口可覆盖，便于本机与开发栈并行验证。
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    depends_on:
+      app:
+        # 等 app 健康再起入口，否则入口刚起来的几秒里所有请求都是 502。
+        condition: service_healthy
+    healthcheck:
+      # 探 Nginx 自有的 /nginx-health（不依赖上游）。刻意不探 /health：
+      # 否则应用重启期间 Nginx 也会被标记为不健康，「入口挂了」和「后端重启中」
+      # 两件事混在一起，反而更难排查（后端自身有它的健康检查）。
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging: *default-logging
+    restart: always
+
   postgres:
     image: postgres:16
     environment:
@@ -159,3 +235,16 @@ volumes:
   postgres_data:
   redis_data:
   attachment_storage:
+
+# 固定默认网络的子网：让 Nginx 的地址段成为**确定事实**。
+#
+# 应用侧只在「对端落在 TRUSTED_PROXY_IPS 网段内」时才采信 X-Forwarded-For，
+# 因此该网段必须与 Nginx 实际所在的网段严格一致——靠 Docker 随机分配
+# （默认 172.17–172.19/16 或按顺序取下一个空闲段）会让信任判定时灵时不灵。
+# 两处都写死在文件里，并由 tests/test_nginx_config.py 交叉校验。
+# 172.28.0.0/24 与 Docker 常用默认段（172.17/172.18/172.19）不重叠。
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

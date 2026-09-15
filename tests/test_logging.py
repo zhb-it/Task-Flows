@@ -224,6 +224,27 @@ def test_text_formatter_appends_context_and_request_fields(_clear_contextvars):
     assert "status_code=201" in line
 
 
+def test_text_formatter_renders_client_ip(_clear_contextvars):
+    """文本格式必须渲染 ``client_ip``（TASK-060）。
+
+    文本格式对额外字段是**白名单**渲染，因此新增一个访问日志字段时如果只加进
+    ``extra={...}`` 而没加进白名单，它就会**只在生产 JSON 里存在**——开发环境
+    看不到，而开发环境恰恰是人看日志的地方。这个缺口是 TASK-060 的容器冒烟
+    发现的（pytest 只断言 JSON 负载，测不出来）。
+    """
+    line = TextFormatter().format(
+        _make_record(
+            "request completed",
+            method="GET",
+            path="/health",
+            status_code=200,
+            duration=1.5,
+            client_ip="203.0.113.7",
+        )
+    )
+    assert "client_ip=203.0.113.7" in line
+
+
 # ---------------------------------------------------------------------------
 # 3. 敏感信息脱敏（§33 禁止输出 password / token）
 # ---------------------------------------------------------------------------
@@ -450,6 +471,10 @@ async def test_access_log_records_method_path_status_duration(
     assert payload["status_code"] == 200
     assert isinstance(payload["duration"], (int, float))
     assert payload["duration"] >= 0
+    # client_ip（TASK-060）：反代之后只记 TCP 对端地址的话，日志里全是 Nginx 的
+    # 地址，排查时无法区分请求来源。这里断言字段存在且为对端地址（该探针没有
+    # 反代，也没有开启代理信任）。
+    assert payload["client_ip"] == "127.0.0.1"
     # 未认证：user_id 为 null。该探针应用只注册了 RequestLoggingMiddleware，
     # 没有 RequestIdMiddleware（TASK-057），因此 request_id 也是 null——
     # 恰好验证了「formatter 在 ContextVar 未设置时输出 null」的 schema 稳定性。

@@ -306,10 +306,10 @@ pytest、pytest-asyncio、httpx。
 
 ## 结构化日志（TASK-056）
 
-`tests/test_logging.py`，**41 项**，全离线（不依赖 DB / Redis）。分四层：
+`tests/test_logging.py`，**42 项**（TASK-060 新增 1 项，见下），全离线（不依赖 DB / Redis）。分四层：
 
 - **JSON formatter（7 项）**：§33 固定字段齐备（timestamp/level/logger/message/request_id/user_id，无值时 `null` 以保持 schema 稳定）；timestamp 为带时区 ISO 且接近当前时间；ContextVar（request_id/user_id）注入；`extra` 字段透传（访问日志的 method/path/status_code/duration 即由此进入）；单行输出且不泄漏 `LogRecord` 内部属性（msg/args/exc_info/levelno/pathname/lineno）；异常堆栈进 `exception` 字段；非 JSON 原生类型（如 `object()`）经 `default=str` 降级——**任何日志调用都不会因格式化失败而丢日志**。
-- **文本 formatter（2 项）**：开发环境人读格式（含级别/logger/message）；仍追加 request_id/user_id 与 method/path/status_code。
+- **文本 formatter（2 项）**：开发环境人读格式（含级别/logger/message）；仍追加 request_id/user_id 与 method/path/status_code。**TASK-060 新增第 3 项**：文本格式必须渲染 `client_ip` ——文本 formatter 对额外字段是**白名单**渲染，新增访问日志字段时若只加进 `extra={...}` 而漏了白名单，该字段就**只在生产 JSON 里存在**（开发环境看不到，而开发环境恰恰是人看日志的地方）；这个缺口 pytest 测不出（用例只断言 JSON 负载），是容器冒烟发现的。
 - **敏感脱敏（13 项）**：§33 硬禁止项。parametrize 覆盖 password/passwd/pwd/access_token/refresh_token/token/secret 七类键名（值变 `***`、**键名保留**）；非敏感字段不受影响；嵌套 dict 逐层脱敏；message 里的 `password=hunter2` 脱敏为 `password=***` 且不误伤其它文本；裸 JWT 字面量被替换；**`logger.info("token=%s", token)` 形态（args 脱敏）**；filter 恒返回 True（记录不被丢弃）。
 - **configure_logging 与访问日志中间件（19 项）**：格式按 `APP_ENV` 推导（production→json / development→text）与 `LOG_FORMAT` 显式覆盖；非法级别回落 INFO 不抛错；JSON/文本输出可断言；**幂等**（重复调用只留一个自装 handler）；**不触碰他人 handler**（保护 pytest 等外部集成）；uvicorn 三个 logger 被收编到 root（且 `uvicorn.access` 压到 WARNING，避免与中间件重复输出）；root 级别生效；出口过滤器端到端生效。中间件侧（探针 FastAPI 应用 + httpx ASGITransport）：一条访问日志含 method/path/status_code/duration（数值型且 ≥0）；非 `/api/v1` 路径（`/`）同样记录；带 Token 时 user_id 取自 JWT `sub`、无 Token/非法 Token 为 `null`；Authorization 原文不落日志；**user_id 经 ContextVar 传给请求内下游日志且在请求结束后还原**；未处理异常记 `status_code=500` 后继续上抛；`LOG_REQUESTS=false` 时零输出；`duration` 反映真实耗时（50ms 慢处理下 ≥40ms 且不超过总耗时）。
 
@@ -330,13 +330,36 @@ pytest、pytest-asyncio、httpx。
 
 `tests/test_prod_compose.py` — **26 项**，全离线（**不启动 Docker**，CI 可直接跑）：解析 `docker-compose.prod.yml`，把「生产必须成立的性质」固化成断言。这类配置最容易被后续改动**静默**破坏——最典型的是「复制粘贴开发 compose」：一旦开发版把 5433/6389 发布到宿主、把 DB 密码当可选项的写法混进生产文件，数据库就直接暴露了，而当时不会有任何测试报警。
 
-- **文件与项目隔离（6 项）**：文件存在且可解析；顶层项目名 `taskflow-prod`（必须区别于开发栈——开发版无顶层 `name`，项目名回落为目录名，同名就会共用 `task-flow_postgres_data` 并连到开发库）；服务集合 = 开发栈四服务且**不含 nginx**（不越界做 TASK-060）；开发栈每个服务在生产都存在；不硬编码 `container_name`（否则与开发栈同名容器冲突且阻碍扩容）；本项目自建镜像用独立 tag 且非 `latest`（只比较带 `build:` 的服务——`postgres:16` / `redis:7` 是官方镜像，两套栈共用同一 tag 属正常）。
-- **端口暴露面（4 项）**：postgres / redis **没有 `ports`**（Redis 无认证、数据库不该对外）；app 端口以 `127.0.0.1:` 开头，且宿主端口可用 `${APP_PORT:-8000}` 覆盖（便于与开发栈并行验证）；**禁止 `env_file`**——宿主 `.env` 的 `DATABASE_URL` / `REDIS_URL` 指向 `127.0.0.1:5433` / `127.0.0.1:6389`，注入容器会覆盖 compose 里正确拼好的容器内地址（服务名），容器随即连不上任何东西，排查成本极高。
+- **文件与项目隔离（6 项）**：文件存在且可解析；顶层项目名 `taskflow-prod`（必须区别于开发栈——开发版无顶层 `name`，项目名回落为目录名，同名就会共用 `task-flow_postgres_data` 并连到开发库）；服务集合 = 开发栈四服务 **+ nginx**（TASK-060 起，§31 要求生产含反代）；开发栈每个服务在生产都存在；不硬编码 `container_name`（否则与开发栈同名容器冲突且阻碍扩容）；本项目自建镜像用独立 tag 且非 `latest`（只比较带 `build:` 的服务——`postgres:16` / `redis:7` 是官方镜像，两套栈共用同一 tag 属正常）。
+- **端口暴露面（4 项）**：postgres / redis **没有 `ports`**（Redis 无认证、数据库不该对外）；**除 nginx 外任何服务都不得发布宿主端口**（TASK-060 起 app 的 `127.0.0.1:8000` 已被删除——保留回环端口会让同机进程绕过反代直连应用并伪造 `X-Forwarded-For`），对外端口为 `${NGINX_HTTP_PORT:-80}`；**禁止 `env_file`**——宿主 `.env` 的 `DATABASE_URL` / `REDIS_URL` 指向 `127.0.0.1:5433` / `127.0.0.1:6389`，注入容器会覆盖 compose 里正确拼好的容器内地址（服务名），容器随即连不上任何东西，排查成本极高。
 - **生产环境变量（8 项）**：`APP_ENV=production` 且 `LOG_FORMAT` 默认仍为 `auto`（在 production 下解析为 JSON，§33）；`DEBUG=false`（关闭 SQL echo 与 FastAPI debug）；`LOG_REQUESTS` / `RATE_LIMIT_ENABLED` 为 true；两个必需密钥用 `${VAR:?}` 必填语法且**无 `:-默认值` 回落**（只在**非注释行**上检查——注释里解释「不要沿用 change-me」是合法的）；传给容器的每个环境变量名都能在 `Settings.model_fields` 中找到（拼错名字不会报错，只会静默按默认值运行，是「配置不生效」类故障的根源）；worker 与 app 的环境变量完全一致（锚点复用，防「改了 app 忘了改 worker」）；`.env.example` 含生产必填项。
 - **持久化与存储（3 项）**：三个状态卷都在顶层声明并被正确挂载（`postgres_data` / `redis_data` / `attachment_storage` → `/app/storage`）；**无宿主源码 bind mount**（生产镜像自带代码，挂宿主目录不可复现）；Redis `--appendonly yes`（Celery Broker 队列需跨重启存活）。
 - **运行保障（5 项）**：四服务都有健康检查；app / worker 的 `depends_on` 用 `service_healthy`（只等「启动」会让 app 在库就绪前连库失败）；`restart: always`；四服务都配容器日志轮转（`json-file` + `max-size` + `max-file`）；worker 有 `stop_grace_period` 且启动命令采用可配置并发 `${CELERY_CONCURRENCY:-4}`。
 
 **容器冒烟（真实 Docker，非 pytest）**：`docker compose -f docker-compose.prod.yml --env-file .env up -d --build` → 四服务 healthy；`docker port` 实证 app 只有 `127.0.0.1:18080->8000`、postgres / redis 无任何宿主端口；卷为 `taskflow-prod_*` 前缀，同时开发栈保持 healthy（两套栈并存互不影响）；`run --rm app alembic upgrade head` 迁移全部生效 → `/health` 返回 `env=production` / `database=up` / `redis=up`；注册 201 → 登录 200 → `/users/me` 200；容器日志为 §33 的 JSON 十字段（含 `request_id`、`user_id`，且无 SQL echo）；原始 socket 连接 `192.168.1.84:18080` **超时**（反证仅回环可达；用 socket 而非 urllib 是为了绕开环境代理）；`redis-cli config get appendonly` → `yes`；`down -v` 后生产容器与卷零残留、开发栈不受影响。另验证了两条**失败路径**：缺失 `POSTGRES_PASSWORD` / `JWT_SECRET_KEY` 时 compose 报 `required variable ... is missing a value` 且退出码为 1。
+
+## Nginx 反代与真实客户端 IP（TASK-060）
+
+TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一半是**应用逻辑**（客户端 IP 判定）。配置类的错误不会让服务起不来，只会让安全属性**静默**消失，因此两层都做成离线可跑的契约测试。
+
+### 客户端 IP 判定（`tests/test_client_ip.py`，26 项，全离线）
+
+- **配置解析（8 项）**：`TRUSTED_PROXY_IPS` 支持单个 IP（自动补 `/32`）、CIDR、IPv6 网段、逗号分隔与空项；`172.28.0.5/24` 这类主机位非零的写法按网段处理；非法项**跳过而不抛错**（一个笔误不该让服务起不来）；解析结果被 `lru_cache` 缓存（该函数在请求路径上被调用，不能变成每请求开销）。
+- **判定逻辑（11 项）**：开关关闭时完全忽略该头（与 TASK-046 行为一致）；对端在信任网段内才采信；对端不在网段内不采信；**开关打开但网段为空 → 不采信**（fail-safe：配置错误退化为「安全但限流不准」，绝不退化为「信任任何人」——那是让攻击者靠伪造该头把限流拆成无限份）；多值一律拒绝（本项目是单层反代，覆盖写入应当只有一个值，多值意味着有环节在追加）；非法/空/缺失值回落到对端地址；空白会被裁剪；IPv6 客户端地址可用；**IPv4-mapped IPv6 归一**（`::ffff:172.28.0.5` → `172.28.0.5`，否则 `in IPv4Network` 恒为假，出现「配置看起来对、信任却永远不生效」的静默失效——该缺陷由本 TASK 测试捕获，初版只归一了采信路径、漏了回落路径）；对端不可知时给占位值且**绝不**用客户端可控的头填充。
+- **安全默认（1 项）**：`TRUST_PROXY_HEADERS` 默认 false、`TRUSTED_PROXY_IPS` 默认空，且 `APP_ENV=production` 本身**不会**打开信任（不能用环境名暗中改变信任边界）。
+- **中间件接入（6 项）**：`_client_ip` 在信任开关两种状态下的取值；无 `client` 的请求不崩；访问日志含 `client_ip` 字段；信任生效时日志记的是**真实客户端**而非 Nginx；信任关闭（或对端不在网段）时伪造的头既不改变限流身份也不污染审计日志。
+
+### Nginx 配置与生产接线契约（`tests/test_nginx_config.py`，32 项，全离线）
+
+所有「不得出现」的断言只看**去掉注释后的正文**——注释里会引用反面写法（例如说明为什么不能用 `$proxy_add_x_forwarded_for`）；指令取值一律经空白归一，避免断言被无关的格式改动打破。
+
+- **结构与 §31 职责（11 项）**：`nginx/nginx.conf` 存在（§4）；括号配平；`events` / `http` / `server` / `upstream app_backend` 齐备；upstream 指向的必须是 compose 里**真实存在**的服务名且端口与应用监听端口一致（写错就是每个请求 502）；`proxy_pass` 只有一个目标；只 `listen 80`、无任何 `ssl_certificate`、**不发 HSTS**（纯 HTTP 上发 HSTS 既无效又误导——证书不进仓库，TLS 由上游终止）；`client_max_body_size` **严格大于**应用 `MAX_UPLOAD_SIZE`（颠倒过来会让超限上传拿到 nginx 的 HTML 错误页而不是 §26 的 JSON 信封）；六个超时指令齐备；日志输出到 `/dev/stdout` / `/dev/stderr` 且格式含 `$http_x_request_id`。
+- **安全（7 项）**：`X-Forwarded-For` 必须是 `$remote_addr`（**覆盖**语义）且正文里不得出现 `$proxy_add_x_forwarded_for`（追加语义会让客户端自带的值排到链首，限流与审计同时失去可信度——本 TASK 最关键的一条断言）；`X-Forwarded-Proto` / `X-Forwarded-Host` 齐备；`Host` 用 `$host` 而非 `$http_host`（后者透传客户端任意 Host）；`X-Request-ID` 透传（两层日志可凭同一 id 串联）；三个安全头都带 `always`（否则 4xx/5xx 不带）；`server_tokens off`；**无任何静态文件服务指令**（`alias` / `root` / `autoindex` / `X-Accel-Redirect`）且正文不出现附件目录——一旦出现，私有附件的鉴权链（TASK-043）就被完全绕过（IDOR）；`Connection` 置空以配合 upstream keepalive。
+- **生产接线（14 项）**：nginx 服务存在、镜像 tag 固定版本（非 `latest`）；**除 nginx 外没有服务发布宿主端口**（这是「该头值得信任」的结构前提）；app **没有** `ports`；nginx 配置以 `:ro` 挂载；nginx 等 app healthy 再启动；健康检查探 nginx 自有的 `/nginx-health`（不探 `/health`，否则「入口挂了」与「后端重启中」互相污染）；app 命令是 `gunicorn` + `uvicorn.workers.UvicornWorker` + 可配置 `--workers`；**不开** Gunicorn 自带访问日志（避免与应用的 §33 访问日志重复——TASK-056 在 uvicorn 上踩过的坑）；`--graceful-timeout=30` 与 compose `stop_grace_period: 30s` 对齐；**`TRUSTED_PROXY_IPS` 必须等于 compose 声明的子网**（交叉校验：改一处忘了改另一处会直接失败，这是防止信任静默失效的唯一办法），且该子网是私有段且不撞 Docker 常用默认段；`FORWARDED_ALLOW_IPS` 置空（让应用成为客户端 IP 的唯一判定点）；开发栈**不得**开启 `TRUST_PROXY_HEADERS`；`.env.example` 记录了四个相关配置项。
+
+### 容器冒烟（真实 Docker，非 pytest）
+
+见下方 PROGRESS 的 TASK-060 条目：`docker port` 实证只有 nginx 对外、宿主经 nginx 访问全链路可用、`X-Forwarded-For` 覆盖行为与信任网段的实测对照、Gunicorn+UvicornWorker 生效、附件下载仍走鉴权。
 
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

@@ -10,8 +10,13 @@
    所以「用覆盖文件去掉开发版的端口」这条路根本走不通（这也是本 TASK 选择
    独立完整文件的原因，见 DECISIONS 039）。
 
-真正「拉起容器验证」的部分属冒烟测试（见 TESTING.md 的 TASK-059 章节），
-这里只保证静态契约，因此无需 Docker 环境、可在 CI 中运行。
+> TASK-060 更新：本文件原本断言「app 绑宿主回环 127.0.0.1」并显式排除 nginx
+> （那时 nginx 尚未引入）。接入 Nginx 后暴露面收敛为**唯一入口**，app 的宿主
+> 端口被整体去掉；nginx 的配置契约放在 `tests/test_nginx_config.py`，这里只保留
+> 「服务集合 / 端口暴露面 / 环境变量 / 持久化 / 运行保障」这些 compose 层面的性质。
+
+真正「拉起容器验证」的部分属冒烟测试（见 TESTING.md 的 TASK-059 / TASK-060
+章节），这里只保证静态契约，因此无需 Docker 环境、可在 CI 中运行。
 """
 
 from __future__ import annotations
@@ -29,11 +34,29 @@ PROD_COMPOSE = PROJECT_ROOT / "docker-compose.prod.yml"
 DEV_COMPOSE = PROJECT_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 
-#: 生产栈应有且仅有的服务。nginx 属 TASK-060，刻意不在本 TASK 引入（规则 §13）。
-EXPECTED_SERVICES = {"app", "celery_worker", "postgres", "redis"}
+#: 生产栈应有的服务（TASK-060 起包含 nginx —— 它是 §31 要求的唯一对外入口）。
+EXPECTED_SERVICES = {"app", "celery_worker", "nginx", "postgres", "redis"}
 
 #: 需要健康检查的服务——缺了健康检查，depends_on 的 service_healthy 条件就形同虚设。
-SERVICES_WITH_HEALTHCHECK = {"app", "celery_worker", "postgres", "redis"}
+SERVICES_WITH_HEALTHCHECK = {"app", "celery_worker", "nginx", "postgres", "redis"}
+
+#: 允许挂载宿主路径的**唯一**例外：nginx 的配置文件（只读）。
+#:
+#: 「生产不挂宿主源码目录」的本意是「镜像自带代码，不在运行时从宿主机注入代码」；
+#: nginx 的配置属于**部署配置**（不是应用源码），只读挂载是业界标准做法。
+#: 例外写在这里而不是放宽整条规则：新增任何宿主挂载都必须显式修改本常量。
+ALLOWED_HOST_MOUNT_SUFFIXES = ("nginx/nginx.conf:/etc/nginx/nginx.conf:ro",)
+
+#: 由 **ASGI server / 运行时**读取、而非应用 Settings 的环境变量。
+#:
+#: 下面的 `test_env_var_names_are_real_settings_fields` 用 Settings 字段清单拦截
+#: 「拼错名字导致配置静默不生效」；这几个是明确不属于 Settings 的运行时变量，
+#: 因此显式列出（不是放宽规则，而是把例外的理由写下来）。
+RUNTIME_ONLY_ENV_VARS = {
+    # uvicorn 的 proxy-headers 信任网段；TASK-060 显式置空，让应用成为客户端 IP
+    # 的唯一判定点（见 DECISIONS 040）。
+    "FORWARDED_ALLOW_IPS",
+}
 
 
 @pytest.fixture(scope="module")
@@ -85,10 +108,10 @@ def test_prod_services_do_not_set_container_name(prod_services: dict) -> None:
         assert "container_name" not in service, f"{name} 不应硬编码 container_name"
 
 
-def test_services_match_scope_of_this_task(prod_services: dict) -> None:
-    """服务集合 = 开发栈四服务；nginx 留给 TASK-060（不提前做无关改动）。"""
+def test_services_match_scope(prod_services: dict) -> None:
+    """服务集合与 §29/§31 的范围一致；nginx 是唯一对外入口（TASK-060）。"""
     assert set(prod_services) == EXPECTED_SERVICES
-    assert "nginx" not in prod_services
+    assert "nginx" in prod_services
 
 
 def test_every_dev_service_is_covered_by_prod(prod_services: dict, dev_services: dict) -> None:
@@ -127,13 +150,17 @@ def test_redis_does_not_publish_host_port(prod_services: dict) -> None:
     assert "ports" not in prod_services["redis"]
 
 
-def test_app_port_published_on_loopback_only(prod_services: dict, prod_text: str) -> None:
-    """app 只绑宿主回环：外部无法直连，对外暴露由 TASK-060 的 Nginx 承担。"""
-    ports = prod_services["app"]["ports"]
-    assert len(ports) == 1
-    assert str(ports[0]).startswith("127.0.0.1:"), f"app 端口必须绑回环，实际: {ports[0]}"
-    # 宿主端口可覆盖：便于在开发机上与开发栈（已占 8000）并行验证。
-    assert "${APP_PORT:-8000}" in prod_text
+def test_app_and_database_ports_are_not_published(prod_services: dict, prod_text: str) -> None:
+    """只有 nginx 发布宿主端口（TASK-060）。
+
+    TASK-059 时 app 绑 `127.0.0.1:${APP_PORT:-8000}`；接入 Nginx 后这个回环端口
+    被**整体去掉**——保留它会让「宿主上的进程可以绕过反代直连应用并伪造
+    X-Forwarded-For」重新成为可能。这里断言的是「除 nginx 外无人发布端口」，
+    比逐个服务断言更难被绕过。
+    """
+    publishers = {name for name, svc in prod_services.items() if svc.get("ports")}
+    assert publishers == {"nginx"}, f"除 nginx 外仍有服务发布宿主端口: {publishers}"
+    assert "${NGINX_HTTP_PORT:-80}" in prod_text
 
 
 def test_containers_do_not_receive_env_file(prod_services: dict) -> None:
@@ -206,8 +233,9 @@ def test_env_var_names_are_real_settings_fields(prod_services: dict) -> None:
 
     拼错名字（如 `LOG_REQUEST`）不会报错，只会静默地按默认值运行——正是这类
     「配置不生效」最难发现，故用 Settings 的字段清单做交叉校验。
+    少数由运行时（ASGI server）读取的变量在 `RUNTIME_ONLY_ENV_VARS` 里显式列出。
     """
-    known = {field.upper() for field in Settings.model_fields}
+    known = {field.upper() for field in Settings.model_fields} | RUNTIME_ONLY_ENV_VARS
     for service_name in ("app", "celery_worker"):
         for key in prod_services[service_name]["environment"]:
             assert key.upper() in known, f"{service_name} 传了未知环境变量: {key}"
@@ -245,10 +273,17 @@ def test_named_volumes_declared_for_all_state(prod_services: dict, prod_config: 
 
 
 def test_no_source_code_bind_mounts(prod_services: dict) -> None:
-    """生产不挂源码目录：镜像自带代码，挂宿主目录会绕过镜像是不可复现的。"""
+    """生产不挂源码目录：镜像自带代码，挂宿主目录会绕过镜像是不可复现的。
+
+    唯一例外是 nginx 的**配置**文件（只读）——它是部署配置而不是应用源码，
+    以常量形式显式列出，新增任何宿主挂载都必须先改这里（TASK-060）。
+    """
     for name, service in prod_services.items():
         for mount in service.get("volumes", []):
-            assert not re.match(r"^[./\\]|^[A-Za-z]:", str(mount)), f"{name} 挂了宿主路径: {mount}"
+            text = str(mount)
+            if text.endswith(ALLOWED_HOST_MOUNT_SUFFIXES):
+                continue
+            assert not re.match(r"^[./\\]|^[A-Za-z]:", text), f"{name} 挂了宿主路径: {mount}"
 
 
 def test_redis_enables_aof_persistence(prod_services: dict) -> None:

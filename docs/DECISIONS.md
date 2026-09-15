@@ -277,5 +277,57 @@
 - 同步修正的既有缺口（本 TASK 暴露）：本地 `.env` 缺 `POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB`——它一直供**宿主机**运行使用，compose 靠默认值兜底，所以此前从未暴露；生产 compose 要求它必须有值。`.env.example` 补 `DEBUG` 项与生产必填说明；`requirements.txt` 补 `PyYAML`（生产 compose 契约测试要解析 YAML，否则 TASK-061 的 CI 会因缺包失败）。
 - Trade-off：生产栈与开发栈的服务定义有两份，存在漂移风险；已用 `tests/test_prod_compose.py` 的「生产服务集合 = 开发服务集合 + 生产化约束」交叉校验兜住。
 - 已知边界（有意接受）：`${VAR:?}` 只能拦「未设置 / 为空」，**拦不住「设置成了弱值」**（例如把 `POSTGRES_PASSWORD` 填成 `postgres`）。后者靠部署文档与 `.env.example` 提示；若要强制，需要在应用启动时做密钥强度校验，不在本 TASK 范围。
+- **TASK-060 更新**：本决策第 ② 条里「app 只绑 `127.0.0.1:${APP_PORT:-8000}`」已被取代——接入 Nginx 后 app 的宿主端口被**整体去掉**（原因见 Decision 040）。`${APP_PORT}` 随之退役，对外端口改由 `${NGINX_HTTP_PORT}` 控制。
+
+## Decision 040：Nginx 接入——入口收敛为唯一反代；§31 的「静态附件访问」实现为**不直出**（用户确认，TASK-060）
+- Problem：§31 规定了生产链路 `Client → Nginx → Gunicorn → Uvicorn Worker → FastAPI`，并列出 Nginx 的五项职责（反向代理、请求体大小限制、基础超时、**静态附件访问**、基础安全 Header），但没有规定：①Nginx 以容器还是宿主进程形式部署？②app 是否还保留宿主端口？③「静态附件访问」怎么实现？④是否包含 TLS？其中 ②③ 直接决定安全边界。
+- Decision（四项经用户确认）：
+  1. **Nginx 是容器服务，且是唯一对外入口**：新增 `nginx` 服务（`nginx:1.27-alpine`）发布 `${NGINX_HTTP_PORT:-80}:80`；app 从 prod compose 中**摘掉宿主端口**（TASK-059 的 `127.0.0.1:8000` 一并删除），只在 compose 网络内以服务名 `app:8000` 可达；
+  2. **附件不由 Nginx 直出**：保持「API 鉴权后返回文件流」，nginx 只反代；
+  3. **仅 HTTP 80**：TLS 由上游负载均衡终止，证书不进仓库；
+  4. 配套：固定 compose 子网 `172.28.0.0/24`，与 `TRUSTED_PROXY_IPS` 严格对应。
+- Reason：
+  1. **去掉 app 的宿主端口才让「真实客户端 IP」这件事可解**：留在宿主（哪怕只绑回环）就意味着同机任何进程都能直连应用并自带 `X-Forwarded-For`。去掉之后，「客户端无法绕过 Nginx 的覆盖写入」从**约定**变成**结构保证**——这是 Decision 042 那套信任模型能够成立的前提。同时 app 不再需要 `APP_PORT`，暴露面收敛到一个端口。
+  2. **§31 的「静态附件访问」若按字面用 `alias`/`root` 映射附件卷，等于删掉 TASK-043 的鉴权**：附件下载有功能级 `attachment:download` + 资源级归属链（不在链上 404 防枚举）。直出之后任何知道路径的人都能下载任意附件（教科书式 IDOR）。因此本 TASK 的选择是「不做直出」，并把理由写在 `nginx/nginx.conf` 顶部。性能上的正确下一步是应用鉴权后返回 `X-Accel-Redirect` 交由 nginx 读卷（鉴权不丢），但那要改动 TASK-042/043 的下载端点，属新增功能，须有文档依据再做（规则 §3/§5）。
+  3. §31 未要求 TLS；把自签证书提交进仓库是反面实践（私钥进版本库），而生产证书应由 ACME/负载均衡管理。同时因此**不发 HSTS**：在纯 HTTP 响应上发它既不被浏览器采纳，还会误导排查者以为已启用 TLS。
+  4. 见 Decision 042——信任网段必须是一个**确定事实**，不能靠 Docker 随机分配。
+- 同一 TASK 内的其他部署决策：
+  - **请求体大小限制做成「粗粒度外圈」**：`client_max_body_size 12m` **严格大于**应用的 `MAX_UPLOAD_SIZE`（10 MiB）。颠倒过来的后果是超限上传拿到 nginx 的 HTML 错误页而不是 §26 的 JSON 信封，客户端无法统一处理；留余量还让 `MAX_UPLOAD_SIZE` 调大时不必同步改 nginx（避免两处漂移）。
+  - **`proxy_set_header Host $host`**（而非 `$http_host`）：后者会把客户端任意 Host 头透传给应用。
+  - **`server_tokens off`**、三个安全 Header 带 `always`（否则 4xx/5xx 不带）。
+  - **nginx 健康检查探 `location = /nginx-health`**（只回答「代理能提供 HTTP」，不依赖上游）：若探 `/health`，应用重启期间 nginx 也会被标记为不健康，「入口挂了」与「后端重启中」两件事混在一起，反而更难排查。
+  - **配置以只读方式挂载**（`./nginx/nginx.conf:/etc/nginx/nginx.conf:ro`）：它是**部署配置**而非应用源码，不违反「生产不挂宿主源码目录」；契约测试用显式白名单（`ALLOWED_HOST_MOUNT_SUFFIXES`）表达这个例外，而不是放宽整条规则。
+- Trade-off：①多一跳（客户端 → nginx → app），换来的是鉴权与可观测性；②容器化 nginx 的配置变更需要 `up -d`（compose 检测到挂载文件变化会重建容器）；③附件下载流量仍要经过应用进程（不做 X-Accel-Redirect 的性能优化）——对当前规模是合适的取舍。
+- 验证方式（冒烟实测，见 TESTING 的 TASK-060 章节）：`docker port` 实证只有 nginx 对外；宿主能访问 nginx 的 80 端口；`docker compose` 里除 nginx 外无任何 `ports` 条目（契约测试固化）。
+
+## Decision 041：Gunicorn 进程模型——worker 数走环境变量、不开自带访问日志（TASK-060）
+- Problem：§31 要求生产用 Gunicorn + Uvicorn Worker，但没有给出任何参数：worker 数多少？超时多长？访问日志怎么处理？§30 只要求 Dockerfile 有「合理的启动命令」。
+- Decision：
+  1. 启动命令由 prod compose 覆盖（`command:`）而不是改 Dockerfile 的 `CMD`——与 `celery_worker` 已在用的模式一致，且**开发栈行为零变化**（同一个镜像既跑开发也跑生产）；
+  2. `--worker-class=uvicorn.workers.UvicornWorker`、`--workers=${WEB_CONCURRENCY:-2}`（规格未给数值，取 2 并可经 `.env` 覆盖，与 DECISIONS 015 对限流阈值的处理同一思路）；
+  3. `--timeout=60`、`--graceful-timeout=30`（与 compose 的 `stop_grace_period: 30s` 对齐，避免 SIGTERM 后在途请求被 compose 提前强杀）、`--keep-alive=5`；
+  4. **不开 `--access-logfile`**：访问日志已由应用的 `RequestLoggingMiddleware` 按 §33 记录（含 `request_id` / `user_id` / `duration` / `client_ip`），再开一份 Gunicorn 的会重复输出。
+- Reason：①`uvicorn.workers.UvicornWorker` 让每个 worker 是 ASGI 异步进程，能在单个进程内并发处理请求（裸 `uvicorn` 单进程只能吃满一个核，是开发用配置）；②worker 数涉及 CPU 核数、内存与 Postgres 连接池的权衡，**属于部署配置而不是代码逻辑**，放进 `${WEB_CONCURRENCY}` 让运维可按机器调整，不在代码里写死；③重复访问日志这条是 TASK-056 的实测教训（当时 uvicorn 的 `uvicorn.access` 与应用中间件各出一条，只能靠容器冒烟发现，pytest 测不出）——所以这里**预先**避免，并写成契约测试 `test_gunicorn_access_log_is_not_duplicated`。
+- 前置核实：`uvicorn.workers.UvicornWorker` 在 uvicorn 0.52.4 中仍可用（容器内实测导入成功）；注意该模块依赖 `fcntl`，在 **Windows 宿主上无法导入**——这也是 Gunicorn 只能跑在容器（Linux）里的原因之一，宿主机上的 pytest 因此不直接测 Gunicorn 进程本身，而是测 compose 契约 + 容器冒烟。
+- Trade-off：Gunicorn master 自身的启动日志仍是纯文本（它用自己的 logger，不经应用的 formatter），与 §33 的 JSON 格式不统一。这是刻意接受的：§33 约束的是**应用日志**，而 master 的启动/退出信息属于基础设施层（与 nginx 的日志同类）。若将来要统一，需自定义 `--logger-class`，属过度工程。
+
+## Decision 042：反代后的客户端真实 IP——覆盖式头 + 信任网段 + 配置错误向安全侧退化（TASK-060）
+- Problem：DECISIONS 018 在 TASK-046 就写下了一条遗留约束：「Nginx 后所有请求的 `client.host` 都是 Nginx 的地址，IP 维度会退化为**所有匿名用户共享一个配额**。这一点在 TASK-060 接入反代时**必须**一并解决」。现在到了必须解决的时候，而显然的两种极端都不能接受：无条件信任 `X-Forwarded-For`（攻击者随手改值就把限流拆成无限份，审计日志也不可信）；完全不信任（IP 维度限流形同虚设）。
+- Decision（用户确认）：
+  1. **Nginx 侧**：`proxy_set_header X-Forwarded-For $remote_addr;` —— **覆盖**写入，而不是会追加的 `$proxy_add_x_forwarded_for`；
+  2. **应用侧**新增两个设置：`TRUST_PROXY_HEADERS`（默认 **false**）与 `TRUSTED_PROXY_IPS`（逗号分隔 IP/CIDR）。**三条同时成立**才采信：开关开启、TCP 对端落在信任网段内、该头恰好是**一个**合法 IP；
+  3. **配置错误向安全侧退化**：开关打开但网段为空/全非法 → **不采信**（而不是「信任任何人」）；
+  4. **关掉 ASGI 侧的改写**：prod compose 里 `FORWARDED_ALLOW_IPS=""`，让 `app/core/client_ip.py` 成为客户端 IP 的**唯一**判定点。
+- Reason：
+  1. 应用侧单独校验是不够的——「值得信任的头」必须由反代**覆盖**写入来保证。若用追加语义，客户端自带 `X-Forwarded-For: 1.2.3.4` 会排在链首，即使应用侧「取第一个」也照样被骗。两层配合才完整：反代保证**内容不可伪造**，应用保证**来源必须是它信任的代理**。
+  2. 默认关闭 + 网段必填，让**未配置的环境（含全部现有测试）行为与 TASK-046 完全一致**，不引入任何隐式信任。这条对「不破坏既有 22+ 限流测试」也是必要的。
+  3. fail-safe 的方向选择是刻意的：配置错误应该退化成「安全但限流不准」（所有匿名用户仍共享配额），而不是「限流可被无限拆分」。前者是被动挨打，后者是主动开门。
+  4. 两处逻辑叠加是排障噩梦：uvicorn 的 proxy-headers 默认信任 `127.0.0.1`，一旦有人把应用放到本机反代之后，`request.client.host` 就会**在应用不知情的情况下**变成转发头里的值。显式置空等于把「谁决定客户端 IP」这个问题收敛到一个地方。
+- 配套实现细节：
+  - **只认单一 IP 值**：本项目拓扑是单层反代，出现多值说明有环节在追加（或客户端自己塞的），一律不采信并回落到对端地址（同样是 fail-safe 方向）。
+  - **IPv4-mapped IPv6 归一**（`::ffff:172.28.0.5` → `172.28.0.5`）：某些容器网络栈会用这种形式表示 IPv4 对端，若不归一，`in IPv4Network` 恒为假，会出现「配置看起来对、信任却永远不生效」的**静默**失效。此缺陷由本 TASK 的测试捕获（初版只归一了采信路径，回落路径漏了，日志里会混进 `::ffff:` 前缀）。
+  - **固定 compose 子网 `172.28.0.0/24`**，并与 `TRUSTED_PROXY_IPS` 严格对应：靠 Docker 随机分配地址段会让信任判定时灵时不灵；契约测试对两处值做**交叉校验**（改一处不改另一处会直接失败）。
+  - **访问日志增加 `client_ip` 字段**：反代之后若只记 TCP 对端地址，日志里所有请求都来自 Nginx，排查时没有区分度；记录解析后的真实 IP 才让「限流为什么打到这个用户」可复盘。**注意新增字段要同时改 `TextFormatter` 的白名单**：文本格式对额外字段是白名单渲染（防止任意 `extra=` 撑爆日志行），只加进 `extra={...}` 的话该字段**只在生产 JSON 里存在**——开发环境看不到，而开发环境恰恰是人看日志的地方。这个缺口 pytest 测不出（用例只断言 JSON 负载），是开发容器冒烟发现的；已补白名单 + 专项断言。
+- Trade-off：①`TRUSTED_PROXY_IPS` 是一个需要运维正确配置的旋钮，配错会静默退化成共享配额——已用契约测试（compose 子网交叉校验）+ fail-safe 语义 + DEPLOYMENT 文档三重兜住；②多值一律拒绝意味着将来若在前面再加一层代理（CDN），需要重新审视此决策（会先表现为限流不准，而不是安全失效）。
 
 

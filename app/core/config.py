@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     rate_limit_enabled: bool = True
 
+    # 反向代理信任边界（§31 / TASK-060）
+    # 生产链路是 Client → Nginx → Gunicorn → Uvicorn，若始终取 TCP 对端地址，
+    # 则所有匿名请求的对端都是 Nginx，「按 IP 限流」会退化为共享一份配额
+    # （DECISIONS 018 遗留约束）。这里用一个**默认关闭**的显式开关来解：
+    #   - trust_proxy_headers=False（默认）→ 与 TASK-046 行为完全一致；
+    #   - 开启时必须同时给出 trusted_proxy_ips（逗号分隔的 IP/CIDR，通常是
+    #     compose 网段），否则**不采信**该头（fail-safe）。
+    # 判定逻辑集中在 app/core/client_ip.py。
+    trust_proxy_headers: bool = False
+    trusted_proxy_ips: str = ""
+
     # Auth
     jwt_secret_key: str = "change-me"
     access_token_expire_minutes: int = 30

@@ -34,6 +34,16 @@
 区分键**。解不出来（未认证/Token 非法）就退化为按 IP 限流，这恰好是 §22
 「IP / User」两层维度的自然含义。
 
+## IP 维度在反代之后如何保持有效（§31 / TASK-060）
+
+IP 维度若永远取 TCP 对端地址，则接入 Nginx 之后所有匿名请求的对端都变成
+Nginx，「按 IP 限流」退化为「所有匿名用户共享一份配额」——这正是 DECISIONS 018
+留下的遗留约束。TASK-060 的解法是「反代覆盖写入 + 应用侧按信任网段判定」：
+Nginx 用 `$remote_addr` **覆盖**写入 `X-Forwarded-For`（客户端伪造的值在到达
+应用前已被替换），应用只在 `TRUST_PROXY_HEADERS=true` **且**对端落在
+`TRUSTED_PROXY_IPS` 网段内时才采信它。判定逻辑集中在 `app.core.client_ip`，
+本模块只负责把 `Request` 的原始信息喂给它。
+
 ## 失败开放（fail-open）与延迟上界
 
 Redis 不可用时**放行**请求而不是全部 429。理由：限流是保护性措施，不应成为
@@ -60,6 +70,7 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.client_ip import FORWARDED_FOR_HEADER, parse_trusted_proxies, resolve_client_ip
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
 from app.core.logging_config import request_id_var, user_id_var
@@ -81,17 +92,24 @@ RATE_LIMIT_CALL_TIMEOUT_SECONDS = 2.0
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP 作为限流标识。
+    """取客户端 IP 作为限流标识 / 日志字段。
 
-    这里**只**用 `request.client.host`（TCP 连接的来源地址），不解析
-    `X-Forwarded-For`：该头可被客户端任意伪造，用它做限流等于让攻击者
-    随意切换身份绕过限制。生产环境经 Nginx 反代时，应由 Nginx 覆盖
-    （而非追加）真实 IP，届时再按部署拓扑决定是否信任该头——那是部署层
-    的信任边界问题，属于 TASK-060 的范围。
+    解析规则集中在 ``app.core.client_ip``（TASK-060）：默认只信 TCP 对端地址，
+    仅当 ``TRUST_PROXY_HEADERS=true`` **且**对端落在 ``TRUSTED_PROXY_IPS`` 网段
+    内时才采信 ``X-Forwarded-For``。之所以不无条件解析该头，是因为它可被客户端
+    任意伪造——用它做身份标识等于让攻击者随手换身份绕过限流（DECISIONS 018）。
+
+    反代侧的配合：本项目 Nginx 用 ``$remote_addr`` **覆盖**写入该头
+    （``nginx/nginx.conf``），因此「客户端塞进来的值」在到达应用之前就被替换掉了。
     """
-    if request.client is None:  # 极少数场景（如 ASGI 直连）没有 client
-        return "unknown"
-    return request.client.host
+    settings = get_settings()
+    peer_ip = request.client.host if request.client is not None else None
+    return resolve_client_ip(
+        peer_ip,
+        request.headers.get(FORWARDED_FOR_HEADER),
+        trust_proxy=settings.trust_proxy_headers,
+        trusted_proxies=parse_trusted_proxies(settings.trusted_proxy_ips),
+    )
 
 
 def _rate_limit_identity(request: Request) -> tuple[str, str]:
@@ -218,8 +236,14 @@ def _user_id_from_request(request: Request) -> int | None:
         return None
 
 
-def _log_request_completed(request: Request, status_code: int, started: float) -> None:
-    """输出一条结构化访问日志（duration 单位为毫秒）。"""
+def _log_request_completed(
+    request: Request, status_code: int, started: float, client_ip: str
+) -> None:
+    """输出一条结构化访问日志（duration 单位为毫秒）。
+
+    ``client_ip`` 记录的是**解析后的真实客户端 IP**（见 ``_client_ip``）：反代
+    之后如果只记 TCP 对端地址，日志里全是 Nginx 的地址，排查时无法区分来源。
+    """
     logger.info(
         "request completed",
         extra={
@@ -228,6 +252,7 @@ def _log_request_completed(request: Request, status_code: int, started: float) -
             "status_code": status_code,
             # duration 用毫秒（float，保留 3 位）——比秒更易读且不丢亚毫秒信息。
             "duration": round((time.perf_counter() - started) * 1000, 3),
+            "client_ip": client_ip,
         },
     )
 
@@ -249,19 +274,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         started = time.perf_counter()
+        # 提前解析（而不是在写日志时现算）：异常路径也要记日志，先算好可避免
+        # 在 except 分支里再做一次可能抛错的解析。
+        client_ip = _client_ip(request)
         user_id = _user_id_from_request(request)
         token = user_id_var.set(user_id) if user_id is not None else None
         try:
             response = await call_next(request)
         except Exception:
-            _log_request_completed(request, 500, started)
+            _log_request_completed(request, 500, started, client_ip)
             raise
         else:
             # ⚠ 必须在 finally 还原 ContextVar **之前**写日志：访问日志的
             # user_id 来自 user_id_var，若先还原再记录，每个成功请求的日志都会
             # 丢掉 user_id（§33 明确要求日志带 user_id）——此为 TASK-056 实测
             # 发现的缺陷。
-            _log_request_completed(request, response.status_code, started)
+            _log_request_completed(request, response.status_code, started, client_ip)
             return response
         finally:
             if token is not None:
