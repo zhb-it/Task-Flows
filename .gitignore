@@ -43,6 +43,9 @@ uploads/
 storage/
 *.log
 
+# npm 缓存（前端依赖装在本机沙箱内，cache 落在仓库根，不进版本库）
+.npm-cache/
+
 # Agent / IDE local state (not project source)
 .codebuddy/
 .workbuddy/

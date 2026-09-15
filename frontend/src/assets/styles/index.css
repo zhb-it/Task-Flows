@@ -1,0 +1,61 @@
+/**
+ * 全局样式。
+ *
+ * 只放三样东西：CSS 重置、布局尺寸变量、跨页面复用的少量类。组件私有样式一律
+ * 写在各自的 `<style scoped>` 里，避免出现「改一个类名影响另一个页面」。
+ *
+ * 主题色沿用 Element Plus 的默认主色（#409eff），不另行覆盖——规格 §75 只要求
+ * 代码规范，没有指定配色方案。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: #303133;
+  background-color: #f5f7fa;
+}
+
+:root {
+  --tf-header-height: 56px;
+  --tf-sidebar-width: 220px;
+  --tf-sidebar-collapsed-width: 64px;
+}
+
+/* 页面级容器：给内容区留统一内边距，配合 el-card 使用。 */
+.tf-page {
+  padding: 0;
+}
+
+.tf-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 路由切换的淡入淡出（规格 §74 的「避免无意义重复渲染」——纯 CSS 过渡，无额外开销）。 */
+.tf-fade-enter-active,
+.tf-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.tf-fade-enter-from,
+.tf-fade-leave-to {
+  opacity: 0;
+}

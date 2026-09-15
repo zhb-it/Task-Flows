@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-ssr/
+
+# 测试与覆盖率
+coverage/
+playwright-report/
+test-results/
+
+# 本地环境覆盖（.env.development / .env.production 是要提交的，因为不含密钥）
+*.local
+
+# npm / vite 缓存（沙箱环境下 npm 可能把 cache 写到仓库内）
+npm-cache/
+.npm-cache/
+.vite/
+*.tsbuildinfo
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.swp
+.DS_Store

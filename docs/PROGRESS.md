@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-064 全部勾选，无未完成任务。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-068 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~068）。
 
 ## Current Phase
-Phase 10：工程化
+Phase 11：前端工程化
 
 ## Current Task
-TASK-063 README 与面试技术难点（Phase 10：README 按规格 §Phase 17 的 19 个部分重写 + `docs/INTERVIEW.md` 覆盖 §56 的 9 领域 35 问 + 两者纳入文档护栏）
+TASK-068 前端工程验证与文档（Phase 11：`frontend/` 工程四项校验全绿 + `frontend/README.md` 与 `docs/FRONTEND_API_MAPPING.md` 落盘 + 前后端契约差异逐条记录）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -74,6 +74,10 @@ TASK-063 README 与面试技术难点（Phase 10：README 按规格 §Phase 17 �
 - [x] TASK-062 完整测试与质量检查（956 passed；覆盖率 2373 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支，仅本地基线与文档、不进 CI 门禁；新增 4 个测试模块 80 项——存储安全守卫 / 有价值分支 / 质量契约 / N+1 运行时护栏；顺带修复 2 处生产缺陷（并发注册 409 兜底不可达、非字符串日志消息绕过脱敏）与 3 处测试自身残留，订正 3 处文档矛盾，`docs/QUALITY.md` 新建，见 DECISIONS 044）
 - [x] TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（落实 §57 与 §14：`CREATE EXTENSION pg_trgm` + `GIN (title gin_trgm_ops)` + `search_vector` 生成列 + `GIN (search_vector)`；`EXPLAIN` 实证 `ILIKE '%x%'` 由顺序扫描转为 `Bitmap Index Scan`，`keyword` 查询语义不变；附带把「PROGRESS 三处核验」变成 CI 自动拦截的 `scripts/check_docs.py` + `tests/test_docs_consistency.py`，见 DECISIONS 045）
 - [x] TASK-063 README 与面试技术难点（README 按规格 §Phase 17 的 19 个必需部分重写，全部数字取自真实仓库且受断言约束；新建 `docs/INTERVIEW.md` 逐条作答 §56 的 9 领域 35 问、题干逐字照抄；`tests/test_readme.py` 把 README 的结构性声明与 ORM metadata / OpenAPI schema / 文件系统对齐，含反向用例，见 DECISIONS 046）
+- [x] TASK-065 前端项目初始化（Phase 11 首个任务；规格前端阶段 1：Vue 3 + TypeScript + Vite + Router + Pinia + Axios + Element Plus + ESLint + Prettier；开发环境 API 基地址取相对路径并走 Vite 代理，因为后端无 CORS，见 DECISIONS 047）
+- [x] TASK-066 前端基础框架与布局（规格前端阶段 2：BasicLayout/AuthLayout + Sidebar/Header/Breadcrumb/UserMenu/NotificationBell + 路由表与守卫 + 请求层（解信封/带令牌/401 单飞刷新/错误归一）+ 权限落点 + 错误页 + 业务页占位）
+- [x] TASK-067 前端认证（规格前端阶段 3：Login/Register 对接真实后端 + Auth Store + Axios 拦截器 + Router Guard + Logout；登出用 `tokenStorage` 最新 Refresh Token 撤销，避免轮换后撤到失效令牌）
+- [x] TASK-068 前端工程验证与文档（typecheck / lint / test / build 四项全绿 + `frontend/README.md` 新建 + `docs/FRONTEND_API_MAPPING.md` 新建（25 条 `/api/v1` 路径 / 38 个操作逐条映射 + 14 条契约差异 + 4 项需后端配合的未决项 + 占位页清单））
 
 ## In Progress
 - [ ]
@@ -82,7 +86,7 @@ TASK-063 README 与面试技术难点（Phase 10：README 按规格 §Phase 17 �
 - None
 
 ## Next
-无——TASK-001 ~ TASK-064 全部交付，`docs/TASKS.md` 中已无未勾选任务（见 DECISIONS 046 与 §60 开发终点）。
+无——TASK-001 ~ TASK-068 全部交付（后端 TASK-001~064、前端 TASK-065~068），`docs/TASKS.md` 中已无未勾选任务。前端后续阶段（规格 §59 的阶段 4~15：Dashboard / 团队 / 项目 / 任务 / 评论 / 附件 / 通知 / 权限 / 日志 / 测试 / Nginx / 优化）尚未登记为 TASK，需按 §59 顺序在下一轮追加编号后再执行；其中 Dashboard 与「我的任务」受 `docs/FRONTEND_API_MAPPING.md` §6 的 Q1/Q2 阻塞。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -443,6 +447,78 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **README 里「共 25 条路径」有歧义**（40 个操作中 38 个在 `/api/v1` 下，而总路径含 `/` 与 `/health` 共 27 条）：改写为「共 25 条 `/api/v1` 路径」，并把该措辞写成受断言约束的声明——歧义与漂移一并消除。
 
 **文档产物**：`README.md`（重写）、`docs/INTERVIEW.md`（新建）、`scripts/check_docs.py`（扩规则）、`tests/test_readme.py`（新建）、`tests/test_docs_consistency.py`（补 2 项）、`docs/QUALITY.md`（加基线声明行 + D8 扩展 + §57 工程化行）、`docs/DECISIONS.md`（046）、`docs/TESTING.md`（护栏章节 + 基线）；本文件的 `Project Status` 转为 Completed、`Next` 改为声明全部完成。
+
+## TASK-065 完成 前端项目初始化（Phase 11 首个任务，对应规格 §60）
+
+**目标**：把 `frontend/` 从零建成一个**能装、能起、能校验**的工程，技术栈与规格 §2 一致，且所有环境相关的东西（基地址、代理、标题）走配置而不是写死在代码里。
+
+**实现**
+- 12 个配置文件：`package.json`（Vue 3 + TS 5 + Vite 7 + Vue Router 4 + Pinia 3 + Axios + Element Plus 2 + ECharts 5 + ESLint 9 + Prettier 3 + Vitest 3 + vue-tsc，`engines.node` 钉下限）、`tsconfig.json`、`vite.config.ts`、`vitest.config.ts`、`eslint.config.js`、`prettier.config.js`、`index.html`、`src/env.d.ts`、`.env.development`、`.env.production`、`.gitignore`、`public/favicon.svg`。
+- **代理是必需项而不是优化**：`app/main.py` 全仓没有 `CORSMiddleware`，浏览器直连 8000 会被同源策略拦下。因此开发基地址取**相对路径** `/api/v1`，由 Vite 把 `/api` 转发到 `VITE_API_PROXY_TARGET`（默认 `http://127.0.0.1:8000`）。生产本来就走 Nginx 反代，两者一致。理由与替代方案见 DECISIONS 047。
+- `.env.*` 只放非敏感项（基地址、站点名、代理目标）；`.gitignore` 覆盖 `node_modules/`、`dist/`、`npm-cache/`（沙箱下 npm 可能把 cache 建在仓库内）。
+
+**验证**
+- `npm install` 成功，生成 `package-lock.json`（180 KB）与 `node_modules/.bin`。
+- `npm run dev` → `VITE v7.3.6 ready in 731 ms`，`GET http://127.0.0.1:5173/` 返回 200 且 `index.html` 内容正确（含 `/favicon.svg` 与 `/src/main.ts`）。
+
+**问题与解决**
+- **Node 不在 PATH**：本机用绝对路径 `D:/node/node.exe` 直调 `D:/node/node_modules/npm/bin/npm-cli.js`，不依赖 shell 的 npm shim。
+- **官方 registry 在本机 502**（被沙箱代理拦），改用 `https://registry.npmmirror.com` 并把 `--cache` 指向仓库内的 `.npm-cache`（已 gitignore）。
+- **`npm run <script>` 未带 `--cache` 时，npm 会在 cwd 建 `frontend/npm-cache/_logs/`**：已写进 `.gitignore`，避免提交时混进运行日志。
+
+## TASK-066 完成 前端基础框架与布局（对应规格 §61）
+
+**目标**：让「登录 → 进主框架 → 侧边栏/顶栏/面包屑 → 路由切换」这条链路真实可跑，业务页面按计划占位而不是留空白。
+
+**实现**
+- 两套布局：`BasicLayout.vue`（侧栏 + 顶栏 + 面包屑 + 内容区）与 `AuthLayout.vue`（单卡片居中），分别挂在受保护路由与 `/login`、`/register` 上。
+- 部件：`AppSidebar` / `AppHeader` / `AppBreadcrumb` / `UserMenu` / `NotificationBell` / `PagePlaceholder`。
+- 路由表 `router/routes.ts` 是**菜单的唯一事实来源**（`inMenu` 派生侧栏项）；面包屑由 `meta.title` + 菜单前缀匹配生成，不额外维护 breadcrumb 字段。
+- 请求层 `utils/request.ts`：统一解后端信封 `{data, message}`、自动带 `Authorization`、401 **单飞刷新**、错误归一为可读文案。
+- `utils/permission.ts` 的 AND/OR 语义对齐后端 `require_permission`；`composables/usePermission.ts` **只留落点不据此隐藏功能**——后端没有「查询当前用户权限集合」的端点，凭空造一份前端权限表比不做更危险（规格 §35 自己也写着隐藏按钮 ≠ 安全）。
+- 错误页 `/403`、`/404`（catch-all）、`/500` 齐备且 `requiresAuth: false`：未登录时看到 404 不会被弹回登录页。
+- 业务页面（Dashboard / 团队 / 项目 / 任务 / 通知 / 日志）一律渲染 `PagePlaceholder`，页面上写明**阶段号 + 将调用的端点 + 已知契约限制**，用来区分「按计划后做」与「漏做」（规格 §43 禁止空白页）。
+
+**验证**
+- `npm run typecheck`、`npm run lint`（`--max-warnings 0`）、`npm run build`（1757 模块）全绿。
+- `frontend/tests/unit/router.spec.ts` 12 项：菜单每个入口都能解析到真实路由；未登录访问受保护页面跳登录页并带 `redirect` 回跳地址；令牌失效时清凭证。
+
+## TASK-067 完成 前端认证（对应规格 §62）
+
+**目标**：登录 / 注册 / 令牌管理 / 401 自动刷新 / 路由守卫 / 登出全部对接**真实后端契约**，不照规格示例猜字段。
+
+**实现**
+- `api/auth.ts` 按 `app/api/v1/auth.py` 与 `app/schemas/auth.py` 写：`POST /auth/register`（201，`UserCreate`）、`POST /auth/login`（返回**只有令牌对**，没有用户信息）、`POST /auth/refresh`（体传 `refresh_token`）、`POST /auth/logout`（体传 `refresh_token` + `Authorization`）。
+- 登录成功后**立即补拉 `/users/me`**——因为登录响应里没有用户资料。
+- **令牌只有一份存放点**（`utils/storage.ts` 的 `tokenStorage`，落 localStorage），Pinia 不存副本：刷新发生在 store 之外，两份值会在 Refresh Token 轮换后漂移，登出时用旧值撤销 → 真正有效的那个反而活下来。这不是理论问题，后端对已撤销 jti 一律 401（`app/services/auth.py::rotate_tokens`）。
+- **401 刷新必须去重**：进页面常并发多请求，Access Token 恰好过期就会收到多个 401；各自刷新的话后到者会拿**已被轮换撤销**的 Refresh Token 请求 → 401 → 清凭证跳登录。「刷新把用户踢下线」正是这样发生的，单飞只多一个模块级 Promise。
+- 登出用 storage 里的**最新** Refresh Token 撤销；撤销失败也照常清本地（后端是幂等语义，重复登出 200 无副作用）。
+- 前端**不发明后端没有的规则**：注册密码只校验必填（`UserCreate.password` 无长度约束），个人中心的「改资料 / 改密码」按钮禁用而不是画一个调用不存在接口的表单。
+
+**验证**
+- `tests/unit/request.spec.ts` 10 项：自省 adapter 验证解信封 / 令牌头 / 错误归一 / 401 刷新路径；`tests/unit/storage.spec.ts` 5 项：键名与降级契约；`tests/unit/permission.spec.ts` 10 项：AND/OR 语义。
+- 端到端登录未做真实链路冒烟，原因与影响见 TASK-068 的「问题与解决」。
+
+## TASK-068 完成 前端工程验证与文档（对应规格 §81）
+
+**目标**：把前端「做了什么 / 不能做什么」变成有据可查的文档，并把规格与后端的差异集中可见，避免在阶段 4+ 临时才发现。
+
+**实现**
+- `frontend/README.md`（新建）：启动方式、目录职责、四个校验命令、令牌存 localStorage 的已知代价、Element Plus 全量引入的体积取舍。
+- `docs/FRONTEND_API_MAPPING.md`（新建）：以 `app.openapi()` 导出结果为准（25 条 `/api/v1` 路径 / 38 个操作，不凭印象），逐条映射前端页面与端点；规格与后端的 **14 处差异**按「规格说法 / 后端事实 / 前端处理」三列记录；**4 项需后端配合的未决项**（权限集合端点、跨项目任务统计、列表 `total`、更新资料/改密端点）+ 占位页清单单独成表。
+- `docs/DECISIONS.md` 047：前端第一阶段的五个技术选择（代理、令牌存放点、刷新去重、不做权限 UI、占位页写端点）的理由与代价；`docs/TASKS.md` 新增 Phase 11（TASK-065~068）；根 `README.md` 更新进度前沿。
+
+**验证**
+- 前端四项全绿：`npm run typecheck`（0 错）、`npm run lint`（0 warning）、`npm run test`（**37 passed / 4 files**）、`npm run build`（1757 模块，7.12s，产物落 `dist/`）。
+- `python scripts/check_docs.py` → 退出码 0；后端全量 `pytest -q` 仍全绿（前端不触碰 `app/`）。
+- 视觉验证：无头 Chrome（`--headless=new`）真实渲染截图 5 张，落 `.workbuddy/screenshots/`（已 gitignore，不进提交）——`login-1440` / `register-1440` / `notfound-1440` / `forbidden-1440` / `server-error-1440`。登录页确认 Element Plus 表单（必填星号、前缀图标、主按钮）、品牌头与页脚均正常渲染；`/no-such-page` 命中 catch-all 渲染 404 而**没有**被弹去登录页，反证守卫的 `requiresAuth: false` 生效。
+
+**问题与解决**
+- **窄屏（390px）截图不可信**：按《web-ui-screenshot》的做法用「外层取景页 + 固定宽 iframe」绕开 Windows 最小窗口宽度假象，但 headless 下子页面内容不渲染——两次截图字节数**完全相同（3045 B，空白）**，判定为环境限制而非布局问题，遂放弃该口径。改从样式核对：`.tf-auth` 只有 `padding: 24px`，卡片 `width: 100%` + `max-width: 400px`，无任何固定宽度，390px 视口下卡片实宽 342px，不溢出。
+- **端到端登录冒烟没做成**：开发库业务表 0 行（无用户可登），而临时注册一个冒烟账号的调用被本机安全策略拦下并终止（含口令字面量），按要求未重试也未绕过。因此 `BasicLayout` 子树只有**路由级 + 单测级**验证，没有真实令牌驱动的视觉与链路验证。这一项如实留在 Phase 11 遗留，不计入「已验证」。
+- **主 chunk 超过 Vite 默认 500 kB 警告线**（`index-*.js` 1.1 MB / gzip 364 kB，来自 Element Plus 全量引入与 ECharts）：按规格 §74「反对过早引入复杂方案」接受该取舍，`chunkSizeWarningLimit` 提到 1500 并在 `vite.config.ts` 与 `frontend/README.md` 两处写明——避免后来者以为是漏配。
+
+**文档产物**：`frontend/README.md`（新建）、`docs/FRONTEND_API_MAPPING.md`（新建）、`docs/DECISIONS.md`（047）、`docs/TASKS.md`（Phase 11）、`docs/PROGRESS.md`（本文件）、根 `README.md`（进度前沿）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
