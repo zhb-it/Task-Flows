@@ -344,6 +344,7 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **迁移可逆性真实验证**（本 TASK 最重要的一次实证）：用真实应用镜像起容器，**仅靠环境变量**（不挂 `.env`）把 `DATABASE_URL` 指向一次性探针库，跑 `alembic upgrade head` → `downgrade base` → `upgrade head`：三步 exit 全 0，业务表数 **16 → 0 → 16**；容器内 `ls -a /app` 实证**没有 `.env`**（前提成立）；探针库用后即删，`pg_database` 只剩 `taskflow`。这一步不能只靠本地验证——本机**永远有 `.env`**，所以「没有 `.env` 时 alembic 还能不能跑」这条路径（CI 的既有状态）从未被覆盖过。
 - **配置等价性核查**：逐字段对比 `.env` 与 `Settings` 默认值，真正的差异只有三处（`DATABASE_URL` / `REDIS_URL` 默认值是 compose 服务名 `postgres:5432` / `redis:6379`、`JWT_SECRET_KEY` 默认 `change-me`），CI 恰好显式设了这三个——CI 与本地只差「谁提供 Postgres / Redis」。该结论已固化为断言（含反向断言：多设一个键也会红，因为那会引入第三种配置，让「CI 绿 ⇒ 本地绿」悄悄失效）。
 - **docker build 真实验证**：按 CI 的命令（`docker build --tag taskflow-app:ci .`）执行，exit 0，镜像产出（9 步全绿，构建上下文 41KB）；验证后 `docker rmi` 删除该镜像，本机只剩 TASK-059/060 的 `taskflow-app:latest` / `:prod`。
+- **GitHub Actions 首跑全绿**（run #1，commit `594bf53`，2026-09-15T12:33:53Z → 12:37:07Z，约 3m14s）：三个 job 全部 `success`；`Tests (pytest)` 的步骤序列实证为 `Initialize containers`（两个 service 容器真正起来）→ `Install dependencies` → `Verify migrations are reversible` → `Run full test suite` —— 即 service 端口映射、环境变量与迁移三步在**真实 runner** 上同样成立（这正是本地验证不到的那部分）。`workflow_dispatch` 之外无需任何人工干预。
 
 **问题与解决**
 - 本机 **PyPI 清华镜像没有 ruff**，`pip install ruff` 找不到包；改用官方源 + 本地代理装成功（`--index-url https://pypi.org/simple --proxy http://127.0.0.1:7897`）。这条只影响本机开发，CI 上无此问题；已记入 DEPLOYMENT.md。

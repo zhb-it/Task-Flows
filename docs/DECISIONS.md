@@ -349,5 +349,6 @@
   - **lint 工具与运行时依赖分文件**（`requirements-dev.txt` 以 `-r requirements.txt` 扩展）：`requirements.txt` 被 Dockerfile 用于生产镜像，把 ruff 装进去既是死重量，也让「生产镜像里装了什么」无法单独审计。
   - **最小权限 + 禁用 `pull_request_target` + 每个 job 设 `timeout-minutes`**：后者的默认上限是 360 分钟，一个卡住的 job（例如等一个永远不就绪的 service）会白占六小时。
 - Trade-off：①**CI 不做容器全栈验证**（不在 runner 上起 `docker-compose.prod.yml` 跑 nginx 反代）——那需要额外拉取镜像与数分钟等待，且属部署验证；代价是「反代层被改坏」不会被 CI 拦住，只能由 `tests/test_nginx_config.py` 的离线契约测试兜住（它覆盖了可静态检查的全部性质，包括 XFF 覆盖语义与信任网段交叉校验）。②规则集固定意味着 ruff 新版本里的新规则不会自动生效，升级需要人工评审——这是**有意**的：门禁的变化应当是显式的，而不是某天突然多出几百项。③`REQUIRED_SERVICE_PORTS` 这份清单依赖「测试仍然硬编码这些端口」；若将来测试改成从配置读地址，清单会过期——已加反向断言（清单里的每个端口必须在 `tests/` 中确有引用），过期时测试会红。
+- 首跑实证：推送后 GitHub Actions run #1（`594bf53`）**三个 job 全部 success**，用时约 3m14s。`Tests (pytest)` 的步骤为 `Initialize containers` → `Install dependencies` → `Verify migrations are reversible` → `Run full test suite`，说明本地用真实容器复刻的那套验证（无 `.env` 跑迁移三步、service 端口映射、依赖安装）与 runner 上的实际行为一致。
 
 

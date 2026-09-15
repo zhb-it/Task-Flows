@@ -384,5 +384,7 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 - **配置等价性核查**：逐字段对比本机 `.env` 与 `Settings` 默认值，真正的差异只有三处，CI 恰好显式设了这三个——CI 与本地只差「谁提供 Postgres / Redis」。
 - **本地跑同一套 lint**：`pip install -r requirements-dev.txt && ruff check .`。注意本机 PyPI 清华镜像**没有 ruff**，需指定官方源（见 DEPLOYMENT.md）。
 
+**运行首跑结果**：GitHub Actions run #1（推送 `594bf53` 后自动触发）**三个 job 全部 success**，用时约 3m14s。`Tests (pytest)` 的步骤序列为 `Initialize containers` → `Install dependencies` → `Verify migrations are reversible` → `Run full test suite`——即 service 端口映射、环境变量与迁移三步在真实 runner 上与本地一致地成立。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
