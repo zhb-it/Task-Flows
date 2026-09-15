@@ -7,7 +7,7 @@ In Progress
 Phase 8：Redis 与 Celery
 
 ## Current Task
-TASK-047 限流测试（已完成）
+TASK-049 通知异步任务（已完成；TASK-048 的本行更新曾遗漏，此处一并修正）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -58,6 +58,7 @@ TASK-047 限流测试（已完成）
 - [x] TASK-046 ZSET + Lua 滑动窗口限流
 - [x] TASK-047 限流测试
 - [x] TASK-048 Celery App/Worker
+- [x] TASK-049 通知异步任务（含提前完成的 notifications 建模，见 DECISIONS 029）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -67,7 +68,7 @@ TASK-047 限流测试（已完成）
 - None
 
 ## Next
-TASK-049 通知异步任务（Phase 8 Redis 与 Celery）
+TASK-050 日志归档/附件清理任务（Phase 8 Redis 与 Celery）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -142,6 +143,22 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 **compose 部署冒烟（真实链路，四服务全绿）**：`up -d --build` 后 app healthy、worker `1 node online`；app 容器内 `ping.delay().get()` → **`pong, SUCCESS`**（完整经过 Redis Broker → Worker → Redis Backend）；`redis-cli --scan` 实测所有 Celery 键（含 `_kombu.binding.*`、`celery-task-meta-*`）都在 `taskflow:` 前缀之下。
 
 **验证**：`tests/test_celery_app.py` **11 passed**（1.10s）；全量 **599 passed**（588 + 11）。文档：TASKS.md 勾选；TESTING.md 新增「Celery App / Worker（TASK-048）」章节；DECISIONS.md 新增 026（Broker/Backend 回落 REDIS_URL）/027（at-least-once + JSON-only，§8 落点）/028（Celery 键挂 taskflow: 前缀）；PROGRESS 推进至 TASK-049。
+
+## TASK-049 完成 通知异步任务
+
+**范围界定**：Worker 端通知落库——`app/tasks/notification_tasks.py` 的 `create_notification` 任务写 `notifications` 表（§24）。业务派发点（任务分配/状态变更时从 TaskService 提交）属 Phase 13 的 TASK-053，不在本 TASK。**范围决策（用户确认）**：notifications 表建模（Model + 迁移）提前于 TASK-052 并入本 TASK——§24 的可重试/不重复语义依赖真实持久化，空壳任务无法实现与测试（沿用 TASK-058 提前完成先例，DECISIONS 029）。
+
+**实现**
+- `app/models/notification.py` + 迁移 `b7d2e9a4c6f8`（§18 原文七字段；user_id FK CASCADE；`(user_id, created_at)` 复合索引；type 不加 CHECK、content 可空，理由记 DECISIONS 029）。
+- `app/tasks/notification_tasks.py`：`app.create_notification`。§24 三条要求落地：①主业务失败不产生错误通知 = 派发方须在事务提交后 `delay()`（TASK-053 接线）+ 任务参数防御（`ValueError` 不重试零副作用）；②失败可重试 = `autoretry_for=(SQLAlchemyError, OSError)` 指数退避 max 5 + 抖动（§8 retry）；③重试不大量重复 = 调用方生成幂等键，任务「先插库、后 `SETNX taskflow:notify_done:<key>`（TTL 7 天）」——DB 是事实源，反向顺序会丢通知；Redis 故障 fail-open（DECISIONS 030）。
+- `app/db/redis.py`：补充同步入口 `get_sync_redis_client()`——Celery prefork 同步上下文用不了 async 客户端（命令返回协程；首轮测试 8 failed 全因 `bool(coroutine)` 恒真、全部被误判"已完成"跳过，暴露了这一点）；同一 URL 与 socket 超时纪律。
+- 任务内 DB 写入用**每次调用独立事件循环 + 短命 engine**：asyncpg 连接池绑定事件循环，跨 loop 复用必报错，不能共享 API 进程的 engine 单例（DECISIONS 030）。
+- `app/tasks/celery_app.py`：新增 `TASK_MODULES` include 机制，Worker 启动自动注册任务模块。
+- `tests/test_notification_task.py`：15 项（注册接线 2 / 执行链路 3 / 不大量重复 4 / 参数防御 2 / 可重试声明 2 / FK 级联 1 / 同步客户端超时 1）。全部同步用例——任务体 `asyncio.run` 不能嵌套在 async 用例的事件循环里；验证用 asyncpg 直连，与任务写入路径相互独立。
+
+**compose 部署冒烟（真实链路）**：重建镜像后 `celery inspect registered` 列出 `app.create_notification`；app 容器内真实派发（含幂等键）→ Worker 落库 `{'status': 'created', 'notification_id': 32}`，字段全对、`is_read=false`、完成标记 TTL≈7 天；随后精确删除该通知与标记，表归零。
+
+**验证**：`tests/test_notification_task.py` + `test_celery_app.py` **26 passed**；全量 **614 passed**（599 + 15）。文档：TASKS.md 勾选 TASK-049 并注明 TASK-052 建模部分已提前完成；TESTING.md 新增「通知异步任务（TASK-049）」章节；DECISIONS.md 新增 029（表提前建模，用户确认）/030（幂等先插库后标记 + 短命 engine + 同步 Redis 客户端）；PROGRESS 推进至 TASK-050。**异常记录**：TASK-048 提交中 Current Task 行的更新曾静默丢失（其它修改都在），本轮随 TASK-049 一并修正并在提交前逐行核验。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

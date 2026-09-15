@@ -183,3 +183,17 @@
 - Decision：broker 与 backend 均设 `global_keyprefix="taskflow:"`（`CELERY_KEY_PREFIX` 常量），部署冒烟实测所有键（含 `_kombu.binding.*` 与 `celery-task-meta-*`）都在前缀之下。
 - Reason：一个实例上混着多个项目时（本机正是如此——6389 上曾有别的 Redis 实例），按前缀识别归属、按前缀清理是 TASK-045 已确立的纪律，Celery 不能例外。
 - Trade-off：依赖 kombu 的 `global_keyprefix` 实现，属传输层选项而非 Celery 官方一等配置；已用容器冒烟实证生效，并用 `test_redis_key_prefix_applies_to_broker_and_backend` 锁住配置。
+
+## Decision 029：notifications 表提前于 TASK-052 建模（用户确认）
+- Problem：TASK-049「通知异步任务」在 TASK-052「Notification Model」之前，但 §24 的通知任务必须写 `notifications` 表才能谈重试与去重——表不存在则任务只能是空壳。
+- Decision：经用户确认，把 TASK-052 的建模部分（Notification Model + Alembic 迁移）提前并入 TASK-049。沿用 TASK-058（Dockerfile）提前完成的先例；TASK-052 届时为检查项。建模按 §18 原文：id / user_id / type / title / content / is_read / created_at。
+- Reason：①§24 三条要求（主业务失败不产生错误通知 / 失败可重试 / 重试不大量重复）全部依赖真实持久化，空壳任务无法实现也无法测试；②TASK-051 的幂等测试同理。
+- 模型细化（§18 未定义处的补全）：`user_id` FK→users ON DELETE CASCADE（通知是"写给某用户"的内容，用户删除即失义；与 OperationLog 无外键形成对照——审计留痕、通知不留）；`type` String(50) 不加 CHECK（§18 列了四个场景但未定义为封闭枚举，TASK-053 收窄）；`content` 可空（title 摘要自足）；`is_read` NOT NULL 默认 false；索引 `(user_id, created_at)` 对应 `GET /api/v1/notifications` 的主访问路径。
+- Trade-off：TASK-052 的独立性被削弱；迁移链上 TASK-049 的提交包含建模变更，回滚 TASK-049 需连带迁移。
+
+## Decision 030：通知任务的幂等 = 先插库、后写 Redis 完成标记
+- Problem：at-least-once 投递（DECISIONS 027）下，通知任务可能被重试/重投递多次；§24 要求「重试不会产生大量重复通知」。去重标记放哪、先写谁？
+- Decision：调用方为每次通知派发生成唯一 `idempotency_key`（uuid4，同一业务事件的重试/重投递共享）；任务执行时先查 Redis `taskflow:notify_done:<key>`（存在即跳过），插库成功**之后**再 `SETNX` 写标记（TTL 7 天）。顺序刻意为「先 DB 后 Redis」：DB 是事实源——反过来（先标记后插库）在"标记后崩溃"时丢通知，而现顺序的崩溃窗口最多产生一条重复（§24 只约束"不大量重复"）。Redis 故障 fail-open（只损失去重，不丢通知）。
+- Reason：①去重键必须由调用方生成且跨重试稳定——Celery `self.retry` 会换新 task id，用 task id 做幂等键在重试链上失效；②notifications 表按 §18 没有 idempotency 字段，不为去重私加列，Redis 标记（本就是 Broker/Backend 宿主，§21）是零侵入方案；③`taskflow:notify_done:` 沿用 TASK-045 键约定。
+- Trade-off：崩溃窗口的单条重复；TTL 过期后同一 key 再重投会重复（7 天远超任何合理重投窗口）；并发重投的检查-插入竞态最多多一条。
+- 配套：Celery worker 是同步上下文，async 客户端不可用（命令返回协程）——`app/db/redis.py` 补充同步入口 `get_sync_redis_client()`（同一 URL、同一 socket 超时纪律）；任务内 DB 写入用每次调用独立事件循环 + 短命 engine（asyncpg 连接池绑定事件循环，跨 loop 复用必报错，不能共享 API 进程的 engine 单例）。

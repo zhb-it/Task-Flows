@@ -7,9 +7,9 @@
 职责边界
 --------
 本模块只做 **基础设施接线**：Celery 实例、Broker/Backend、序列化、可靠性
-参数。业务任务（通知 TASK-049、日志归档/附件清理 TASK-050）在后续 TASK
-中以独立模块（如 ``app/tasks/notification_tasks.py``）出现，Worker 启动时
-通过 ``-A app.tasks.celery_app`` 导入本模块后按需注册。
+参数。业务任务以独立模块出现（``notification_tasks.py`` = TASK-049；
+日志归档/附件清理 = TASK-050），并登记进 ``TASK_MODULES`` 供 Worker 启动
+时自动导入。
 
 关键决策（详见 docs/DECISIONS.md）
 ---------------------------------
@@ -42,6 +42,10 @@ from celery import Celery
 
 from app.core.config import get_settings
 
+# Worker 启动时导入的任务模块（Celery include）。
+# 新增业务任务模块时在此登记（TASK-050 将追加日志归档/附件清理）。
+TASK_MODULES = ["app.tasks.notification_tasks"]
+
 # 挂在 Redis 上的所有 Celery 键前缀（TASK-045 键约定）。
 CELERY_KEY_PREFIX = "taskflow:"
 
@@ -55,7 +59,12 @@ def create_celery_app() -> Celery:
     broker_url = settings.celery_broker_url or settings.redis_url
     result_backend = settings.celery_result_backend or settings.redis_url
 
-    app = Celery("taskflow", broker=broker_url, backend=result_backend)
+    app = Celery(
+        "taskflow",
+        broker=broker_url,
+        backend=result_backend,
+        include=TASK_MODULES,
+    )
 
     app.conf.update(
         # --- 序列化：JSON only，禁 pickle（安全，见模块 docstring）---

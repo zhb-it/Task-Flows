@@ -22,6 +22,7 @@ Celery Backend、后续缓存。本模块提供**唯一的连接入口**：所�
 
 from collections.abc import AsyncGenerator
 
+from redis import Redis as SyncRedis
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
@@ -30,6 +31,9 @@ settings = get_settings()
 
 #: 进程内共享的客户端。``None`` 表示尚未创建（或已关闭）——见 ``get_redis_client``。
 _client: Redis | None = None
+
+#: Celery worker（同步上下文）专用的共享客户端，见 ``get_sync_redis_client``。
+_sync_client: SyncRedis | None = None
 
 #: Redis 调用的硬超时（秒）。
 #:
@@ -72,15 +76,43 @@ async def get_redis() -> AsyncGenerator[Redis, None]:
     yield get_redis_client()
 
 
-async def close_redis() -> None:
-    """关闭共享客户端并释放连接池（应用 shutdown 时调用）。
+def get_sync_redis_client() -> SyncRedis:
+    """返回 Celery worker **同步上下文**专用的共享客户端（惰性创建）。
 
-    幂等：重复调用安全。关闭后下一次 ``get_redis_client`` 会重新创建。
+    为什么需要第二个客户端：``get_redis_client`` 返回 ``redis.asyncio`` 客户端，
+    每个命令返回协程、必须 await；而 Celery 任务运行在 prefork 池的**同步**
+    上下文里，没有事件循环可用（TASK-049 通知任务的幂等标记需要 Redis）。
+    与其把 async 客户端硬凑进同步代码，不如在连接层提供同构的同步入口——
+    同一 URL、同一超时纪律（见 ``REDIS_SOCKET_TIMEOUT_SECONDS``，TASK-046
+    的教训对 worker 同样适用）。
+
+    注意：与 async 客户端一样是**共享实例**，调用方不得关闭它。
     """
-    global _client
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = SyncRedis.from_url(
+            settings.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+            socket_connect_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+        )
+    return _sync_client
+
+
+async def close_redis() -> None:
+    """关闭共享客户端并释放连接池（应用 shutdown / worker 退出时调用）。
+
+    幂等：重复调用安全。关闭后下一次 ``get_redis_client`` /
+    ``get_sync_redis_client`` 会重新创建。
+    """
+    global _client, _sync_client
     if _client is not None:
         await _client.aclose()
         _client = None
+    if _sync_client is not None:
+        _sync_client.close()
+        _sync_client = None
 
 
 async def reset_redis() -> None:

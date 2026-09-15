@@ -227,5 +227,19 @@ pytest、pytest-asyncio、httpx。
 3. app 容器内 `ping.delay().get()` → `pong, SUCCESS`（完整经过 Redis Broker → Worker → Redis Backend）；
 4. `redis-cli --scan` 实测全部 Celery 键都在 `taskflow:` 前缀之下。
 
+## 通知异步任务（TASK-049）
+
+`tests/test_notification_task.py`，15 项。**全部为同步用例**——任务体内部用 `asyncio.run`（Celery 同步上下文），async 用例的事件循环里嵌套 `asyncio.run` 会直接 RuntimeError；库内验证用 asyncpg 直连开发库，与任务自身的写入路径相互独立。
+
+- **注册与接线（2 项）**：`app.create_notification` 已注册；`TASK_MODULES` 已登记 `app.tasks.notification_tasks`。
+- **执行链路（3 项）**：直接调用落库（字段/`is_read=False`/`created_at`）；`content=None` 落 NULL；eager 派发经 Celery 任务机端到端。
+- **§24 要求 3 不大量重复（4 项）**：同一 idempotency_key 第二次调用 → `skipped` 且仅一条；不同 key 各建一条（去重不误伤）；完成标记 `taskflow:notify_done:<key>` 带 TTL（≤7 天）；Redis 故障 fail-open 仍创建通知。
+- **参数防御（2 项）**：user_id≤0 / type 空·超长 / title 空白·超长 → `ValueError` 零副作用；缺省幂等键自动生成。
+- **§24 要求 2 可重试（2 项）**：`autoretry_for=(SQLAlchemyError, OSError)`、`max_retries=5`、指数退避 + 抖动、`ValueError` 不重试；幂等键唯一性。
+- **FK 级联（1 项）**：删除用户 → 其通知随之清理。
+- **连接层（1 项）**：`get_sync_redis_client` 沿用 socket 超时纪律（TASK-046 教训）。
+
+**compose 部署冒烟（真实链路）**：重建镜像后 `celery inspect registered` 列出 `app.create_notification`；app 容器内真实派发（含调用方幂等键）→ Worker 落库 `{'status': 'created', 'notification_id': 32}`，字段全对、完成标记 TTL≈7 天；随后精确删除该通知与标记，表归零。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
