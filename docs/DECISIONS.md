@@ -222,4 +222,11 @@
 - Decision：TASK-052 不产生新应用代码，补 `tests/test_notification_model.py` **16 项**，把「建模完整性」固化为可回归测试：①离线（不连 DB）钉死 §18 七字段集合、各列类型/可空性/长度、`user_id` FK→users ON DELETE CASCADE 且单列索引、`is_read`/`created_at` 的 server_default、`(user_id, created_at)` 复合索引、`__repr__`；②DB 集成（真实 5433）验证七字段 roundtrip、`content` 可空、`is_read` 默认 false、`created_at` 自动、删用户 CASCADE 清通知、按接收人查询主访问路径。
 - Reason：①这是 DECISIONS 029「检查项」的最佳落地——用测试把「建模是否仍符合 §18」变成可回归断言，而非一次性肉眼核对；②对齐 Model TASK 惯例，填补提前建模遗留的缺口；③纯 Model 层，不碰 TASK-053 的 Service/API、TASK-054 的已读/未读、TASK-055 的端到端测试，边界清晰。
 - Trade-off：索引存在性用 model 层离线断言钉死（与 TASK-026 同），未再查 `pg_indexes` 物理表——model 层 Index 定义已等价于 DDL。
+
+## Decision 035：通知端点仅认证不加功能级权限（TASK-053）
+- Problem：§18 通知写给「某个用户」、与登录身份强绑定；通知端点（`GET /notifications`、`PATCH /notifications/{id}/read`）要不要套 §6 的功能级权限（如 `notification:read`）？
+- Decision：通知端点**仅认证**（依赖 `CurrentUser`），不加功能级权限依赖。
+- Reason：①通知是用户私有收件箱，任何已认证用户访问自己的是天然合理的，无对应业务语义需要 `notification:*` 闸门；②§6 权限清单根本无 `notification:*` 项，要加须改 RBAC seed（新增角色权限绑定），超出本 TASK 范围且引入无业务价值的权限项；③最小权限原则下「不加多余的权限闸门」优于「为每个端点机械套用 `require_permission`」。
+- Trade-off：若未来出现「管理员代看他人通知 / 全局通知广播」等需求，再单独加 `notification:*` 权限项与对应资源级判定；届时服务水平隔离（仅自己）仍由 Service 层按 `user.id` 强制，权限依赖只做「能否访问收件箱」的粗粒度开关。
+- 实现落点：`app/services/notification.py` 模块 docstring 记录该决策；Service 层 `list_user_notifications` / `mark_notification_read` 都按 `user.id` 过滤，非接收人 / 不存在 → 404 同文案（`Notification not found`），IDOR 防枚举；Router 仅声明 `CurrentUser`，不引 `require_permission`。
 - 配套（幂等）：归档与清理都天然幂等，匹配 at-least-once（DECISIONS 027）——归档靠「id 复用 + `pg_insert ... ON CONFLICT (id) DO NOTHING` + 同事务删主表」，重投时主表可搬行已不在、归档表已存在 → no-op；清理靠「删文件幂等 + 孤儿判定只读 DB」。

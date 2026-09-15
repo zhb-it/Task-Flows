@@ -25,6 +25,8 @@ import pytest
 
 from app.core.config import get_settings
 
+import app.services.task as task_service
+
 
 @pytest.fixture(autouse=True)
 def _disable_rate_limit_by_default(monkeypatch):
@@ -36,3 +38,33 @@ def _disable_rate_limit_by_default(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "rate_limit_enabled", False, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_notification_dispatch(monkeypatch):
+    """通知派发是 Celery best-effort side-effect，测试里不真连 broker。
+
+    把 ``TaskService._dispatch_notification`` 替换成 no-op，避免测试依赖
+    Redis/Celery 且保持确定性。TASK-053 的派发接线由 ``notification_dispatch``
+    间谍夹具局部覆盖验证——该夹具请求时会在本 autouse 之后再次 setattr，
+    故同一用例内以间谍的最终值为准（不影响 test_notification_task.py 直接
+    调 ``.delay`` 验证 §24 真实执行的用例）。
+    """
+    monkeypatch.setattr(task_service, "_dispatch_notification", lambda *a, **k: None)
+
+
+@pytest.fixture
+def notification_dispatch(monkeypatch):
+    """间谍：捕获 ``TaskService._dispatch_notification`` 的调用实参。
+
+    返回 ``list[(args, kwargs)]``，仅当用例显式请求时启用（覆盖上面的
+    autouse no-op）。可在用例中 ``.clear()`` 重置，隔离某一步的派发断言。
+    """
+    calls: list = []
+
+    def _spy(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(task_service, "_dispatch_notification", _spy)
+    return calls
+

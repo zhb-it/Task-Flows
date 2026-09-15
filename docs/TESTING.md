@@ -274,5 +274,14 @@ pytest、pytest-asyncio、httpx。
 
 **隔离纪律**：写入用户 username 带 `ntf_<RUN_TOKEN>_` 前缀、autouse teardown 删前缀用户（通知随 FK CASCADE 清），开发库零残留；限流由 `conftest.py` autouse 默认关闭。
 
+## 通知 Service/API（TASK-053）
+
+`tests/test_notification_api.py`，**11 项**。真实产品应用（`app.main.app`）+ 真实 Token，仅 `dependency_overrides[get_db]` 指向测试库（与 `test_operation_log_api.py` 同模式）。覆盖 §18 通知系统 / §25.8 接口 / DECISIONS 035 的权限决策。
+
+- **A. 通知 API（资源级隔离，7 项）**：`GET /notifications` 仅返回当前用户自己的通知（最小暴露面）、按 `created_at DESC` 分页（skip/limit）；`PATCH /notifications/{id}/read` 标记自己的一条为已读、已在读幂等（再标仍 200 无副作用）；非接收人 / 不存在 → 404 同文案（`Notification not found`，IDOR 防枚举）；无 Token → 401（仅需认证、无功能级权限）。
+- **B. 派发点接线（§24 异步化，4 项）**：经 `notification_dispatch` 间谍验证 TaskService 在事务**提交后**调用 `_dispatch_notification`（→ `create_notification.delay`），且不真连 broker（全局 autouse `_isolate_notification_dispatch` 把关，best-effort）。任务分配 → 仅通知被分派者（`task_assigned`）、自领（target==caller）不产生通知；任务状态变更 → 通知任务全部负责人（`task_status_changed`）、排除触发者本人。
+
+**隔离纪律**：用户（含其通知 FK CASCADE）/ 团队链资源按 `ntfapi_<RUN_TOKEN>_` 前缀精确清理；通知直连造行（绕开 API——通知只能由系统派发，无创建端点）。触发流转的用例用 **admin** 角色 actor——`task:transition` 仅 admin 持有（§6 / API_CONTRACT.md），`member` 触发流转按协议 403（沿用既有 RBAC 契约，本 TASK 未改动）；`notification_dispatch.clear()` 用于隔离「分配派发」与「状态变更派发」两阶段断言。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

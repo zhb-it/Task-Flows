@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     comments,
     logs,
+    notifications,
     projects,
     tasks,
     teams,
@@ -22,3 +23,4 @@ api_router.include_router(tasks.router)
 api_router.include_router(comments.router)
 api_router.include_router(attachments.router)
 api_router.include_router(logs.router)
+api_router.include_router(notifications.router)

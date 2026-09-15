@@ -69,9 +69,9 @@
 
 ## Phase 9：通知
 - [x] TASK-052 Notification Model（建模部分已提前于 TASK-049 完成，见 DECISIONS 029；本 TASK 补 Model 检查测试，见 DECISIONS 034）
-- [ ] TASK-053 通知 Service/API
-- [ ] TASK-054 已读/未读
-- [ ] TASK-055 通知测试
+- [x] TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线，见 DECISIONS 035）
+- [ ] TASK-054 通知 read-all / 标记全部已读
+- [ ] TASK-055 通知端到端测试
 
 ## Phase 10：工程化
 - [ ] TASK-056 结构化日志

@@ -15,6 +15,8 @@
 所属团队链路下的资源」）。复用 project 服务的可见性原语，不重复实现。
 """
 
+import logging
+
 from sqlalchemy import case
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +36,7 @@ from app.crud.task import (
 from app.crud.task_assignee import (
     add_task_assignee,
     is_task_assignee,
+    list_assignees,
     list_assignees_for_tasks,
     remove_task_assignee,
 )
@@ -52,6 +55,7 @@ from app.schemas.task import (
 from app.services.operation_log import write_operation_log
 from app.services.state_machine import validate_transition
 from app.services.team import team_membership
+from app.tasks.notification_tasks import create_notification, new_idempotency_key
 
 TASK_NOT_FOUND = "Task not found"
 PROJECT_NOT_FOUND = "Project not found"  # 与项目创建同一文案模式：目标不可见
@@ -59,6 +63,32 @@ NOT_MANAGER = "Only team owner or admin can delete tasks"
 USER_NOT_FOUND = "User not found"  # 目标用户不存在或非任务所属团队成员（同文案防枚举）
 ASSIGNEE_NOT_FOUND = "Assignee not found"
 ALREADY_ASSIGNED = "User already assigned to this task"
+
+logger = logging.getLogger(__name__)
+
+
+def _dispatch_notification(
+    user_id: int,
+    ntype: str,
+    title: str,
+    content: str | None,
+    idempotency_key: str,
+) -> None:
+    """经 Celery 派发一条站内通知（§24 通知异步化）。
+
+    包在 try/except 中：派发是主业务提交后的 best-effort side-effect，broker
+    不可达等故障不应让 assign/transition 主流程失败（§24「主业务失败不产生
+    错误通知」的对称面——主业务已成功，通知丢失也不应回滚主业务）。
+    """
+    try:
+        create_notification.delay(
+            user_id, ntype, title, content, idempotency_key
+        )
+    except Exception:  # noqa: BLE001 — best-effort，吞掉 broker 故障
+        logger.warning(
+            "notification dispatch failed (best-effort): user_id=%s type=%s",
+            user_id, ntype, exc_info=True,
+        )
 
 #: priority 业务权重（URGENT > HIGH > MEDIUM > LOW）——sort=priority 时
 #: 按业务序而非字母序排（TASK-035 决策）。
@@ -237,6 +267,15 @@ async def assign_task(
         db, task_id=task.id, user_id=payload.user_id, assigned_by_id=user.id
     )
     await db.commit()
+    # TASK-053 派发（§24 异步化）：提交后 best-effort 通知被分派者；自领不通知。
+    if payload.user_id != user.id:
+        _dispatch_notification(
+            payload.user_id,
+            "task_assigned",
+            f"你被分配到任务「{task.title}」",
+            f"{user.username} 将你分配到任务 #{task.id}",
+            new_idempotency_key(),
+        )
     return TaskAssigneeRead(
         user_id=payload.user_id, username=target.username, assigned_at=row.assigned_at
     )
@@ -288,6 +327,18 @@ async def transition_task(
         payload={"old_status": old_status, "new_status": task.status},
     )
     await db.commit()
+    # TASK-053 派发（§24 异步化）：提交后 best-effort 通知全部负责人、排除触发者本人。
+    assignees = await list_assignees(db, task.id)
+    for row, _ in assignees:
+        if row.user_id == user.id:
+            continue
+        _dispatch_notification(
+            row.user_id,
+            "task_status_changed",
+            f"任务「{task.title}」状态已变更为 {task.status}",
+            f"任务 #{task.id} 状态由 {old_status} 变更为 {task.status}",
+            new_idempotency_key(),
+        )
     return updated
 
 

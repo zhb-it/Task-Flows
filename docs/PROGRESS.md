@@ -7,7 +7,7 @@ In Progress
 Phase 9：通知
 
 ## Current Task
-TASK-052 Notification Model（已完成；建模提前于 TASK-049，本 TASK 补 Model 检查测试）
+TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线；read-all 标记已读属 TASK-054）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -62,6 +62,7 @@ TASK-052 Notification Model（已完成；建模提前于 TASK-049，本 TASK �
 - [x] TASK-050 日志归档/附件清理任务（见 DECISIONS 031/032）
 - [x] TASK-051 幂等、重试与任务测试（纯测试任务，Phase 8 收尾，见 DECISIONS 033）
 - [x] TASK-052 Notification Model（建模提前于 TASK-049，本 TASK 补 Model 检查测试 `tests/test_notification_model.py` 16 项，见 DECISIONS 034）
+- [x] TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线，见 DECISIONS 035）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -71,7 +72,7 @@ TASK-052 Notification Model（已完成；建模提前于 TASK-049，本 TASK �
 - None
 
 ## Next
-TASK-052 Notification Model（Phase 9 通知起点；建模部分已于 TASK-049 提前完成，见 DECISIONS 029）
+TASK-054 通知 read-all / 标记全部已读（Phase 9 通知第 3 个任务；单条标记已读已在 TASK-053 交付）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -188,6 +189,22 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - `tests/test_notification_model.py`（新建）：离线 10 项（表注册 / tablename / 列集严格 = §18 七字段 / id BigInteger PK / user_id FK→users CASCADE+单列索引 / type·title 非空 String(50/255) / content 可空 Text / is_read 非空默认 false / created_at tz-aware 默认 now / `(user_id, created_at)` 复合索引 / repr）+ DB 集成 6 项（七字段 roundtrip / content 可空 / is_read·created_at 有 DB 默认 / 删用户 CASCADE 清通知 / 按接收人降序查主访问路径），真实 5433；写入用户带 `ntf_<RUN_TOKEN>_` 前缀、autouse teardown 删前缀用户（通知随 FK 级联清），开发库零残留。
 
 **验证**：`tests/test_notification_model.py` **16 passed**（2.00s）；全量 **651 passed**（635 + 16，5m33s，零失败零错误）。文档：TASKS.md 勾选 TASK-052；TESTING.md 新增「Notification Model（TASK-052）」章节；DECISIONS.md 新增 034；PROGRESS 推进至 TASK-053（Phase 9）。
+
+## TASK-053 完成 通知 Service/API + 派发点接线
+
+**范围**：Phase 9 通知第 2 个任务。交付两件事：①通知查询 / 标记已读端点（`GET /api/v1/notifications`、`PATCH /api/v1/notifications/{id}/read`，§18 / §25.8）；②业务派发点接线——`assign_task`（任务分配）与 `transition_task`（任务状态变更）事务**提交后**调用 `create_notification.delay()`（TASK-049 已实现的 Celery 任务）。`read-all` 标记全部已读端点属 TASK-054，不在本 TASK 范围（规则 §13 只执行当前 TASK）。
+
+**实现**
+- `app/schemas/notification.py`（新建）：`NotificationRead` 出站契约，对齐 §18 七字段（`ConfigDict(from_attributes=True)`）。
+- `app/crud/notification.py`（新建）：主访问路径 `(user_id, created_at DESC)`，复用模型复合索引；`list_by_user` / `get_for_user`（归属校验、非接收人返回 None）/ `mark_read`（flush-only、已读幂等）；CRUD 层只 `flush`，事务边界在 Service（规则 §4）。
+- `app/services/notification.py`（新建）：`list_user_notifications` / `mark_notification_read`（非接收人 / 不存在 → `ResourceNotFoundError("Notification not found")`，Service 提交）；**仅认证不加功能级权限**，理由记 DECISIONS 035。
+- `app/api/v1/notifications.py`（新建）：Router 只做 HTTP ⇄ Service 翻译；端点 `list_my_notifications` / `mark_notification_read`（别名导入 Service 函数 `svc_mark_notification_read`，避免与端点同名导致自递归）。
+- `app/api/v1/__init__.py`：聚合导入 `notifications` 并 `include_router(notifications.router)`。
+- `app/services/task.py`：补 `from app.tasks.notification_tasks import create_notification, new_idempotency_key`；新增私有包装 `_dispatch_notification`（try/except best-effort，broker 故障 `warning` 吞掉、不回滚主业务，§24 对称面——主业务已成功，通知丢失也不该回滚）；`assign_task` 提交后 `if payload.user_id != user.id` 派发 `task_assigned`；`transition_task` 提交后取负责人列表、排除 `user.id` 逐人派发 `task_status_changed`。
+- `tests/conftest.py`：新增 autouse 夹具 `_isolate_notification_dispatch`（把 `_dispatch_notification` 换 no-op，测试不真连 broker）+ `notification_dispatch` 间谍夹具（局部覆盖验证接线；请求时覆盖上面 no-op，不影响 `test_notification_task.py` 直接调 `.delay` 验证 §24 真实执行）。
+- `tests/test_notification_api.py`（新建）：11 项（见 TESTING 章节）。
+
+**验证**：`tests/test_notification_api.py` **11 passed**；全量 **662 passed**（651 + 11，零失败零错误）；开发库零残留。文档：TASKS.md 勾选 TASK-053；TESTING.md 新增「通知 Service/API（TASK-053）」章节；DECISIONS.md 新增 035；PROGRESS 推进至 TASK-054（Phase 9）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
