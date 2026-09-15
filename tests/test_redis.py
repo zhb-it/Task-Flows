@@ -286,3 +286,51 @@ async def test_pipeline_works(redis_client):
         assert await redis_client.exists(*keys) == 3
     finally:
         await redis_client.delete(*keys)
+
+
+# ===========================================================================
+# 4. 共享客户端的释放（TASK-062 覆盖审计补齐）
+# ===========================================================================
+
+
+@pytest_asyncio.fixture
+async def redis_reachable():
+    """前置条件：宿主 Redis 可达；否则跳过而不是让退出路径的用例变红。"""
+    probe = aioredis.Redis.from_url(REDIS_URL, decode_responses=True)
+    try:
+        await probe.ping()
+    except Exception as exc:  # pragma: no cover - 环境缺失时的提示
+        await probe.aclose()
+        pytest.skip(f"Redis not reachable at {REDIS_URL}: {exc}")
+    await probe.aclose()
+
+
+async def test_close_redis_releases_both_pools_and_is_idempotent(redis_reachable):
+    """``close_redis`` 关闭并清空**两个**共享客户端；重复调用安全；之后可重建。
+
+    幂等是硬要求：应用 shutdown 与 worker 退出都会调用它，同一进程里可能发生多次
+    （Uvicorn `--reload`、测试里手动进入 lifespan）。第二次调用若因为「已经关过」
+    而报错，退出路径本身就变成了故障源。
+
+    断言「重建的实例不是被关闭的那个」：复用已关闭的连接池只会得到
+    ``Connection closed`` 这类难以定位的运行期错误。
+    """
+    async_client = redis_db.get_redis_client()
+    sync_client = redis_db.get_sync_redis_client()
+    assert redis_db._client is async_client
+    assert redis_db._sync_client is sync_client
+
+    await redis_db.close_redis()
+    assert redis_db._client is None
+    assert redis_db._sync_client is None
+
+    await redis_db.close_redis()  # 幂等：两个引用都已是 None，不得抛错
+
+    rebuilt = redis_db.get_redis_client()
+    assert rebuilt is not async_client
+    assert await rebuilt.ping() is True
+
+    # 收尾：把两个单例恢复成「未创建」，不把关闭过的实例留给后续用例
+    await redis_db.close_redis()
+    assert redis_db._client is None
+    assert redis_db._sync_client is None

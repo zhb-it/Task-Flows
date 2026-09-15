@@ -16,3 +16,8 @@
 # 版本固定以保证 CI 可复现（规则集在 pyproject.toml 里同样显式钉死）。
 # 注意：PyPI 清华镜像没有 ruff，本机安装需指定官方源——见 docs/DEPLOYMENT.md。
 ruff==0.16.7
+
+# 覆盖率（TASK-062）：本地测量用，**不进 CI 门禁**——CI 的 pytest job 不传 --cov，
+# 因此本依赖仅用于本地 `pytest --cov`。版本固定以让「本地测出的数」可比对。
+# 与 ruff 同样的问题：清华镜像缺 pytest-cov，本机安装需指定官方源（见 docs/DEPLOYMENT.md）。
+pytest-cov==7.1.0

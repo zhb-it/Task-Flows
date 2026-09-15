@@ -11,7 +11,9 @@
   同状态重复流转——→ 409 `Invalid status transition`，且任务状态不被改动；
 - 不在归属链 / 不存在 → 404 同文案（IDOR 防枚举）。
 
-零残留：RESTRICT 链精确拆除（tasks → projects → teams → users）。
+零残留：RESTRICT 链精确拆除（tasks → projects → teams → users），外加
+`operation_logs`——`user_id` **刻意没有外键**（TASK-039 决策：审计日志要比用户活得久），
+所以它不会被 `delete(User)` 级联清掉，必须显式删（见下方 `_cleanup`）。
 """
 
 import uuid
@@ -19,7 +21,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -28,6 +30,7 @@ from app.crud.role import assign_role_to_user, get_role_by_name
 from app.crud.user import create_user
 from app.db.session import get_db
 from app.main import app
+from app.models.operation_log import OperationLog
 from app.models.project import Project
 from app.models.task import Task
 from app.models.team import Team
@@ -69,6 +72,14 @@ async def client():
 async def _cleanup():
     yield
     async with SessionFactory() as session:
+        # 审计日志先删：`operation_logs.user_id` **刻意无外键**（TASK-039 决策），
+        # `delete(User)` 不会级联它。本文件的每个成功流转都会写一条
+        # `action='task:transition'` 日志，不显式清理就会永久堆积在开发库里
+        # （TASK-062 覆盖率核查时实测残留 507 行，全部来自本文件）。
+        run_user_ids = select(User.id).where(User.username.like(f"tasktrans_{RUN_TOKEN}%"))
+        await session.execute(
+            delete(OperationLog).where(OperationLog.user_id.in_(run_user_ids))
+        )
         await session.execute(
             delete(Task).where(Task.title.like(f"tasktrans {RUN_TOKEN}%"))
         )

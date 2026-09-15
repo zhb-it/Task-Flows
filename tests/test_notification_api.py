@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -35,6 +35,7 @@ from app.crud.user import create_user
 from app.db.session import get_db
 from app.main import app
 from app.models.notification import Notification
+from app.models.operation_log import OperationLog
 from app.models.project import Project
 from app.models.task import Task
 from app.models.team import Team
@@ -77,6 +78,14 @@ async def _cleanup():
     yield
     async with SessionFactory() as session:
         # 通知随 users CASCADE；其余按依赖顺序拆除（同 test_operation_log_api）。
+        # ⚠ operation_logs 必须**显式**删：它的 user_id 刻意无外键（TASK-039 决策
+        #   ——审计日志要比用户活得久），因此不会被 `delete(User)` 级联。本文件有一条
+        #   用例走真实的 `POST /tasks/{id}/transition`，每次成功流转都会留一行
+        #   `task:transition`（TASK-062 逐表核对时实测泄漏，见 DECISIONS 044）。
+        run_user_ids = select(User.id).where(User.username.like(f"ntfapi_{RUN_TOKEN}%"))
+        await session.execute(
+            delete(OperationLog).where(OperationLog.user_id.in_(run_user_ids))
+        )
         await session.execute(
             delete(Task).where(Task.title.like(f"ntfapi {RUN_TOKEN}%"))
         )

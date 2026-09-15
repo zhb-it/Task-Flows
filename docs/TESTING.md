@@ -386,5 +386,29 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 
 **运行首跑结果**：GitHub Actions run #1（推送 `594bf53` 后自动触发）**三个 job 全部 success**，用时约 3m14s。`Tests (pytest)` 的步骤序列为 `Initialize containers` → `Install dependencies` → `Verify migrations are reversible` → `Run full test suite`——即 service 端口映射、环境变量与迁移三步在真实 runner 上与本地一致地成立。
 
+## 覆盖率基线与质量契约（TASK-062）
+
+质量检查的完整结论（含 §57 逐条对照、偏差与未完成项）见 **`docs/QUALITY.md`**；本节点说明测试侧的产物与命令。
+
+### 覆盖率工具与基线
+
+- `pytest-cov==7.1.0` 进 `requirements-dev.txt`（**不进** `requirements.txt`：那是 Dockerfile 装进生产镜像的文件）。与 ruff 同样的问题——本机 PyPI 清华镜像没有它，安装需指定官方源 + 代理。
+- 配置在 `pyproject.toml`：`[tool.coverage.run]`（`source = ["app"]`、`branch = true`）+ `[tool.coverage.report]`（`show_missing = true`、`exclude_also = ["def __repr__"]`）。**CI 不传 `--cov`、不设 `fail_under`**——本轮测量的目的是「找出值得补的分支」，而不是维持一条数字线；设阈值会催生为达标而写的空测试（Phase 14 明确告诫）。
+- 命令：`pytest -q --cov --cov-report=term-missing`。
+- **基线（2026-09-15）**：**956 passed**，全量 2373 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2405 / 33 / **98.63%**。
+- 唯一未覆盖行是 `app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法），属**刻意不测**（为数字而测无业务价值的代码被 Phase 14 明令禁止）。
+
+### 新增测试模块（4 个，80 个用例）
+
+- `tests/test_storage_guards.py`（**42 项**，离线）：存储层安全边界的单元测试——`validate_key` 各条拒绝规则、`build_key` 后缀归一化、`LocalStorageBackend` 的结构层越界断言、超限时清理半成品、删除幂等、空目录回收。其中一条把「盘符规则在当前字符集下不可达」这一事实**写成可执行断言**（放松字符集后该规则仍会触发），使这条纵深防御分支既被覆盖、其不可达性也被记录。
+- `tests/test_quality_gaps.py`（**24 项**）：把覆盖率排查中「有价值但未覆盖」的分支补齐——附件落库失败时**回滚事务 + 删物理文件**的双重一致性、注册的并发 409、非 owner/admin 移除成员 → 403、可见性判定、通知派发失败**吞掉但记日志**、限流关闭时零 Redis 往返、lifespan 释放连接池、`/health` 依赖挂掉时降级 200、跨项目「我的任务」数据原语，以及 TASK-062 收尾补的 8 项（文件名净化空输入/不可用扩展名截断、非超限存储故障原样上抛、`Retry-After` 下界、可信代理判定的 fail-safe、非 `/api/v1` 路径零限流开销、限流身份降级为 IP、访问日志 `user_id` 对畸形 Token 记 null、登出在无可用 jti 时零写操作、删除根级对象不误删存储根）。
+- `tests/test_quality_checks.py`（**12 项**，全离线）：把「架构与质量必须成立的性质」变成**静态断言**（AST 解析 + OpenAPI schema 内省）——Router 不得 import CRUD、Model 不得反向依赖上层、Router 不得直接构造 SQL、Service 不得依赖 HTTP 传输类型（唯一豁免 `UploadFile`，且白名单化）、**全模型零 `relationship()`**、全部出参 schema 无密码字段、每个 `AppError` 子类都声明具体 4xx、`AppError` handler 已注册且渲染 `{"detail": ...}`、所有带 `limit` 的端点必须 `le=100` 且默认值不超上限、`skip` 必须 `ge=0`、`Settings` 的**声明默认值**不含真实密钥。
+- `tests/test_query_efficiency.py`（**2 项**）：N+1 的**运行时**护栏——用 SQLAlchemy `before_cursor_execute` 事件统计 SELECT 条数，断言 3 个任务与 12 个任务的列表请求**语句数相等**，且访问 `task_assignees` 的语句恰好 1 条并含 `IN (`。与上一条的静态断言互补：静态侧挡住「加回 `relationship()`」，运行时侧挡住「把批量查询拆成循环里的单条查询」（后者不新增任何 `relationship()`，静态检查看不见）。
+
+### 非 pytest 的验证
+
+- **开发库零残留复核**：全量运行后用 SQL 直查 13 张业务表，**全部 0 行**。该复核**发现并修复了一处此前未被察觉的污染**——`operation_logs.user_id` 刻意无外键（TASK-039 决策：审计日志要比用户活得久），因此不会被 `delete(User)` 级联清理。残留 507 行（全为 `task:transition`）；逐文件测量进一步定位到**三个**泄漏源：`tests/test_task_transition_api.py`（主犯）、`tests/test_notification_api.py`（每轮 2 行）、`tests/test_notification_e2e.py`（每轮 1 行）。三者 teardown 已补齐并清空存量孤儿行，复测均 leaked=0（见 DECISIONS 044）。
+- **`ruff check .`** → `All checks passed!`（exit 0，与 CI 的 lint job 同一条命令）。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

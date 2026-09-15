@@ -132,13 +132,18 @@ TCP 对端落在 `TRUSTED_PROXY_IPS` 网段内、该头恰好是一个合法 IP�
 ### 本地跑与 CI 相同的检查
 
 ```bash
-pip install -r requirements-dev.txt   # 含 ruff（版本已在文件里钉死）
+pip install -r requirements-dev.txt   # 含 ruff + pytest-cov（版本均已在文件里钉死）
 ruff check .                          # 与 CI 的 lint job 完全相同
 pytest                                # 与 CI 的 test job 相同（需本机 PG 5433 / Redis 6389）
+pytest --cov --cov-report=term-missing   # 覆盖率（仅本地；CI 不跑，见下）
 ```
 
-注意：**PyPI 清华镜像没有 ruff**，若本机 pip 指向镜像源需显式换官方源
-（`--index-url https://pypi.org/simple`，必要时再带 `--proxy`）。
+注意：**PyPI 清华镜像既没有 ruff、也没有 pytest-cov**，若本机 pip 指向镜像源需显式换
+官方源（`--index-url https://pypi.org/simple`，必要时再带 `--proxy`）。
+
+覆盖率（TASK-062）**只在本地测量，不进 CI 门禁**：CI 的 pytest job 不传 `--cov`、不设
+`fail_under`。理由与当前基线见 `docs/QUALITY.md`；配置在 `pyproject.toml` 的
+`[tool.coverage.*]`（`source = ["app"]`、`branch = true`）。
 
 规则集与版本都写死在仓库里（`pyproject.toml` 的 `[tool.ruff.lint] select`、
 `requirements-dev.txt` 的 `ruff==`），因此「CI 是否通过」只取决于提交内容，与 CI

@@ -22,7 +22,12 @@
 - Health Check、日志、Request ID
 
 ## 3. 技术栈
-Python 3.11/3.12、FastAPI、Pydantic v2、SQLAlchemy 2.0、Alembic、PostgreSQL 16、Redis 7、Celery、JWT、pytest、pytest-asyncio、httpx、Docker、Nginx、Gunicorn、Uvicorn、GitHub Actions。
+Python 3.13、FastAPI、Pydantic v2、SQLAlchemy 2.0、Alembic、PostgreSQL 16、Redis 7、Celery、JWT、pytest、pytest-asyncio、httpx、Docker、Nginx、Gunicorn、Uvicorn、GitHub Actions。
+
+> 版本口径统一为 **Python 3.13**（`Dockerfile` 的 `python:3.13-slim`、CI 的 `PYTHON_VERSION=3.13`、`pyproject.toml` 的 `target-version = "py313"` 三处一致）。原句写作「3.11/3.12」，是初始化阶段的宽松区间，与后来落地的三处 3.13 钉死不兼容；**订正记录见 DECISIONS 044**。
+>
+> 已知环境偏差：本地开发 venv 为 Python 3.14.6（高于 CI/生产的 3.13）。功能等价、测试全绿，但**版本相关缺陷（弃用警告、新语法）在本地不会暴露**；因此 CI 的 3.13 job 是版本口径的最终裁判（见 docs/QUALITY.md「环境偏差」）。
+
 
 ## 4. 架构
 Router -> Service -> CRUD -> Model。

@@ -26,6 +26,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
@@ -337,3 +338,107 @@ def test_cleanup_retry_semantics_declared():
     assert cleanup_expired_attachments.max_retries == 5
     assert cleanup_expired_attachments.retry_backoff is True
     assert cleanup_expired_attachments.retry_jitter is True
+
+
+# ---------------------------------------------------------------------------
+# 5. 清理任务的防御分支（TASK-062 覆盖审计补齐）
+# ---------------------------------------------------------------------------
+
+
+async def _no_existing(_url: str) -> set[str]:
+    """孤儿判定基准置空 —— 让本节的用例只看扫描/删除逻辑本身。"""
+    return set()
+
+
+def test_cleanup_skips_keys_that_fail_validation(tmp_path, monkeypatch, caplog):
+    """物理 key 未通过 ``validate_key`` → **跳过并告警，绝不尝试删除**。
+
+    扫描结果理论上都来自我们自己的写入，不可能出现穿越 key；这层是纵深防御。
+    但「不可能」的实现一旦被改坏（``upload_dir`` 配错、符号链接让相对路径带上
+    ``..``），这里就是最后一道闸。
+
+    断言的关键是把「跳过」与「删除」区分开：被跳过的 key 不能计入 ``deleted``，
+    也不能产生 ``errors``（它不是失败，是主动拒绝）。
+    """
+    from app.tasks import maintenance_tasks as mt
+
+    monkeypatch.setattr(mt, "_fetch_existing_storage_paths", _no_existing)
+    monkeypatch.setattr(
+        mt,
+        "_list_physical_keys",
+        lambda backend: [
+            ("../../../../etc/passwd", 0.0),
+            ("tasks/1/legit.bin", 0.0),
+        ],
+    )
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "upload_dir", str(tmp_path), raising=False)
+    legit = tmp_path / "tasks" / "1" / "legit.bin"
+    legit.parent.mkdir(parents=True, exist_ok=True)
+    legit.write_bytes(b"x")
+
+    with caplog.at_level(logging.WARNING, logger=mt.__name__):
+        result = cleanup_expired_attachments(min_age_seconds=0)
+
+    assert result["scanned"] == 2
+    assert result["deleted"] == 1  # 只有合法 key 被删
+    assert result["errors"] == 0  # 主动拒绝 ≠ 失败
+    assert not legit.exists()
+    assert any(
+        "cleanup skipped unsafe key" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_cleanup_counts_per_file_failures_without_aborting_the_batch(
+    tmp_path, monkeypatch, caplog
+):
+    """单个文件删除失败 → 计数 +1 并**继续处理后续文件**，整批不中断。
+
+    清理是批处理任务：一个文件被占用/权限不足，不能让其余几十个孤儿永远留在卷里
+    （那会让空间泄漏持续扩大，且下次运行大概率还是同一个文件先失败）。因此
+    「不中断」必须由证据支撑——最后那个文件仍然被删掉了才算数。
+    """
+    from app.tasks import maintenance_tasks as mt
+
+    keys = [
+        ("tasks/7/a.bin", 0.0),
+        ("tasks/7/b.bin", 0.0),
+        ("tasks/7/c.bin", 0.0),
+    ]
+    monkeypatch.setattr(mt, "_fetch_existing_storage_paths", _no_existing)
+    monkeypatch.setattr(mt, "_list_physical_keys", lambda backend: list(keys))
+
+    real_delete = mt.LocalStorageBackend.delete
+
+    def _flaky(self, key):
+        if key.endswith("b.bin"):
+            raise OSError("file is held by another process")
+        return real_delete(self, key)
+
+    monkeypatch.setattr(mt.LocalStorageBackend, "delete", _flaky)
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "upload_dir", str(tmp_path), raising=False)
+    for name in ("a.bin", "b.bin", "c.bin"):
+        target = tmp_path / "tasks" / "7" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x")
+
+    with caplog.at_level(logging.ERROR, logger=mt.__name__):
+        result = cleanup_expired_attachments(min_age_seconds=0)
+
+    assert result["errors"] == 1
+    assert result["deleted"] == 2
+    assert not (tmp_path / "tasks" / "7" / "a.bin").exists()
+    assert not (tmp_path / "tasks" / "7" / "c.bin").exists()  # 失败没有中断整批
+    assert (tmp_path / "tasks" / "7" / "b.bin").exists()  # 失败的那个留待下次
+    assert any(
+        "cleanup failed for key" in record.getMessage() for record in caplog.records
+    )
+    # 失败必须带堆栈（否则「删不掉」在生产里无法定位原因）
+    failed = next(
+        r for r in caplog.records if "cleanup failed for key" in r.getMessage()
+    )
+    assert failed.exc_info is not None
+    assert "held by another process" in str(failed.exc_info[1])

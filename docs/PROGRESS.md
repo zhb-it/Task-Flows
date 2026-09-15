@@ -354,5 +354,39 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 
 **文档产物**：`docs/DEPLOYMENT.md` 新增 CI 章节（三 job 各做什么、端口为何是 5433/6389、迁移可逆性验证、本地如何跑同一套 lint）；`docs/TESTING.md` 新增「CI workflow 契约测试（TASK-061）」章节并订正全量用例数；`docs/DECISIONS.md` 新增 043；TASKS.md 勾选 TASK-061。
 
+## TASK-062 完成完整测试与质量检查（Phase 10 第六个任务）
+
+**范围**：§57 的「质量」9 条验收清单、§26 响应规范、§45–§49 性能与安全要求、Phase 14 测试目标。四项文档未定义的口径经**用户确认**（DECISIONS 044）：①覆盖率**只做本地基线 + 文档记录，不进 CI 门禁**；②§57 清单**双产物**——静态可判定的写成契约测试，整体结论写成 `docs/QUALITY.md`；③未覆盖行**只补有价值的分支**，`__repr__` 之类跳过；④文档矛盾**订正并留痕**。另加一条由排查推出的：⑤开发库残留**逐表核对**（不再沿用「上轮说过零残留」）。
+
+**实现**
+- `tests/test_quality_checks.py`（**新建**，12 项，全离线）：把「架构与质量必须成立的性质」做成静态断言（AST 解析 + OpenAPI schema 内省）——Router 不得 import CRUD、Model 不得反向依赖上层、Router 不得直接构造 SQL、Service 不得依赖 HTTP 传输类型（唯一豁免 `UploadFile` 且白名单化）、**全模型零 `relationship()`**、全部出参 schema 无密码字段、每个 `AppError` 子类都声明具体 4xx（覆盖 400/401/403/404/409/413/415/429）、handler 已注册且渲染 `{"detail": ...}`、所有带 `limit` 的端点必须 `le=100` 且默认值不超上限、`skip` 必须 `ge=0`、`Settings` 的**声明默认值**不含真实密钥。
+- `tests/test_query_efficiency.py`（**新建**，2 项）：N+1 的**运行时**护栏——用 SQLAlchemy `before_cursor_execute` 事件统计 SELECT 条数，断言 3 个任务与 12 个任务的列表请求**语句数相等**，且访问 `task_assignees` 的语句恰好 1 条并含 `IN (`。两次测量各用独立 project（同一 team），避免第二次请求拿到 3+12=15 行。与静态断言互补：静态侧挡住「加回 `relationship()`」，运行时侧挡住「把批量查询拆回循环」（后者不新增任何 `relationship()`，静态检查看不见）。
+- `tests/test_storage_guards.py`（**新建**，42 项，离线）：存储层安全边界单元测试。其中一条把「盘符规则在当前字符集下不可达」这一事实写成**可执行断言**（monkeypatch 放松 `_SAFE_KEY_RE` 后该规则仍触发），使这条纵深防御分支既被覆盖、其不可达性也被记录。
+- `tests/test_quality_gaps.py`（**新建**，24 项）：覆盖率排查中「有价值但未覆盖」的分支——附件落库失败时**回滚事务 + 删物理文件**的双重一致性、注册的并发 409、非 owner/admin 移除成员 → 403、通知派发失败**吞掉但记日志**、限流关闭时零 Redis 往返、lifespan 释放连接池、`/health` 依赖挂掉降级 200、跨项目「我的任务」数据原语；收尾补的 8 项：文件名净化空输入 / 不可用扩展名截断、非超限存储故障原样上抛、`Retry-After` 下界、可信代理判定 fail-safe、非 `/api/v1` 路径零限流开销、限流身份降级为 IP、访问日志对畸形 Token 记 null、登出无可用 jti 时零写操作、删除根级对象不误删存储根。
+- **生产代码修复 2 处**：`app/services/auth.py`（`register_user` 的 `try/except IntegrityError` 原来只包住 `commit`，而冲突由 `create_user` 内部 `flush` 抛出 → 并发注册失败方拿 500 而非 409；改为把 `create_user(...)` 与 `commit` 一起纳入 `try`）；`app/core/logging_config.py`（`SensitiveDataFilter` 只在 `msg` 是 `str` 时脱敏，而 `LogRecord.getMessage()` 会对任何 msg 做 `str()` → `logger.info({"password": "..."})` 把字典 repr 原样写进生产 JSON 日志；改为无 args 时对任何类型走 `redact_text(str(msg))`，并让 `_KV_RE` 键名两侧允许可选引号以覆盖 repr/JSON 写法）。
+- **测试代码修复 3 处**：`tests/test_task_transition_api.py` / `tests/test_notification_api.py` / `tests/test_notification_e2e.py`（teardown 均未清 `operation_logs`，而该表 `user_id` 刻意无外键 → 不被 `delete(User)` 级联。全量运行后残留 **507 行**，全是 `task:transition`；逐文件测量定位到这三个文件，每轮分别泄漏大量 / 2 行 / 1 行。三个 teardown 均已补齐并清空存量孤儿行）；`tests/test_notification_task.py`（`test_missing_idempotency_key_generates_one` 的辅助函数把显式的 `None` 也换成前缀 key，导致被测的**自动生成分支从未执行**——假绿；引入哨兵 `_UNSET` 区分「未传」与「传了 None」）。
+- `pyproject.toml`：新增 `[tool.coverage.run]`（`source = ["app"]`、`branch = true`）与 `[tool.coverage.report]`（`show_missing = true`、`exclude_also = ["def __repr__"]`）。排除清单**只列真实存在**的项——`if TYPE_CHECKING:` / `raise NotImplementedError` 实测 0 处，故不预先豁免（一条空转的排除规则会在将来悄悄藏住新代码）。
+- `requirements-dev.txt`：加 `pytest-cov==7.1.0`（`==` 钉死；**不进** `requirements.txt`——那是生产镜像装的）。
+- `docs/QUALITY.md`（**新建**）：质量基线与验收对照——测试规模与覆盖率双口径、§57 逐条证据、§26 对照、§45–§49 对照、Phase 14 对照、5 处发现的问题、7 项偏差与未完成项、刻意排除清单、本地复现步骤。
+
+**验证**
+- 全量 **956 passed**（59 个测试文件，869 个 `def test_*`；0 failed / 0 error / 0 skipped），带覆盖率的全量运行约 3m13s。
+- **覆盖率：2373 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支**。分层：`api/v1` 274/0、`core` 441/0、`crud` 343/0、`db` 38/0、`models` 238/0、`schemas` 91/0、`services` 724/1、`tasks` 177/0、`main.py` 47/0。**双口径披露**：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2405 / 33 / **98.63%**——「99.96%」这个数字依赖于该配置，不披露就是误导。
+- 唯一未覆盖行：`app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法），属刻意不测（Phase 14 明令禁止「为了数字而测试没有业务价值的代码」）。
+- `ruff check .` → `All checks passed!`（exit 0）。
+- **开发库逐表核对**（13 张业务表）：全部 **0 行**，含清空 507 行存量孤儿 `operation_logs`。
+- 新增 4 个模块的用例：`test_storage_guards.py` 42 + `test_quality_gaps.py` 24 + `test_quality_checks.py` 12 + `test_query_efficiency.py` 2 = **80**。
+
+**问题与解决**
+- **并发注册的 409 兜底不可达**（生产缺陷）：只有**真实并发**（`asyncio.gather` 两个真注册）才暴露——用 mock 让 `commit` 抛错的写法会「验证成功」，却与真实故障路径无关；而这正是原实现让兜底不可达的原因（冲突在 `flush` 而非 `commit`）。
+- **非字符串日志消息绕过脱敏**（生产缺陷，§48 敏感日志泄露）：由追问覆盖率数字追出——`logging_config.py:178->182` 的**分支半覆盖**说明「msg 不是字符串且无 args」这条路从未走过，而它恰好是泄露路径。实测确认 `{"password": "hunter2"}` 原样落进 JSON 日志后修复。
+- **审计日志永久堆积**（测试污染，3 个文件）：`operation_logs.user_id` 刻意无外键（TASK-039 决策：审计日志要比用户活得久），因此**不被 `delete(User)` 级联**——此前各轮宣称的「零残留」检查的都是各自关心的那几张表，这张从未被核对过。逐表核对立刻暴露 507 行（全是 `task:transition`）；再用「跑单文件、比对前后行数」的逐文件测量，最终定位到**三个**泄漏源（`test_task_transition_api.py` 为主，另两个通知测试各 1～2 行/轮）。这条的教训比缺陷本身重要：**「零残留」若不逐表核对，就只是一句未被验证过的假设**。
+- **假绿测试**：`test_missing_idempotency_key_generates_one` 的辅助函数让被测分支从未执行，绿灯证明的是别的事。这类假绿比失败更危险，因为它给出的安全感是错的。
+- **`int(3.7)` 会截断而非抛错**：写「畸形 `sub`」用例时先入为主地以为浮点会引发 `TypeError`，实测 `int(3.7) == 3`，断言被自己的错误假设打红；改用真正会抛错的形态（`"3.5"` / `[]`）。
+- **同一文件的两个 Edit 并行发出会丢更新**：本机实测 `app/core/logging_config.py` 的两处并行 Edit 只生效了一处（后写覆盖先写），表现为「改了但断言仍失败」。改为**串行**发 Edit 后一致。
+- **`pytest-cov` 不在 PyPI 清华镜像**：与 ruff 同样需官方源 + 代理安装（`--index-url https://pypi.org/simple --proxy http://127.0.0.1:7897`），已记入 `docs/QUALITY.md` 的复现步骤。
+
+**文档产物**：`docs/QUALITY.md`（**新建**，本 TASK 主产物）；`docs/API_CONTRACT.md` 订正第 340 行的分页信封描述（原写法与同文件其余 6 处及实现逐一矛盾）；`docs/PROJECT_SPEC.md` 技术栈订正为 Python 3.13 并写明本地 venv 3.14.6 的偏差风险；`docs/ARCHITECTURE.md` 性能原则订正为「显式批量 IN 查询」并说明 §46 原文本就允许批量查询；`docs/TESTING.md` 新增「覆盖率基线与质量契约（TASK-062）」章节；`docs/DECISIONS.md` 新增 044；`docs/TASKS.md` 勾选 TASK-062 并记录 `pg_trgm`/`tsvector` 遗留项。
+
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

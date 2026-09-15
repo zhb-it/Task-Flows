@@ -80,7 +80,8 @@
 - [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml` + 端口内外分离 + 密钥 fail-fast，见 DECISIONS 039）
 - [x] TASK-060 Nginx/Gunicorn/Uvicorn（唯一入口反代 + 覆盖式 `X-Forwarded-For` + 信任网段判定 + Gunicorn/UvicornWorker，见 DECISIONS 040/041/042）
 - [x] TASK-061 GitHub Actions CI（三 job：ruff lint / pytest（service 端口对齐测试硬编码的 5433+6389，含迁移可逆性验证）/ docker build；ruff 版本与规则集钉死，见 DECISIONS 043）
-- [ ] TASK-062 完整测试与质量检查
+- [x] TASK-062 完整测试与质量检查（956 passed；2373 语句 / 1 未覆盖 / 358 分支 → 99.96% 行、100% 分支，仅本地测量不进 CI 门禁；新增 4 个测试模块 80 用例：存储安全守卫 / 有价值分支 / 质量契约 / N+1 运行时护栏；改动 2 处生产缺陷——并发注册 409 兜底不可达、非字符串日志消息绕过脱敏；订正 3 处文档矛盾。完整结论见 `docs/QUALITY.md`，决策见 DECISIONS 044）
+  - ⚠️ **遗留项（TASK-062 记录，未实现）**：§57 数据库清单的 `pg_trgm` 与 `docs/DB_SCHEMA.md` 的 `tsvector` 均未落地——任务标题的 `keyword` 搜索当前用 `ILIKE '%x%'`，无 trigram / 全文索引，性能随 `tasks` 增长线性劣化。建议单开一个 TASK：`CREATE EXTENSION pg_trgm` + `GIN (title gin_trgm_ops)`，或加 `search_vector` 生成列 + GIN。详见 `docs/QUALITY.md` 第 8 节 D5。
 - [ ] TASK-063 README 与面试技术难点
 
 ## TASK 执行规则

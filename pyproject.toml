@@ -20,3 +20,29 @@ target-version = "py313"
 # 不引入 I（import 排序）/ UP（语法现代化）/ B（bugbear）/ S（bandit）等：
 # 那些会让本 TASK 顺带重排、改写大量既有代码，与项目规则 §5「不进行无关重构」冲突。
 select = ["E4", "E7", "E9", "F"]
+
+
+[tool.coverage.run]
+# 只度量产品代码：tests/ 不计入（给测试本身算覆盖率没有意义，只会稀释信号）。
+# `--cov` 不带参数时即以此为 source，故本地命令可以简化成 `pytest --cov --cov-report=term-missing`。
+source = ["app"]
+# 分支覆盖：比行覆盖更能暴露「只测了 if 的一边」「except 分支从未走到」这类
+# 真实缺口（本项目 66 处未覆盖行里，多数正是这类分支）。仅本地测量，**不设阈值**——
+# TASK-062 的决策是「不做 CI 覆盖率门禁」（见 docs/QUALITY.md）。
+branch = true
+
+[tool.coverage.report]
+# 终端逐行列出未覆盖行号，便于按需补测而不必生成 HTML。
+show_missing = true
+# 刻意排除、不计入分母的代码（理由见 docs/QUALITY.md「刻意排除的代码」一节）：
+#   - `def __repr__`：调试辅助，无业务语义——为凑行数给它写测试属于「为数字而测」
+#     （Phase 14 明确禁止）。**这是一条有实际影响的排除**：16 个模型里共 32 条
+#     语句因此不计入分母；若计入，整体行覆盖率是 98.63% 而不是 99.96%。
+# coverage 的语义是：匹配行若**开启一个代码块**，则整块都被排除。
+# 注：这里**只列真实存在**的排除项。`if TYPE_CHECKING:` / `raise NotImplementedError`
+# 在本仓库中均不存在（实测 0 处），故不预先豁免——将来真加了再显式加进来，
+# 避免一条空转的排除规则悄悄藏住新代码。
+exclude_also = [
+    "def __repr__",
+]
+

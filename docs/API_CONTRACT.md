@@ -337,6 +337,11 @@ Request：
 - GET `/health/redis`
 
 ## 响应
-成功：`data` + `message`；分页：`data/page/page_size/total`；错误通过 HTTP 状态码与 `detail` 表达。
+
+- **成功**：统一信封 `{"data": <载荷>, "message": "success"}`（`app/schemas/common.py::SuccessResponse`）。
+- **列表端点分页**：一律 `skip`（≥0，默认 0）/ `limit`（1–100，默认 100）查询参数，**响应 `data` 仍为纯列表** `{"data": [...], "message": "success"}`——**不**返回 `page` / `page_size` / `total`。
+- **错误**：`{"detail": <str>}`，语义由 HTTP 状态码承载（401/403/404/409/422/429/500），由 `app/main.py` 注册的单一 `AppError` handler 渲染（项目文档 §26）。
+
+> **订正记录（TASK-062）**：本行原写作「分页：`data/page/page_size/total`」，与其余各节（`:216` / `:276` / `:302` / `:315` / `:325` / `:330`）以及实现**逐一矛盾**——那些章节都写明「`skip`/`limit` + 纯列表」，`openapi.json` 与全部列表端点测试也只认 `data: list[...]`。原句是初始化阶段的脚手架残留，从未被实现采纳。现按实现订正，并记录于 DECISIONS 044。
 
 > 具体 Request/Response 字段若尚未在源项目文档中定义，不在初始化阶段擅自虚构，标记为待实现/待确认。

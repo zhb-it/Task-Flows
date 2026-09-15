@@ -192,6 +192,26 @@ def test_json_formatter_includes_exception(_clear_contextvars):
     assert "ValueError: boom" in payload["exception"]
 
 
+def test_json_formatter_includes_stack_info(_clear_contextvars):
+    """``stack_info`` 存在时进 JSON 负载（``logger.info(..., stack_info=True)``）。
+
+    与 ``exception`` 是两条独立路径：``exc_info`` 只在异常处理里出现，
+    ``stack_info`` 用于「没抛异常但我要看清调用链」的排障场景。只看
+    ``exc_info`` 的实现会把它静默丢掉，而那正是这类日志唯一的信息来源。
+    """
+    record = _make_record("no exception here", stack_info="Stack (most recent call last):")
+    payload = json.loads(JsonFormatter().format(record))
+    assert "stack_info" in payload
+    assert "most recent call last" in payload["stack_info"]
+
+
+def test_json_formatter_omits_exception_and_stack_info_when_absent(_clear_contextvars):
+    """两者都不存在时**不得**出现空键（负载 schema 才稳定，下游不必区分 null/缺失）。"""
+    payload = json.loads(JsonFormatter().format(_make_record("plain")))
+    assert "exception" not in payload
+    assert "stack_info" not in payload
+
+
 def test_json_formatter_non_serializable_value_does_not_lose_log(_clear_contextvars):
     """default=str：任何类型的 extra 都不会让日志格式化失败（不丢日志优先）。"""
     payload = json.loads(JsonFormatter().format(_make_record("x", obj=object())))
@@ -300,6 +320,34 @@ def test_filter_redacts_token_in_args():
     assert token not in record.getMessage()
 
 
+def test_filter_redacts_a_single_string_arg(_clear_contextvars):
+    """单个字符串参数必须脱敏——这是全项目最常见的日志写法。
+
+    ``logger.info("token=%s", token)`` 在 logging 内部把 ``args`` 存成**裸字符串**
+    而不是 ``(token,)``。只处理 tuple 的实现会在这里整段漏掉，而它恰好是
+    ``logger.info("%s", token)`` 这类调用唯一的形态（§33 禁止输出 token）。
+    """
+    token = create_access_token(4)
+    record = _make_record("token=%s", args=token)
+    SensitiveDataFilter().filter(record)
+    assert token not in record.getMessage()
+    assert MASK in record.getMessage()
+
+
+def test_filter_leaves_bare_non_string_args_unchanged(_clear_contextvars):
+    """非 str 的裸参数**原样返回**（同一对象），脱敏不得改变参数的值或类型。
+
+    为什么这条重要：``_redact_args`` 对三种形态分别处理（dict / tuple / 裸对象），
+    兜底分支若被写成「统一 ``str()`` 化」，非文本参数就会被悄悄改写成字符串——
+    ``"payload=%r" % args`` 之类的模板随后得到的东西与调用方传入的不再相同，
+    日志的可信度就没了。断言 ``is``（同一对象）而不是 ``==``，把「不改动」钉死。
+    """
+    raw = b"not-a-string-arg"
+    record = _make_record("payload=%r", args=raw)
+    SensitiveDataFilter().filter(record)
+    assert record.args is raw
+
+
 def test_filter_returns_true_so_record_is_not_dropped():
     assert SensitiveDataFilter().filter(_make_record("x")) is True
 
@@ -398,6 +446,33 @@ def test_configure_logging_applies_sensitive_filter(_restore_logging, _clear_con
     payload = _parse_lines(stream.getvalue())[-1]
     assert payload["password"] == MASK
     assert "top-secret" not in stream.getvalue()
+
+
+def test_non_string_message_is_still_redacted(_restore_logging, _clear_contextvars):
+    """把**非字符串**消息（dict / list）交给 logger 时也必须脱敏（§48 敏感日志泄露）。
+
+    回归测试：`logger.info({"password": "..."})` 曾经**完全绕过**脱敏——过滤器只对
+    `isinstance(msg, str)` 调用 `redact_text`，而 `LogRecord.getMessage()` 对「无 args」
+    的记录会做 `str(self.msg)`，于是字典 repr（含明文口令）原样写进 JSON 日志。
+    由 TASK-062 的覆盖率排查发现并修复（见 DECISIONS 044）。
+
+    两条断言分别覆盖两种形态：**字典 repr** 与**列表内嵌的 `key: value`**——后者的
+    键名两侧带引号，正是老正则「键名必须紧邻分隔符」这一定义匹配不到的那种写法。
+    """
+    stream = io.StringIO()
+    configure_logging(Settings(app_env="production"), stream=stream)
+    logger = logging.getLogger("app.probe")
+
+    logger.info({"password": "top-secret", "user": "bob"})
+    logger.warning(["refresh_token: other-secret"])
+
+    out = stream.getvalue()
+    assert "top-secret" not in out, out
+    assert "other-secret" not in out, out
+
+    payloads = _parse_lines(out)
+    assert MASK in payloads[0]["message"] and "bob" in payloads[0]["message"]
+    assert MASK in payloads[1]["message"]
 
 
 # --- 访问日志中间件 ---------------------------------------------------------

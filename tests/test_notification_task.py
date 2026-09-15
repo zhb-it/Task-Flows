@@ -135,14 +135,23 @@ def redis_available():
         pytest.skip("Redis 不可用（6389），跳过依赖 Redis 的幂等测试")
 
 
+_UNSET = object()
+
+
 def _call(user_id: int, **kwargs):
     """同步调用任务（任务内部 asyncio.run，禁止在事件循环内嵌套调用）。
 
     默认补上带 RUN_TOKEN 前缀的幂等键：teardown 按前缀清 Redis 标记，
     无前缀的自动生成键会绕过清理在开发 Redis 里滞留 7 天（首轮全量
     回归实测留下 16 个无前缀键，本写法即为此修复）。
+
+    **显式传 ``idempotency_key=None`` 表示「不提供」**（任务自行生成），
+    用哨兵区分「未传」与「传了 None」。TASK-062 的覆盖审计发现：旧实现用
+    ``kwargs["idempotency_key"] is None`` 判断，会把显式 None 也替换成带前缀
+    的键，于是 ``test_missing_idempotency_key_generates_one`` 虽然名字如此，
+    却**从未真正走到任务的自动生成分支**。
     """
-    if "idempotency_key" not in kwargs or kwargs["idempotency_key"] is None:
+    if kwargs.get("idempotency_key", _UNSET) is _UNSET:
         kwargs["idempotency_key"] = KEY_PREFIX + uuid.uuid4().hex
     return create_notification(
         user_id,
@@ -307,11 +316,37 @@ def test_invalid_parameters_raise_without_side_effects(redis_available):
     assert _run(_count_notifications(user_id)) == 0
 
 
+def test_blank_or_non_string_idempotency_key_is_rejected(redis_available):
+    """空串 / 非字符串幂等键 → ValueError（不在 autoretry_for 内，快速失败）。
+
+    为什么不「顺手补一个」：调用方显式给了空值说明它的业务事件标识逻辑已经坏了。
+    默默生成一个 uuid4 会让「同一次业务事件的重试」变成两条互不相识的键——去重
+    **彻底失效且没有任何信号**，比直接失败危险得多。
+
+    与 ``idempotency_key=None`` 的边界互补：None 是「未提供」（合法，任务自生成），
+    空串/非字符串是「提供了但无效」（拒绝）。
+    """
+    user_id = _run(_create_user("badkey"))
+
+    with pytest.raises(ValueError, match="idempotency_key must be a non-empty string"):
+        create_notification(user_id, "task_assigned", "标题", None, "")
+    with pytest.raises(ValueError, match="idempotency_key must be a non-empty string"):
+        create_notification(user_id, "task_assigned", "标题", None, 123)
+    with pytest.raises(ValueError, match="idempotency_key must be a non-empty string"):
+        create_notification(user_id, "task_assigned", "标题", None, b"bytes")
+
+    assert _run(_count_notifications(user_id)) == 0  # 零副作用
+
+
 def test_missing_idempotency_key_generates_one(redis_available):
-    """缺省幂等键时任务自行生成（手动调用场景；重试不去重已在 docstring 声明）。
+    """缺省幂等键时任务自行生成，并把**生成出来的**键真实用作完成标记。
 
     自动生成的键不带 RUN_TOKEN 前缀，teardown 删不到——本用例用 SCAN
     差集自行清理自己产生的标记。
+
+    TASK-062 起本用例断言差集**非空**：先前 ``_call`` 会把显式 None 也替换成
+    带前缀的键，导致「生成分支」根本没被执行，而不变的差集恰好让这条测试
+    看起来通过了（假绿）。断言差集为 1 才是「真的生成了」的证据。
     """
     user_id = _run(_create_user("nokey"))
     r = _redis()
@@ -321,9 +356,13 @@ def test_missing_idempotency_key_generates_one(redis_available):
 
     assert result["status"] == "created"
     after = set(r.scan_iter(match="taskflow:notify_done:*", count=500))
-    for key in after - before:
-        r.delete(key)
-    r.close()
+    generated = after - before
+    try:
+        assert len(generated) == 1, generated
+    finally:
+        for key in generated:
+            r.delete(key)
+        r.close()
 
 
 # ---------------------------------------------------------------------------

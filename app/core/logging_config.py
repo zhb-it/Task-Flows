@@ -100,10 +100,13 @@ _SENSITIVE_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: message 文本里的 ``password=xxx`` / ``token: xxx`` 形式。
+#: message 文本里的 ``password=xxx`` / ``token: xxx`` 形式。键名两侧允许**可选引号**，
+#: 以便同时覆盖 Python repr（``{'password': 'x'}``）与 JSON 片段
+#: （``"password": "x"``）——`logger.info({"password": ...})` 这种「把字典当消息」
+#: 的写法最终正是以 repr 形式落进日志的（TASK-062 实测泄露，见 DECISIONS 044）。
 _KV_RE = re.compile(
-    r"(?P<key>\b(?:pass(?:word|wd)?|pwd|secret|token|authorization|"
-    r"access_token|refresh_token|api[_-]?key)\b)"
+    r"(?P<key>['\"]?\b(?:pass(?:word|wd)?|pwd|secret|token|authorization|"
+    r"access_token|refresh_token|api[_-]?key)\b['\"]?)"
     r"(?P<sep>\s*[=:]\s*)"
     r"(?P<value>\"[^\"]*\"|'[^']*'|\S+)",
     re.IGNORECASE,
@@ -175,8 +178,13 @@ class SensitiveDataFilter(logging.Filter):
         # ① message / args
         if record.args:
             record.args = _redact_args(record.args)
-        elif isinstance(record.msg, str):
-            record.msg = redact_text(record.msg)
+        else:
+            # 无 args 时 `LogRecord.getMessage()` 会对 msg 做 `str()`——即**任何**
+            # 类型的 msg 最终都会变成一段文本。早先这里只对 `isinstance(msg, str)`
+            # 生效，于是 `logger.info({"password": "..."})` 会把字典 repr 原样写进
+            # 日志（TASK-062 实测泄露，§48「敏感日志泄露」）。统一按文本脱敏，
+            # 等价于「对最终会输出什么就脱敏什么」。
+            record.msg = redact_text(str(record.msg))
 
         # ② 结构化字段（含 extra 传入的自定义字段）
         for key, value in list(record.__dict__.items()):

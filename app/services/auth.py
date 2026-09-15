@@ -55,14 +55,18 @@ async def register_user(db: AsyncSession, payload: UserCreate) -> User:
     if await get_user_by_email(db, payload.email) is not None:
         raise ConflictError("Email is already registered")
 
-    user = await create_user(
-        db,
-        username=payload.username,
-        email=payload.email,
-        password_hash=hash_password(payload.password),
-    )
-
+    # ⚠ The try must wrap `create_user`, not just `commit`: the unique violation
+    # is raised by the `flush()` inside `create_user` (session-bound INSERT), so a
+    # guard starting at `commit` is unreachable and the losing side of a race gets
+    # a 500 instead of a 409. Found by TASK-062's real-concurrency registration
+    # test — see DECISIONS 044.
     try:
+        user = await create_user(
+            db,
+            username=payload.username,
+            email=payload.email,
+            password_hash=hash_password(payload.password),
+        )
         await db.commit()
     except IntegrityError as exc:
         # Two concurrent registrations can both pass the checks above; the DB
