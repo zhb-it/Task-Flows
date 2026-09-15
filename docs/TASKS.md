@@ -64,7 +64,7 @@
 - [x] TASK-047 限流测试
 - [x] TASK-048 Celery App/Worker
 - [x] TASK-049 通知异步任务
-- [ ] TASK-050 日志归档/附件清理任务
+- [x] TASK-050 日志归档/附件清理任务
 - [ ] TASK-051 幂等、重试与任务测试
 
 ## Phase 9：通知

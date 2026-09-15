@@ -7,7 +7,7 @@ In Progress
 Phase 8：Redis 与 Celery
 
 ## Current Task
-TASK-049 通知异步任务（已完成；TASK-048 的本行更新曾遗漏，此处一并修正）
+TASK-050 日志归档/附件清理任务（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -68,7 +68,7 @@ TASK-049 通知异步任务（已完成；TASK-048 的本行更新曾遗漏，�
 - None
 
 ## Next
-TASK-050 日志归档/附件清理任务（Phase 8 Redis 与 Celery）
+TASK-051 幂等、重试与任务测试（Phase 8 Redis 与 Celery）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

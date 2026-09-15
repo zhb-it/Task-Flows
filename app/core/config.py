@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     upload_dir: str = "storage"
     max_upload_size: int = 10485760
 
+    # Maintenance tasks（§23 / TASK-050：日志归档 + 附件清理）
+    # 规格未给数值，采用可经 .env 覆盖的默认值（DECISIONS 031/032）。
+    # 归档保留期：operation_logs 超过该天数的行迁入 operation_logs_archive。
+    log_archive_retention_days: int = 90
+    # 孤儿附件最小年龄（秒）：storage 卷中物理存在但 DB 无对应记录的文件，
+    # 且修改时间早于 now-min_age 才清理——给正常删除流程留竞争缓冲，避免
+    # 误删「正在上传 / 刚删任务尚未回收」的文件（DECISIONS 032）。
+    attachment_orphan_min_age_seconds: int = 3600
+    # 归档批大小：每批独立事务搬 N 行，避免长事务锁主表 / 触发 soft timeout。
+    maintenance_batch_size: int = 1000
+
 
 @lru_cache
 def get_settings() -> Settings:

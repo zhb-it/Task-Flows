@@ -18,6 +18,7 @@ from app.models.team_member import TeamMember
 from app.models.comment import Comment
 from app.models.notification import Notification
 from app.models.operation_log import OperationLog
+from app.models.operation_log_archive import OperationLogArchive
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -35,6 +36,7 @@ __all__ = [
     "Comment",
     "Notification",
     "OperationLog",
+    "OperationLogArchive",
     "User",
     "UserRole",
 ]

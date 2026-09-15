@@ -241,5 +241,16 @@ pytest、pytest-asyncio、httpx。
 
 **compose 部署冒烟（真实链路）**：重建镜像后 `celery inspect registered` 列出 `app.create_notification`；app 容器内真实派发（含调用方幂等键）→ Worker 落库 `{'status': 'created', 'notification_id': 32}`，字段全对、完成标记 TTL≈7 天；随后精确删除该通知与标记，表归零。
 
+## 维护异步任务（TASK-050）
+
+`tests/test_maintenance_tasks.py`，13 项。两个 Celery 任务（归档操作日志 `app.archive_operation_logs`、清理孤儿附件 `app.cleanup_expired_attachments`），**全部同步用例**——同 TASK-049 约束（任务体 `asyncio.run`，库内验证用 asyncpg 直连 5433，与任务写入路径独立）。
+
+- **注册与接线（3 项）**：两任务已注册到 `celery_app.tasks`；`TASK_MODULES` 已登记 `app.tasks.maintenance_tasks`。
+- **归档执行链路（4 项）**：超期日志迁入 `operation_logs_archive`、主表对应行删除、字段逐字段一致（含 JSONB `payload` 与原 `created_at` 保留）、新日志留主表；**幂等**（重投 → `archived=0`、归档表无重复，靠 id 复用 + `ON CONFLICT DO NOTHING` + 同事务删主表）；**分批**（batch_size=2 循环搬完 5 条）；参数防御（`retention_days` / `batch_size` ≤0 → `ValueError` 零副作用）。
+- **清理执行链路（4 项）**：真实 `existing` 查询下孤儿物理文件被删；DB 有记录的文件保留（monkeypatch 集合模拟）；**年龄窗口**（刚写入的孤儿因 mtime 太新被跳过，改旧后删除）；参数防御（`min_age_seconds`<0 → `ValueError`）。
+- **重试语义声明（2 项）**：两任务 `autoretry_for=(SQLAlchemyError, OSError)`、`max_retries=5`、指数退避 + 抖动、`ValueError` 不重试（规则 §8）。
+
+**隔离纪律**：归档测试行用 `action` 前缀 `mt_<RUN_TOKEN>_` 隔离、teardown 精确清理两表；清理任务经 monkeypatch `settings.upload_dir` 指向 `tmp_path`，不污染真实 `storage/` 卷。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

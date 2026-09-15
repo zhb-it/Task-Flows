@@ -197,3 +197,17 @@
 - Reason：①去重键必须由调用方生成且跨重试稳定——Celery `self.retry` 会换新 task id，用 task id 做幂等键在重试链上失效；②notifications 表按 §18 没有 idempotency 字段，不为去重私加列，Redis 标记（本就是 Broker/Backend 宿主，§21）是零侵入方案；③`taskflow:notify_done:` 沿用 TASK-045 键约定。
 - Trade-off：崩溃窗口的单条重复；TTL 过期后同一 key 再重投会重复（7 天远超任何合理重投窗口）；并发重投的检查-插入竞态最多多一条。
 - 配套：Celery worker 是同步上下文，async 客户端不可用（命令返回协程）——`app/db/redis.py` 补充同步入口 `get_sync_redis_client()`（同一 URL、同一 socket 超时纪律）；任务内 DB 写入用每次调用独立事件循环 + 短命 engine（asyncpg 连接池绑定事件循环，跨 loop 复用必报错，不能共享 API 进程的 engine 单例）。
+
+## Decision 031：操作日志归档 = 迁入 operation_logs_archive 表（用户确认）
+- Problem：§23 把「归档操作日志」列为 Celery 后台任务，但没定义「归档」动作——是直接删除超期日志，还是迁到归档表？
+- Decision：经用户确认，**把超过保留期的 operation_logs 行迁入 `operation_logs_archive` 历史表**（新建表 + Alembic 迁移 `524ab172e659`，`upgrade head` 实证落库），主表瘦身、审计历史完整保留，最贴合「归档」字面。保留期 `log_archive_retention_days` 默认 90 天、可经 `.env` 覆盖。
+- Reason：①审计日志价值在可追溯，直接删除违背其存在意义（user_id 无外键本就是为审计独立）；②归档表与原表同构（user_id / resource_type / resource_id / action / payload / created_at 原样搬入），加 `archived_at` 记录迁移时间，可承担原表的全部查询语义。
+- 模型细节：`operation_logs_archive.id` **复用原日志 id 且 `autoincrement=False`**——归档是「同一条记录搬家」不是「新建记录」。复用 id 让两表按 id 直接对账，并为任务幂等提供去重点（见 DECISIONS 032 配套）。
+- Trade-off：归档表随保留期增长需独立治理（未来可再加二级归档/冷存储）；保留期是运维参数，给默认 + 可配置，不猜业务规则（规则 §3）。
+
+## Decision 032：附件清理 = 回收孤儿物理文件（用户确认），加 mtime 年龄窗口
+- Problem：§23「清理过期附件」未定义「过期」判定；TASK-042 模型注释已明确「任务级联删除只清 attachments 记录，物理文件由清理任务回收」。孤儿 vs 按时间的两种解读如何取舍？
+- Decision：经用户确认，**清理 = 扫描 storage 卷，删除 DB 的 `attachments` 表无对应 `storage_path` 记录的物理孤儿文件**（契合 TASK-042 注释的责任划分，且绝不误删在用的附件）。加 `attachment_orphan_min_age_seconds`（默认 3600）年龄窗口：仅当文件 mtime 早于 `now - min_age` 才删，给正常删除流程留竞争缓冲，避免误删「正在上传（先落盘后落库）」或「刚删任务尚未回收」的文件。批大小 `maintenance_batch_size`（默认 1000）。
+- Reason：①孤儿来源单一且明确——任务删除触发 attachments 记录 CASCADE，物理文件遗留，本任务回收，闭环完整；②按时间清「已完成任务的附件」会删仍在库中的有效记录，风险更高且语义更模糊，故不采用；③年龄窗口是「不误删进行中文件」的工程护栏，非业务规则。
+- 安全性（§9）：只用 `LocalStorageBackend`（唯一做相对 key→绝对路径解析、且保证不越出存储根的地方）；删除前 `validate_key` 二次校验拒绝穿越/非法 key（双保险）；`backend.delete` 幂等（`missing_ok`），重投递再扫一遍时孤儿已不在 → no-op。
+- 配套（幂等）：归档与清理都天然幂等，匹配 at-least-once（DECISIONS 027）——归档靠「id 复用 + `pg_insert ... ON CONFLICT (id) DO NOTHING` + 同事务删主表」，重投时主表可搬行已不在、归档表已存在 → no-op；清理靠「删文件幂等 + 孤儿判定只读 DB」。

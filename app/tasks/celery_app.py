@@ -8,8 +8,8 @@
 --------
 本模块只做 **基础设施接线**：Celery 实例、Broker/Backend、序列化、可靠性
 参数。业务任务以独立模块出现（``notification_tasks.py`` = TASK-049；
-日志归档/附件清理 = TASK-050），并登记进 ``TASK_MODULES`` 供 Worker 启动
-时自动导入。
+``maintenance_tasks.py`` = TASK-050 日志归档/附件清理），并登记进
+``TASK_MODULES`` 供 Worker 启动时自动导入。
 
 关键决策（详见 docs/DECISIONS.md）
 ---------------------------------
@@ -43,8 +43,8 @@ from celery import Celery
 from app.core.config import get_settings
 
 # Worker 启动时导入的任务模块（Celery include）。
-# 新增业务任务模块时在此登记（TASK-050 将追加日志归档/附件清理）。
-TASK_MODULES = ["app.tasks.notification_tasks"]
+# 新增业务任务模块时在此登记（TASK-050 追加 maintenance_tasks）。
+TASK_MODULES = ["app.tasks.notification_tasks", "app.tasks.maintenance_tasks"]
 
 # 挂在 Redis 上的所有 Celery 键前缀（TASK-045 键约定）。
 CELERY_KEY_PREFIX = "taskflow:"
