@@ -4,10 +4,10 @@
 In Progress
 
 ## Current Phase
-Phase 9：通知
+Phase 10：工程化
 
 ## Current Task
-TASK-055 通知端到端测试（Phase 9 通知第 4 个任务）
+TASK-056 结构化日志
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -64,6 +64,7 @@ TASK-055 通知端到端测试（Phase 9 通知第 4 个任务）
 - [x] TASK-052 Notification Model（建模提前于 TASK-049，本 TASK 补 Model 检查测试 `tests/test_notification_model.py` 16 项，见 DECISIONS 034）
 - [x] TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线，见 DECISIONS 035）
 - [x] TASK-054 通知 read-all / 标记全部已读（响应体返回标记条数 `{"marked": N}`，见 DECISIONS 036）
+- [x] TASK-055 通知端到端测试（真实派发全链路，`tests/test_notification_e2e.py` 7 项，Phase 9 收官）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -219,6 +220,19 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - `tests/test_notification_api.py` 增补 3 项（A2 组）+ 既有 401 用例扩到 read-all：只标记未读且幂等（3 未读 + 1 已读 → `marked==3`、GET 全已读、重复调 `marked==0`）、资源级隔离（a 标记只计自己条数，b 的通知保持未读）、空收件箱 `marked==0`。
 
 **验证**：`tests/test_notification_api.py` **14 passed**（11 + 3）；全量 **665 passed**（662 + 3，3m01s，零失败零错误）；开发库零残留（`ntfapi_` 前缀用户 0、notifications 表 0 行）。因无既有端点行为变更（纯新增端点），未重建镜像（消费时随下一镜像重建冒烟）。文档：TASKS.md 勾选 TASK-054；TESTING.md 新增「通知 read-all 标记全部已读（TASK-054）」章节；API_CONTRACT.md Notification 章节补齐三端点契约；DECISIONS.md 新增 036；PROGRESS 推进至 TASK-055（Phase 9 收尾）。
+
+## TASK-055 完成 通知端到端测试（Phase 9 收官，纯测试任务）
+
+**范围与定位**：Phase 9 通知第 4 个任务，**纯测试任务、未改应用代码/迁移**（同 TASK-040/044/047/051 先例，无需重建镜像）。TASK-053 用 `conftest` 的 autouse `_isolate_notification_dispatch` 把 `_dispatch_notification` 换 no-op + `notification_dispatch` 间谍夹具**只验证接线**——通知行从不被真实写出。本 TASK 做 **端到端整合验收**：恢复真实派发，验证「API 动作 → 真实通知入库 → 收件箱可见 → 可标记已读 / 全部已读」整条链路。新增 `tests/test_notification_e2e.py` **7 项**。
+
+**关键实现约束（本 TASK 唯一技术难点）**：通知任务体（`app.tasks.notification_tasks.create_notification`）内用 `asyncio.run` 写库；若在本测试的 async event loop 调用栈里直接 `.delay()`（Celery eager），会触发 `RuntimeError: asyncio.run() cannot be called from a running event loop`（API 端点本身是协程）。生产里 Worker 是**独立进程 / 独立 loop**，本文件用**守护线程**等价模拟——任务在独立线程内跑自己的 loop，不干扰测试 loop，且仍执行真实的入库 + Redis 幂等标记逻辑（与 TASK-049 直接调任务体验证 §24 同思路）；线程 `join()` 保证通知落库后再断言（确定性）。任务注册 / 接线已由 TASK-049/051/053 覆盖，本文件只关心「通知真的进收件箱」。前置核实：`.env` 的 `DATABASE_URL` 指向 `127.0.0.1:5433`，与测试库（`TEST_DATABASE_URL`）同库，eager 派发写入的行对 `GET /notifications` 可见（否则端到端断言根本不可能成立）。
+
+**交付 7 项**（分三组）：
+- **动作 → 入库 → 可见（3 项）**：任务分配 → 被分派者收件箱出现 1 条 `task_assigned`（`user_id` 对、未读、title 含任务摘要）；**自领不产生通知**（与 TASK-053 决策一致，收件箱为空）；任务状态变更 → 全部负责人收到 `task_status_changed`、**排除触发者本人**（触发者收件箱为空）。
+- **真实写入可读 / 全部已读（2 项）**：真实通知经 `PATCH /notifications/{id}/read` 标记已读（GET 复查 `is_read=true`）；3 条真实通知下 `PATCH /read-all` → `marked==3` 且收件箱全已读（TASK-054 端点在真实数据上闭环）。
+- **内容 + 资源级隔离（2 项）**：通知 `title`/`content` 由派发方按 §18 场景填充（精确断言 `你被分配到任务「<title>」` / `{username} 将你分配到任务 #{id}`，钉住派发文案契约）；局外人收件箱为空、持有者可见自己的——通知不泄露给非接收人。
+
+**验证**：`tests/test_notification_e2e.py` **7 passed**（5.06s）；全量 **672 passed**（665 + 7，3m13s，零失败零错误）；开发库零残留（`ntfe2e` 前缀 users/tasks/teams/projects 及关联 notifications 全 0）。文档：TASKS.md 勾选 TASK-055（Phase 9 收官）；TESTING.md 新增「通知端到端测试（TASK-055）」章节；PROGRESS 推进至 TASK-056（Phase 10 工程化）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

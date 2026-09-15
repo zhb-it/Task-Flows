@@ -292,5 +292,17 @@ pytest、pytest-asyncio、httpx。
 - **空收件箱**：无任何通知 → 200 `marked == 0`（「没有未读」是合法的 0，不是 404）。
 - 无 Token → 401（并入既有 `test_unauthenticated_401`，三通知端点全覆盖）。
 
+## 通知端到端测试（TASK-055）
+
+`tests/test_notification_e2e.py`，**7 项**。TASK-053 用 `conftest` 的 autouse `_isolate_notification_dispatch` 把派发换 no-op + `notification_dispatch` 间谍夹具**只验证接线**（通知从不被真实写出）。TASK-055 是 Phase 9 收尾的**端到端整合验收**——恢复真实派发，验证「API 动作 → 真实通知入库 → 收件箱可见 → 可标记已读 / 全部已读」整条链路。
+
+**关键实现约束**：通知任务体用 `asyncio.run` 写库，在 async 测试 event loop 调用栈里直接 `.delay()`（eager）会触发「running loop」冲突；生产里 Worker 是独立进程（独立 loop），本文件用**守护线程**等价模拟——任务在独立线程跑自己的 loop，仍执行真实入库 + Redis 幂等逻辑，且不干扰测试 loop（与 TASK-049 直接调任务体验证 §24 同思路）。任务注册 / 接线已由 TASK-049/051/053 覆盖，本文件只关心「通知真的进收件箱」。
+
+- **动作 → 入库 → 可见（3 项）**：任务分配 → 被分派者收件箱出现 1 条 `task_assigned`（`user_id` 对、未读、title 含任务摘要）；自领不产生通知；任务状态变更 → 全部负责人收到 `task_status_changed`、排除触发者本人（触发者收件箱为空）。
+- **真实写入可读 / 全部已读（2 项）**：真实通知经 `PATCH /notifications/{id}/read` 标记已读（GET 复查 `is_read=true`）；三个真实通知下 `PATCH /read-all` → `marked==3` 且收件箱全已读。
+- **内容 + 资源级隔离（2 项）**：通知 `title`/`content` 由派发方按 §18 场景填充（含任务 id）；局外人收件箱为空、持有者可见自己的——通知不泄露给非接收人。
+
+**隔离纪律**：同 TASK-053，用户（含通知 FK CASCADE）按 `ntfe2e_<RUN_TOKEN>_` 前缀精确清理。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
