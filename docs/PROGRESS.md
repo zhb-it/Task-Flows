@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-057 Request ID（§34；TASK-056 已建好日志字段通道）
+TASK-059 Production Compose（Phase 10；§34 Request ID 已于 TASK-057 交付）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -66,6 +66,7 @@ TASK-057 Request ID（§34；TASK-056 已建好日志字段通道）
 - [x] TASK-054 通知 read-all / 标记全部已读（响应体返回标记条数 `{"marked": N}`，见 DECISIONS 036）
 - [x] TASK-055 通知端到端测试（真实派发全链路，`tests/test_notification_e2e.py` 7 项，Phase 9 收官）
 - [x] TASK-056 结构化日志（JSON/文本按环境推导 + 出口脱敏 + 访问日志中间件，`tests/test_logging.py` 41 项，见 DECISIONS 037）
+- [x] TASK-057 Request ID（`X-Request-ID` 单一头 + 客户端值白名单校验 + 独立最外层中间件，`tests/test_request_id.py` 34 项，见 DECISIONS 038）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -75,7 +76,7 @@ TASK-057 Request ID（§34；TASK-056 已建好日志字段通道）
 - None
 
 ## Next
-TASK-055 通知端到端测试（Phase 9 收尾）
+TASK-059 Production Compose（Phase 10；其后 TASK-060 Nginx/Gunicorn/Uvicorn、TASK-061 CI、TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -255,6 +256,25 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - 附带效应（已知可接受）：`db/session.py` 的 `echo=settings.debug` 此前因 root 无 handler 而不可见，现在**开发环境 SQL 语句日志会真正输出**（debug 的既有意图得以生效）；生产 `DEBUG=false` 不输出。
 
 **验证**：`tests/test_logging.py` **41 passed**（0.36s，全离线）；全量 **713 passed**（672 + 41，3m17s，零失败零错误）。**真实容器冒烟（重建镜像后，四服务 healthy）**：`/health` 与 `/` 均 200；`docker logs` 显示每个请求**恰好一条**结构化访问日志（`INFO app.core.middleware :: request completed | method=GET path=/health status_code=200 duration=3.498`），`uvicorn.access` 重复行已消失；容器内以 `APP_ENV=production` 独立进程验证 JSON 输出——字段与 §33 完全一致（`timestamp/level/logger/message/request_id/user_id`），且脱敏生效（`"password": "***"`、`"token=***"`）。测试环境要点：pytest 默认把 root logger 设为 WARNING，断言 INFO 日志的用例必须显式 `setLevel(INFO)`（本 TASK 修正两处会「假通过」的用例）。文档：TASKS.md 勾选 TASK-056；TESTING.md 新增「结构化日志（TASK-056）」章节；DECISIONS.md 新增 037（含三个缺陷）；`.env.example` 同步；PROGRESS 推进至 TASK-057。
+
+## TASK-057 完成 Request ID（Phase 10 第二个任务）
+
+**范围**：§34 要求「每个 HTTP 请求生成 `request_id`；可由客户端传入或服务端生成；日志中必须带它」。TASK-056 已把 `request_id_var` 与 formatter 字段通道建好（无值输出 `null`），本 TASK 补上**生成 / 客户端透传 / 响应回传**。三处文档未定义契约经**用户确认**（DECISIONS 038）：①头名统一 `X-Request-ID`（单一头）；②客户端值经白名单校验后才接受，否则丢弃并重新生成；③`request_id` **不进入**错误响应体（§26 信封保持 `{"detail": ...}`）。另有一项工程决策：**独立中间件且注册在最外层**——生成与 `LOG_REQUESTS` 开关解耦（否则 §34 的硬要求会被一个日志开关悄悄破坏），且只有在最外层，本次请求的**所有**日志（含限流 warning 与访问日志本身）才都带 id。
+
+**实现**
+- `app/core/middleware.py`：新增 `REQUEST_ID_HEADER`（`"X-Request-ID"`）、`resolve_request_id()`（客户端值 strip 后白名单 `^[A-Za-z0-9._-]{1,64}$` 校验，非法则 `uuid4().hex`）、`RequestIdMiddleware`（设置 ContextVar → 调用下游 → `finally` 还原 → 用**局部变量**写响应头；模块文档补齐三个中间件的嵌套顺序说明）。
+- `app/main.py`：**最后**注册 `RequestIdMiddleware` → 位于最外层；运行时嵌套为 `RequestId → RequestLogging → RateLimit → 路由`。
+- `app/core/logging_config.py`：docstring 更新（`request_id_var` 现由 `RequestIdMiddleware` 填充）。
+- `tests/test_logging.py`：访问日志用例的注释更新为「该探针应用未注册 `RequestIdMiddleware`，故 `request_id` 为 null」——恰好固化「ContextVar 未设置时输出 null」的 schema 稳定性。
+- `tests/test_request_id.py`（新建）：**34 项**（纯函数 13 / 中间件契约 8 / 协作 4 / 真实应用 4，全离线）。
+
+**安全要点（白名单的价值）**：原样信任客户端值会同时打开三个口子——**日志注入**（值含 `\n` 可伪造整条日志行、污染审计）、**日志膨胀**（几十 KB 撑爆每行日志）、**身份伪造**（id 是可观测性信任锚）。64 字符 + 字母数字与 `._-` 足以容纳 UUID/ulid/ksuid/hex/traceparent 全部主流形态。
+
+**已知边界（有意接受，已写成测试固化）**：未处理异常由 Starlette 的 `ServerErrorMiddleware` 渲染 500，而它在本中间件**之外**，故该响应**没有** `X-Request-ID` 头；但该请求的日志（访问日志在向上抛之前已记 `status_code=500`）仍带 request_id——§34 的硬要求（日志里必须带）不破。
+
+**测试写法发现（非实现缺陷）**：HTTP 头值在协议层是 latin-1 字节、Starlette 按 latin-1 解码，故客户端传非 ASCII（`中文id`）在中间件眼里是 latin-1 乱码。初版测试辅助函数用 latin-1 编码值，遇非 ASCII 直接抛 `UnicodeEncodeError`——等于**永远测不到这条路径**。改为按 UTF-8 编码成原始字节（忠实模拟线上字节），白名单正好拦住这种乱码形态。
+
+**验证**：`tests/test_request_id.py` **34 passed**（0.47s，全离线）；全量 **747 passed**（713 + 34，零失败零错误）；纯工程增量、无端点行为变更。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

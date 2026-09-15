@@ -75,7 +75,7 @@
 
 ## Phase 10：工程化
 - [x] TASK-056 结构化日志（JSON 格式 + 出口脱敏 + 访问日志中间件，见 DECISIONS 037）
-- [ ] TASK-057 Request ID
+- [x] TASK-057 Request ID（`X-Request-ID` 单一头 + 客户端值白名单校验 + 独立最外层中间件，见 DECISIONS 038）
 - [x] TASK-058 Dockerfile
 - [ ] TASK-059 Production Compose
 - [ ] TASK-060 Nginx/Gunicorn/Uvicorn

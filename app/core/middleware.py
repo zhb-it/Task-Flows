@@ -1,10 +1,17 @@
 """自定义 HTTP 中间件。
 
-本模块含两个中间件：
+本模块含三个中间件，按**运行时的嵌套顺序**（由外到内）列出：
 
-- ``RateLimitMiddleware``（TASK-046，项目文档 §22）——滑动窗口限流；
+- ``RequestIdMiddleware``（TASK-057，项目文档 §34）——为每个请求确定
+  ``request_id``：客户端透传（校验后）或服务端生成；写入 ``ContextVar`` 供
+  请求内**所有**日志使用，并随响应头回传；
 - ``RequestLoggingMiddleware``（TASK-056，项目文档 §33）——结构化访问日志
-  （method/path/status_code/duration/user_id），见文件末尾。
+  （method/path/status_code/duration/user_id）；
+- ``RateLimitMiddleware``（TASK-046，项目文档 §22）——滑动窗口限流。
+
+嵌套顺序由 ``app/main.py`` 的注册顺序决定——Starlette 的 ``add_middleware``
+是「后注册者更靠外」。下文按代码顺序逐个说明，每个类都注明了它在嵌套中的位置
+与理由。
 
 ================================ 限流中间件 ================================
 
@@ -44,6 +51,7 @@ fail-open 还必须**有延迟上界**：限流对每个请求都要访问 Redis
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -54,7 +62,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
-from app.core.logging_config import user_id_var
+from app.core.logging_config import request_id_var, user_id_var
 from app.core.redis_keys import RATE_LIMIT_SCOPE_IP, RATE_LIMIT_SCOPE_USER
 from app.core.redis_keys import rate_limit_key
 from app.core.security import decode_access_token
@@ -181,7 +189,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 # 2. **写进 ContextVar**：``user_id`` 不只出现在访问日志上——请求内任何一条
 #    业务日志（如 Service/任务里的 warning）都应带上它（§33）。因此中间件把
 #    user_id 存进 ``user_id_var``，请求结束还原；formatter 自动读取。
-#    ``request_id`` 的同理通道已由 TASK-056 建好，其**生成与透传**属 TASK-057。
+#    ``request_id`` 走同一条通道，但**不由本中间件生成**——它由更外层的
+#    ``RequestIdMiddleware``（TASK-057）设置，因此在本中间件写日志时已经在
+#    ContextVar 里了，访问日志天然带上它。
 # 3. **异常也要记**：``call_next`` 抛异常时先记一条 status_code=500 再向上抛
 #    （Starlette 的 ``ServerErrorMiddleware`` 在最外层渲染 500），避免「出错
 #    的那次请求恰好没有日志」——那正是最需要日志的一次。
@@ -256,3 +266,98 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         finally:
             if token is not None:
                 user_id_var.reset(token)
+
+
+# ===========================================================================
+# 请求 ID（TASK-057，§34）
+# ===========================================================================
+#
+# §34：每个 HTTP 请求都要有 ``request_id``，**可由客户端传入，也可以服务端
+# 生成**，且**日志中必须带**这个字段——目的是拿到用户报障时能凭一个 id 捞出
+# 该次请求的全部日志。
+#
+# ## 为什么单独一个中间件（不塞进 RequestLoggingMiddleware）
+#
+# ① **与日志开关解耦**：§34 要求「每一个 HTTP 请求生成 request_id」，这是请求的
+#    身份，不是日志格式的一部分。若把生成逻辑写进访问日志中间件，则
+#    ``LOG_REQUESTS=false`` 时就不再生成、响应头也没了——§34 的硬要求会被一个
+#    日志开关悄悄破坏。
+# ② **必须最外层**：request_id 要出现在**本次请求的所有日志**上，包括限流中间件
+#    的 ``warning`` 与访问日志中间件自己那条。因此它的 ContextVar 必须在任何
+#    其他中间件运行之前就位 —— 在 ``app/main.py`` **最后**注册（后注册者更靠外）。
+#
+# 嵌套顺序（由外到内）：
+#
+#     RequestIdMiddleware → RequestLoggingMiddleware → RateLimitMiddleware → 路由
+#
+# 于是请求的流转是：最外层定 id → 访问日志拿到 id → 限流（其 warning 也带 id）
+# → 路由/Service（业务日志全带 id）。
+#
+# ## 客户端传入值的校验（TASK-057 用户确认）
+#
+# 只接受 ``^[A-Za-z0-9._-]{1,64}$``，不合法就**丢弃并重新生成**，绝不原样信任：
+#
+# - **日志注入**：header 值里若含换行/控制字符，可直接伪造一整条日志行——把
+#   ``\n`` 塞进来的请求会污染审计记录；
+# - **日志膨胀/污染**：超长值（几十 KB）能把每一行日志撑爆，也让聚合器不堪重负；
+# - **身份伪造**：id 是可观测性的信任锚，若客户端能随意设定，就能把自己的请求
+#   伪装成别人的、或与既有 id 撞车，排查价值归零。
+#
+# 64 字符足够容纳 UUID(36) 与常见 traceparent 风格 id，也是业界常见的上限；
+# 字母数字加 ``. _ -`` 覆盖了 UUID / ulid / ksuid / hex 等所有主流生成方式。
+#
+# ## 已知边界
+#
+# 未处理异常会冒泡到 Starlette 的 ``ServerErrorMiddleware``（它在本中间件**之外**）
+# 由它渲染 500，那个响应**没有** ``X-Request-ID`` 头。这不影响 §34 的硬要求：
+# 该请求的日志（访问日志中间件在向上抛之前已记 ``status_code=500``）仍然带
+# request_id。
+
+#: 客户端传入 / 服务端回传 request_id 的 HTTP 头名。
+REQUEST_ID_HEADER = "X-Request-ID"
+
+#: 接受的 request_id 长度上限（见上文「客户端传入值的校验」）。
+_REQUEST_ID_MAX_LENGTH = 64
+
+#: 白名单正则：仅字母数字与 ``. _ -``。``\Z`` 表示字符串末尾（拒绝尾部换行）。
+_SAFE_REQUEST_ID_RE = re.compile(rf"[A-Za-z0-9._-]{{1,{_REQUEST_ID_MAX_LENGTH}}}\Z")
+
+
+def resolve_request_id(request: Request) -> str:
+    """确定本次请求的 ``request_id``：客户端传入（校验通过）否则服务端生成。"""
+    candidate = request.headers.get(REQUEST_ID_HEADER)
+    if candidate:
+        candidate = candidate.strip()
+        if _SAFE_REQUEST_ID_RE.fullmatch(candidate):
+            return candidate
+    # uuid4().hex（32 位十六进制）字符集落在白名单内，长度也远小于上限。
+    return uuid.uuid4().hex
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """为每个请求确定 request_id 并回传响应头（§34）。
+
+    注册在**最外层**（``app/main.py`` 中最后 add）：这样它的 ContextVar 在任何
+    其他中间件运行之前就已就位，本次请求的**全部**日志（含访问日志与限流
+    warning）都能带上 request_id。
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        request_id = resolve_request_id(request)
+        token = request_id_var.set(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            # 请求结束必须还原，避免 id 泄漏到下一个请求（同一 worker 会复用
+            # 上下文；ContextVar 不还原就会串号）。
+            request_id_var.reset(token)
+
+        # 用局部变量而非 ContextVar 读取：此时 ContextVar 已还原（TASK-056 的
+        # 教训——先还原再读会拿到 null），而响应头必须回传服务端最终认定的 id，
+        # 客户端才能凭它报障。客户端传入了合法值就回传它自己传的那个（链路可串联）。
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response

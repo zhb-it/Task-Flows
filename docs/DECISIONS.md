@@ -251,3 +251,15 @@
 - **附带效应（已知、可接受）**：`db/session.py` 用 `echo=settings.debug` 打开 SQL echo，此前 root 无 handler 因而 SQL 日志不可见；本 TASK 安装 handler 后**开发环境的 SQL 语句日志会真正输出**（debug=True 的既有意图得以生效）。生产 `DEBUG=false` 时不输出。
 - 测试环境教训：**pytest 默认把 root logger 级别设为 WARNING**，因此断言 INFO 级日志必须给目标 logger 显式 `setLevel(INFO)`，否则会得到「空输出」并可能让「开关关闭」类断言**假通过**（本 TASK 的两个用例已按此修正）。测试套件默认 `LOG_REQUESTS=false`（conftest autouse，与 `rate_limit_enabled` 同套路），访问日志自身的测试在用例内打开。
 
+---
+
+## Decision 038：Request ID = 单一 `X-Request-ID` 头 + 白名单校验 + 独立最外层中间件（用户确认，TASK-057）
+- Problem：§34 只规定「每个 HTTP 请求生成 `request_id`」「可由客户端传入或服务端生成」「日志中必须带」，未定义：①用哪个 HTTP 头？②客户端传入的值能否信任？③要不要写进错误响应体？④生成逻辑放哪里？
+- Decision（三项经用户确认 + 一项工程决策）：①头名统一 **`X-Request-ID`**（传入与回传同名，不作多头兼容）；②客户端传入值**经白名单 `^[A-Za-z0-9._-]{1,64}$` 校验后才接受**，不合法则丢弃并服务端生成；③`request_id` **不进入**错误响应体（§26 信封保持 `{"detail": ...}`），只走响应头；④工程决策：**独立的 `RequestIdMiddleware`，注册在最外层**（与 `LOG_REQUESTS` 开关解耦）。
+- Reason：①头名越少歧义越少，`X-Request-ID` 是事实标准；②原样信任客户端值会同时打开三个口子——**日志注入**（值里带 `\n` 可伪造整条日志行，污染审计）、**日志膨胀**（几十 KB 的 id 撑爆每行日志）、**身份伪造**（id 是可观测性的信任锚，可随意设定则失去排查价值），64 字符 + 白名单足以容纳 UUID/ulid/ksuid/hex/traceparent 全部主流形态；③§26 信封已被前端依赖，为一个排障字段改契约不划算（响应头已足够）；④若把生成逻辑塞进访问日志中间件，`LOG_REQUESTS=false` 时就不再生成、响应头也没了——§34 的硬要求会被一个**日志开关**悄悄破坏；而「必须最外层」是因为 request_id 要出现在本次请求的**所有**日志上（含限流中间件的 warning 与访问日志本身）。
+- 实现落点：`app/core/middleware.py`（`REQUEST_ID_HEADER`、`resolve_request_id()`、`RequestIdMiddleware`）+ `app/main.py`（**最后**注册 → 最外层，嵌套为 `RequestId → RequestLogging → RateLimit → 路由`）。
+- Trade-off：不为 `traceparent`（W3C 分布式追踪）做专门解析——它落在白名单内可原样透传，链路已足够串联；真正的 span 上报属于观测平台，不在本项目范围（§15）。
+- 已知边界（有意接受）：未处理异常由 Starlette 的 `ServerErrorMiddleware` 渲染 500，而它在最外层**之外**，故该响应**没有** `X-Request-ID` 头（要修就得自己渲染 500，等于与框架的错误中间件重复）。这不影响 §34：该请求的日志里仍带着 request_id。已写成测试固化这个边界。
+- 测试发现（非实现缺陷，但暴露了测试写法的失真）：HTTP 头的值在协议层是 **latin-1** 字节并由 Starlette 按 latin-1 解码，因此「客户端传 `中文id`」在中间件眼里是一串 latin-1 乱码（`ä¸æ–‡id`）。初版测试辅助函数用 latin-1 编码值，遇到非 ASCII 直接抛 `UnicodeEncodeError`——等于**永远测不到这条路径**。改为按 UTF-8 编码为原始字节（忠实模拟线上字节），白名单正好拦住这种乱码形态。
+
+

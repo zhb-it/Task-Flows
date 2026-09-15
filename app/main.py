@@ -21,7 +21,11 @@ from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError, app_error_handler
 from app.core.logging_config import configure_logging
-from app.core.middleware import RateLimitMiddleware, RequestLoggingMiddleware
+from app.core.middleware import (
+    RateLimitMiddleware,
+    RequestIdMiddleware,
+    RequestLoggingMiddleware,
+)
 from app.db.redis import close_redis, get_redis_client
 from app.db.session import engine
 
@@ -53,6 +57,11 @@ app.add_middleware(RateLimitMiddleware)
 # 访问日志放在限流**之后**注册：Starlette 后注册的中间件在更外层，因此本中间件
 # 包住限流——duration 才是「客户端实际等待的总时间」（含限流判定的开销）。
 app.add_middleware(RequestLoggingMiddleware)
+
+# Request ID 最后注册，因而位于**最外层**（§34）：它的 ContextVar 必须在限流与
+# 访问日志之前就位，这样本次请求的**全部**日志（含限流 warning、访问日志）都带
+# request_id。与 LOG_REQUESTS 开关无关——§34 要求每个请求都生成，不受日志开关影响。
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(api_router)
 

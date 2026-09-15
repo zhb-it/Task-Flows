@@ -20,8 +20,8 @@
    出现在请求相关的日志上，而不只是访问日志。用 ``contextvars`` 承载，由
    中间件在请求开始时设置、结束还原；formatter 从 ContextVar 读取，未设置
    时输出 ``null``——**保持 schema 稳定**，日志聚合器不必处理「字段时有时无」。
-   ``request_id`` 的**生成与客户端透传**属 TASK-057（§34 每个请求生成
-   request_id），本 TASK 只把字段通道建好。
+   ``request_id`` 的生成与客户端透传由 ``RequestIdMiddleware``（TASK-057，§34）
+   负责，本模块只负责把它渲染进日志。
 4. **敏感信息自动脱敏**（TASK-056 用户确认）：§33 是硬禁止项，靠人工约定
    容易漏（一次 ``logger.info(f"login {token}")`` 就破）。因此在**日志出口**
    用 ``logging.Filter`` 统一脱敏——既覆盖 ``extra`` 里的结构化字段（含嵌套
@@ -47,7 +47,8 @@ from app.core.config import Settings, get_settings
 # 1. 请求上下文（ContextVar）
 # ---------------------------------------------------------------------------
 
-#: 当前请求的 request_id（由 TASK-057 的中间件设置；未设置时 formatter 输出 null）。
+#: 当前请求的 request_id（由 ``RequestIdMiddleware`` 设置，TASK-057；未设置时
+#: formatter 输出 null——schema 恒定，聚合器不必处理「字段时有时无」）。
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 #: 当前请求的已认证用户 id（由请求日志中间件按 JWT ``sub`` 设置，不查库）。

@@ -450,7 +450,9 @@ async def test_access_log_records_method_path_status_duration(
     assert payload["status_code"] == 200
     assert isinstance(payload["duration"], (int, float))
     assert payload["duration"] >= 0
-    # 未认证：user_id 为 null；request_id 通道已建好但生成属 TASK-057 → null
+    # 未认证：user_id 为 null。该探针应用只注册了 RequestLoggingMiddleware，
+    # 没有 RequestIdMiddleware（TASK-057），因此 request_id 也是 null——
+    # 恰好验证了「formatter 在 ContextVar 未设置时输出 null」的 schema 稳定性。
     assert payload["user_id"] is None
     assert payload["request_id"] is None
 

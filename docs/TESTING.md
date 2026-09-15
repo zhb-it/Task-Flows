@@ -315,5 +315,16 @@ pytest、pytest-asyncio、httpx。
 
 **测试环境要点**：pytest 默认将 root logger 级别设为 WARNING，断言 INFO 级日志的用例必须给目标 logger 显式 `setLevel(INFO)`——否则会「空输出」假通过（本文件已修正两处）。测试套件默认 `LOG_REQUESTS=false`（`tests/conftest.py` autouse，与 `rate_limit_enabled` 同套路）。
 
+## Request ID（TASK-057）
+
+`tests/test_request_id.py`，**34 项**，全离线（不依赖 DB / Redis；仅 4 项走真实 `app.main`，其中一个 401 用例在认证依赖里提前返回、不触库）。分四层：
+
+- **`resolve_request_id` 纯函数（13 项）**：无头时生成 uuid4 hex 形态；两次生成互不相同；**自生成值必然能通过白名单**（否则「回传的 id 客户端下次传回来会被丢弃」）；合法客户端值原样接受（含 traceparent 风格、前后空白 strip 后接受、恰好 64 字符的边界）；**10 类非法值一律丢弃并重新生成**——超长、空格、字符集外、分隔符、路径穿越样式、HTML、非 ASCII、`\n`、`\r\n`、`\x00`（其中换行/CRLF 是**日志注入**：能让一行日志变成两行）；空串/纯空白同样重新生成。
+- **中间件契约（8 项）**：无头请求 → 响应头为服务端生成的 32 位 hex；客户端合法值 → 响应头原样回传；客户端非法值 → 响应头**不是**脏值而是新生成；两个请求 id 不同；请求内下游代码经 ContextVar 能读到同一个 id；请求结束后 ContextVar **还原为 null**（避免同 worker 下一个请求串号）；§26 错误信封（404）响应**也带**响应头；错误响应体形状未变（仍只有 `detail`）。
+- **与其它中间件协作（4 项）**：最外层嵌套下访问日志的 `request_id` 与响应头一致（客户端传入 / 服务端生成两种路径各一条）；两条请求的日志 id 互不相同；**未处理异常的已知边界**——500 响应**没有** `X-Request-ID` 头（Starlette 的 `ServerErrorMiddleware` 在本中间件之外渲染），但访问日志里 `status_code=500` 与 `request_id` 都在（§34 的硬要求是「日志中必须带」，此处不破）。
+- **真实应用（4 项）**：`app.main` 的中间件注册顺序里 `RequestIdMiddleware` 必须**最外层**（早于 `RequestLoggingMiddleware`）——顺序被调换就会让访问日志丢掉 request_id；`GET /` 带服务端生成的响应头；客户端传入值被原样回传；`GET /api/v1/users/me` 未认证 → 401 同时带响应头、信封与 `WWW-Authenticate` 均未被改动。
+
+**测试写法要点**：HTTP 头的值在协议层是 latin-1 字节，Starlette 按 latin-1 解码——因此「客户端传非 ASCII」在中间件眼里是 latin-1 乱码。构造探针请求时必须把值按 **UTF-8** 编码成原始字节（忠实模拟线上），否则非 ASCII 用例会在构造阶段就抛 `UnicodeEncodeError`、**永远测不到这条路径**。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
