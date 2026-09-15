@@ -18,9 +18,9 @@
 | 测试 | 1011 passed，0 failed / 0 error / 0 skipped；覆盖率 99.96% 行、100% 分支 |
 | 部署 | Dockerfile（`python:3.13-slim`，非 root）· 开发/生产两套 Compose · Nginx + Gunicorn/Uvicorn |
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
-| 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证） |
+| 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 11（前端工程化），TASK-001 ~ TASK-068 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~068）。
+> 当前处于 Phase 12（前端业务页面），TASK-001 ~ TASK-069 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~069）。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -835,7 +835,7 @@ TODO ──────────▶ IN_PROGRESS ─────────�
 | [`docs/INTERVIEW.md`](docs/INTERVIEW.md) | 面试技术难点（§56 的 35 问答） |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | 代码约定 |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | 变更记录 |
-| [`docs/FRONTEND_PROJECT_SPEC.md`](docs/FRONTEND_PROJECT_SPEC.md) | 前端规格（阶段 1~3 已实现，见 [`frontend/README.md`](frontend/README.md)） |
+| [`docs/FRONTEND_PROJECT_SPEC.md`](docs/FRONTEND_PROJECT_SPEC.md) | 前端规格（阶段 1~3 + Dashboard 已实现，见 [`frontend/README.md`](frontend/README.md)） |
 | [`docs/FRONTEND_API_MAPPING.md`](docs/FRONTEND_API_MAPPING.md) | 前端 ↔ 后端接口映射与契约差异（规格 §57 要求的「确认真实 API」记录） |
 | [`团队任务协作系统_项目开发文档.md`](团队任务协作系统_项目开发文档.md) | 原始开发文档（规格事实来源） |
 

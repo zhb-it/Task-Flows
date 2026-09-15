@@ -128,6 +128,15 @@
   - 验收标准：`npm run typecheck`、`npm run lint`、`npm run test`、`npm run build` 四项全绿；`python scripts/check_docs.py` 退出码 0；后端全量 pytest 仍全绿（前端不得影响后端）。
   - 测试要求：前端单测四项模块全绿；后端 `tests/test_docs_consistency.py` 与 `tests/test_readme.py` 覆盖本 TASK 修改的文档声明（进度前沿、Phase 号、数字声明）。
 
+## Phase 12：前端业务页面
+- [x] TASK-069 首页 Dashboard（规格 §63「第四阶段：Dashboard」）
+  - 目标：实现首页 Dashboard，用真实后端端点展示团队/项目/通知/日志概览；对后端未提供的「任务统计」「全局最近任务」做诚实降级（不编造接口）。
+  - 依赖：TASK-065~068（框架、请求层、类型与 API 模块约定）。
+  - 涉及文件：`src/views/dashboard/Dashboard.vue`（重写，移除占位）、`src/types/{team,project,log}.ts`（新建，对齐 `app/schemas/team.py`/`project.py`/`operation_log.py`）、`src/api/{team,project,log}.ts`（新建，封装 `listTeams`/`listProjects`/`listMyLogs`）。
+  - 实现要求：① 四张统计卡片数据来自 `GET /teams`、`GET /projects`、`GET /notifications`（前端统计未读）、`GET /logs` 四个真实端点；② 两个列表「最近通知」「最近项目」分别链到 `/notifications` 与 `/projects/:id`；③ 每个概览独立加载、独立容错（某项 403 或缺数据只让那一块报错，不影响其余卡片）；④ 规格 §11.2 的「任务统计」与全局「最近任务」依赖后端聚合接口，但 `GET /tasks` 要求 `project_id` 必填且无跨项目统计端点（`docs/FRONTEND_API_MAPPING.md` §4-D7/D8、§6-Q2），按规格 §57「禁止猜 API」——页面顶部提示条写明限制，不伪造它们。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；Dashboard 真实渲染团队/项目/通知/日志概览；被后端卡住的部分在界面明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测（storage/permission/request/router）门禁；网络层 mock 留待规格 阶段14 测试阶段统一实装，本阶段不新增伪造后端行为的组件测试。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
