@@ -216,4 +216,10 @@
 - Decision：TASK-051（纯测试，不动应用代码）新增 `tests/test_task_resilience.py` **8 项**，把三个业务任务放进**真实故障场景**：①用 monkeypatch 让 `_insert_notification` 首跑抛 `SQLAlchemyError`、次跑成功 → 经 eager 模式 `delay()` 验证「真的重跑且恰好 1 行」；②让它永远失败且 `max_retries=2` → 验证「真的抛错、`_insert_notification` 被调用 3 次、零通知行」（§8 failure / §24 要求 1）；③非法参数 → 验证「`_insert_notification` 0 次调用、0 重试、0 行」（短路先于 DB）；④`archive` / `cleanup` 经 `delay()` 任务机端到端（此前只测直接调用）；⑤清理重跑 → 0 删除 0 错误（重投递幂等）；⑥三任务各跑两遍 → 累计副作用 = 单跑一遍（整体 at-least-once 安全整合验收）；⑦三个业务任务都不覆盖 App 级 `soft/hard_time_limit`（§8 的 300/600s 不被装饰器旁路）。
 - Reason：①TASK-040/044/047 已确立「声明层测过、行为层/整合层才暴露真问题」的先例，重试与幂等恰是最容易「声明正确、故障下崩」的两种机制；②维护任务此前绕过了 Celery 任务机直接当函数测，eager 派发才验证「任务真的注册进 Worker 能跑」；③超时不被绕过是 §8 的安全底线，只有钉成测试才不会被顺手改掉。
 - Trade-off：①eager 模式用同步重试，把 backoff/jitter 关掉让测试即时（不测退避数值，只测「会重试 / 会耗尽」语义）；②`max_retries` 在测试内临时降到 2，避免耗尽路径被 1+2+4+8+16s 退避睡死——还原在 `finally`，不污染全局；③`hard_time_limit` 未显式设置时不是任务对象属性（访问抛 `AttributeError`），断言改用 `getattr(task, "hard_time_limit", None) is None` 判定「未覆盖」。
+
+## Decision 034：TASK-052 建模检查项 = 补 Notification Model 测试，固化 §18 完整性
+- Problem：DECISIONS 029 把 TASK-052 的建模（Notification Model + 迁移 `b7d2e9a4c6f8`）提前并入 TASK-049，并明确「TASK-052 届时为检查项」。但 TASK-049 提前建模时只写了「通知任务测试」（`test_notification_task.py`，覆盖落库/幂等/重试/FK 级联），没有「通知 Model 本身」的专项测试——而每个独立 Model TASK（TASK-021/026/031）都含离线模型测试，此处留下真实缺口。
+- Decision：TASK-052 不产生新应用代码，补 `tests/test_notification_model.py` **16 项**，把「建模完整性」固化为可回归测试：①离线（不连 DB）钉死 §18 七字段集合、各列类型/可空性/长度、`user_id` FK→users ON DELETE CASCADE 且单列索引、`is_read`/`created_at` 的 server_default、`(user_id, created_at)` 复合索引、`__repr__`；②DB 集成（真实 5433）验证七字段 roundtrip、`content` 可空、`is_read` 默认 false、`created_at` 自动、删用户 CASCADE 清通知、按接收人查询主访问路径。
+- Reason：①这是 DECISIONS 029「检查项」的最佳落地——用测试把「建模是否仍符合 §18」变成可回归断言，而非一次性肉眼核对；②对齐 Model TASK 惯例，填补提前建模遗留的缺口；③纯 Model 层，不碰 TASK-053 的 Service/API、TASK-054 的已读/未读、TASK-055 的端到端测试，边界清晰。
+- Trade-off：索引存在性用 model 层离线断言钉死（与 TASK-026 同），未再查 `pg_indexes` 物理表——model 层 Index 定义已等价于 DDL。
 - 配套（幂等）：归档与清理都天然幂等，匹配 at-least-once（DECISIONS 027）——归档靠「id 复用 + `pg_insert ... ON CONFLICT (id) DO NOTHING` + 同事务删主表」，重投时主表可搬行已不在、归档表已存在 → no-op；清理靠「删文件幂等 + 孤儿判定只读 DB」。

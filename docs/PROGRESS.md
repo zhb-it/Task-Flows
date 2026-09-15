@@ -4,10 +4,10 @@
 In Progress
 
 ## Current Phase
-Phase 8：Redis 与 Celery
+Phase 9：通知
 
 ## Current Task
-TASK-051 幂等、重试与任务测试（已完成）
+TASK-052 Notification Model（已完成；建模提前于 TASK-049，本 TASK 补 Model 检查测试）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -61,6 +61,7 @@ TASK-051 幂等、重试与任务测试（已完成）
 - [x] TASK-049 通知异步任务（含提前完成的 notifications 建模，见 DECISIONS 029）
 - [x] TASK-050 日志归档/附件清理任务（见 DECISIONS 031/032）
 - [x] TASK-051 幂等、重试与任务测试（纯测试任务，Phase 8 收尾，见 DECISIONS 033）
+- [x] TASK-052 Notification Model（建模提前于 TASK-049，本 TASK 补 Model 检查测试 `tests/test_notification_model.py` 16 项，见 DECISIONS 034）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -178,6 +179,15 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **超时不被绕过**：三个业务任务都不覆盖 App 级 `soft/hard_time_limit`，§8 的 300/600s 超时对其生效（钉住不被 `task(...)` 装饰器静默旁路）。
 
 **验证**：`tests/test_task_resilience.py` **8 passed**（3.45s）；全量 **635 passed**（627 + 8，4m06s，零失败零错误）。验证用前缀（`rsl_<RUN_TOKEN>_` / 幂等键前缀）teardown 精确清理，开发库零残留。**不重复既有测试**：未重写 autoretry 声明 / 幂等键跳过 / Redis fail-open 等已在 TASK-049/050 覆盖的细粒度断言，只补行为层与跨模块整合。文档：TASKS.md 勾选 TASK-051；TESTING.md 新增「Celery 任务韧性（TASK-051）」章节；DECISIONS.md 新增 033；PROGRESS 推进至 TASK-052（Phase 9）。
+
+## TASK-052 完成 Notification Model（检查项，补 Model 测试）
+
+**范围**：DECISIONS 029 把建模（Notification Model + 迁移 `b7d2e9a4c6f8`）提前并入 TASK-049，并明确「TASK-052 届时为检查项」。本 TASK 不产生新应用代码——建模已在 TASK-049 落库（表 + 索引 + FK CASCADE 已 `upgrade head` 实证）；TASK-049 提前建模时只写了「通知任务测试」，缺「通知 Model 本身」专项测试，本 TASK 补 `tests/test_notification_model.py` **16 项**固化 §18 七字段完整性（对齐 TASK-021/026/031 的 Model TASK 惯例）。
+
+**实现（仅测试）**
+- `tests/test_notification_model.py`（新建）：离线 10 项（表注册 / tablename / 列集严格 = §18 七字段 / id BigInteger PK / user_id FK→users CASCADE+单列索引 / type·title 非空 String(50/255) / content 可空 Text / is_read 非空默认 false / created_at tz-aware 默认 now / `(user_id, created_at)` 复合索引 / repr）+ DB 集成 6 项（七字段 roundtrip / content 可空 / is_read·created_at 有 DB 默认 / 删用户 CASCADE 清通知 / 按接收人降序查主访问路径），真实 5433；写入用户带 `ntf_<RUN_TOKEN>_` 前缀、autouse teardown 删前缀用户（通知随 FK 级联清），开发库零残留。
+
+**验证**：`tests/test_notification_model.py` **16 passed**（2.00s）；全量 **651 passed**（635 + 16，5m33s，零失败零错误）。文档：TASKS.md 勾选 TASK-052；TESTING.md 新增「Notification Model（TASK-052）」章节；DECISIONS.md 新增 034；PROGRESS 推进至 TASK-053（Phase 9）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

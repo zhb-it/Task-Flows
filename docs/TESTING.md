@@ -265,5 +265,14 @@ pytest、pytest-asyncio、httpx。
 
 **不重复既有**：未重写 `autoretry_for` 声明、幂等键跳过、Redis fail-open 等 TASK-049/050 已覆盖的细粒度断言，只补行为层与跨模块整合。
 
+## Notification Model（TASK-052）
+
+`tests/test_notification_model.py`，16 项。**检查项落地，不改应用代码**——DECISIONS 029 把建模提前到 TASK-049，本 TASK 把「建模完整性」固化为可回归测试（对齐 TASK-021/026/031 的 Model TASK 惯例）。建模本身（`app/models/notification.py` + 迁移 `b7d2e9a4c6f8`）已在 TASK-049 落库，本文件只验证它仍符合 §18 七字段与决策（DECISIONS 029）。
+
+- **离线模型（10 项）**：表注册于 metadata、`__tablename__=="notifications"`、列集严格等于 §18 七字段、`id` BigInteger 主键、`user_id` FK→users CASCADE 且单列索引、`type`/`title` 非空 String(50/255)、`content` 可空 Text、`is_read` 非空默认 false、`created_at` timezone-aware 默认 now、`(user_id, created_at)` 复合索引、`__repr__` 含标识。
+- **DB 集成（6 项）**：七字段 roundtrip、`content` 可空不传成功、`is_read`/`created_at` 有 DB 默认值、删用户 CASCADE 清通知、按 `user_id` 降序查主访问路径。
+
+**隔离纪律**：写入用户 username 带 `ntf_<RUN_TOKEN>_` 前缀、autouse teardown 删前缀用户（通知随 FK CASCADE 清），开发库零残留；限流由 `conftest.py` autouse 默认关闭。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

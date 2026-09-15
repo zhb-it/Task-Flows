@@ -68,7 +68,7 @@
 - [x] TASK-051 幂等、重试与任务测试
 
 ## Phase 9：通知
-- [ ] TASK-052 Notification Model（建模部分已提前于 TASK-049 完成，见 DECISIONS 029）
+- [x] TASK-052 Notification Model（建模部分已提前于 TASK-049 完成，见 DECISIONS 029；本 TASK 补 Model 检查测试，见 DECISIONS 034）
 - [ ] TASK-053 通知 Service/API
 - [ ] TASK-054 已读/未读
 - [ ] TASK-055 通知测试
