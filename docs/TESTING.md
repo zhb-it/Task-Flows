@@ -304,5 +304,16 @@ pytest、pytest-asyncio、httpx。
 
 **隔离纪律**：同 TASK-053，用户（含通知 FK CASCADE）按 `ntfe2e_<RUN_TOKEN>_` 前缀精确清理。
 
+## 结构化日志（TASK-056）
+
+`tests/test_logging.py`，**41 项**，全离线（不依赖 DB / Redis）。分四层：
+
+- **JSON formatter（7 项）**：§33 固定字段齐备（timestamp/level/logger/message/request_id/user_id，无值时 `null` 以保持 schema 稳定）；timestamp 为带时区 ISO 且接近当前时间；ContextVar（request_id/user_id）注入；`extra` 字段透传（访问日志的 method/path/status_code/duration 即由此进入）；单行输出且不泄漏 `LogRecord` 内部属性（msg/args/exc_info/levelno/pathname/lineno）；异常堆栈进 `exception` 字段；非 JSON 原生类型（如 `object()`）经 `default=str` 降级——**任何日志调用都不会因格式化失败而丢日志**。
+- **文本 formatter（2 项）**：开发环境人读格式（含级别/logger/message）；仍追加 request_id/user_id 与 method/path/status_code。
+- **敏感脱敏（13 项）**：§33 硬禁止项。parametrize 覆盖 password/passwd/pwd/access_token/refresh_token/token/secret 七类键名（值变 `***`、**键名保留**）；非敏感字段不受影响；嵌套 dict 逐层脱敏；message 里的 `password=hunter2` 脱敏为 `password=***` 且不误伤其它文本；裸 JWT 字面量被替换；**`logger.info("token=%s", token)` 形态（args 脱敏）**；filter 恒返回 True（记录不被丢弃）。
+- **configure_logging 与访问日志中间件（19 项）**：格式按 `APP_ENV` 推导（production→json / development→text）与 `LOG_FORMAT` 显式覆盖；非法级别回落 INFO 不抛错；JSON/文本输出可断言；**幂等**（重复调用只留一个自装 handler）；**不触碰他人 handler**（保护 pytest 等外部集成）；uvicorn 三个 logger 被收编到 root（且 `uvicorn.access` 压到 WARNING，避免与中间件重复输出）；root 级别生效；出口过滤器端到端生效。中间件侧（探针 FastAPI 应用 + httpx ASGITransport）：一条访问日志含 method/path/status_code/duration（数值型且 ≥0）；非 `/api/v1` 路径（`/`）同样记录；带 Token 时 user_id 取自 JWT `sub`、无 Token/非法 Token 为 `null`；Authorization 原文不落日志；**user_id 经 ContextVar 传给请求内下游日志且在请求结束后还原**；未处理异常记 `status_code=500` 后继续上抛；`LOG_REQUESTS=false` 时零输出；`duration` 反映真实耗时（50ms 慢处理下 ≥40ms 且不超过总耗时）。
+
+**测试环境要点**：pytest 默认将 root logger 级别设为 WARNING，断言 INFO 级日志的用例必须给目标 logger 显式 `setLevel(INFO)`——否则会「空输出」假通过（本文件已修正两处）。测试套件默认 `LOG_REQUESTS=false`（`tests/conftest.py` autouse，与 `rate_limit_enabled` 同套路）。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

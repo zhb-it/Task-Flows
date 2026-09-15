@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-056 结构化日志
+TASK-057 Request ID（§34；TASK-056 已建好日志字段通道）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -65,6 +65,7 @@ TASK-056 结构化日志
 - [x] TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线，见 DECISIONS 035）
 - [x] TASK-054 通知 read-all / 标记全部已读（响应体返回标记条数 `{"marked": N}`，见 DECISIONS 036）
 - [x] TASK-055 通知端到端测试（真实派发全链路，`tests/test_notification_e2e.py` 7 项，Phase 9 收官）
+- [x] TASK-056 结构化日志（JSON/文本按环境推导 + 出口脱敏 + 访问日志中间件，`tests/test_logging.py` 41 项，见 DECISIONS 037）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -233,6 +234,27 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **内容 + 资源级隔离（2 项）**：通知 `title`/`content` 由派发方按 §18 场景填充（精确断言 `你被分配到任务「<title>」` / `{username} 将你分配到任务 #{id}`，钉住派发文案契约）；局外人收件箱为空、持有者可见自己的——通知不泄露给非接收人。
 
 **验证**：`tests/test_notification_e2e.py` **7 passed**（5.06s）；全量 **672 passed**（665 + 7，3m13s，零失败零错误）；开发库零残留（`ntfe2e` 前缀 users/tasks/teams/projects 及关联 notifications 全 0）。文档：TASKS.md 勾选 TASK-055（Phase 9 收官）；TESTING.md 新增「通知端到端测试（TASK-055）」章节；PROGRESS 推进至 TASK-056（Phase 10 工程化）。
+
+## TASK-056 完成 结构化日志（Phase 10 首个任务）
+
+**范围**：§33 要求「Python logging + 生产环境结构化日志 + 至少记录 timestamp/level/logger/message/request_id/user_id/path/method/status_code/duration + 禁止输出 password/token」。三项文档未定义的实现点经**用户确认**（DECISIONS 037）：①格式按环境推导（production→JSON、其余→文本，`LOG_FORMAT` 可覆盖）；②加**出口自动脱敏过滤器**；③访问日志**记录全部路径**（含 `/health`/`/docs`/`/`）。§34 的 `request_id` 生成/透传属 TASK-057——本 TASK 只建好字段通道（无值输出 `null`，schema 稳定）。
+
+**实现**
+- `app/core/logging_config.py`（新建）：`request_id_var` / `user_id_var` 两个 ContextVar（让请求内**任何**日志都带上这两个字段，由中间件设置、结束还原）；`JsonFormatter`（§33 固定字段 + `extra` 透传 + `exception` 堆栈 + `default=str` 保证不丢日志）/ `TextFormatter`（开发环境人读，仍追加上下文）；`SensitiveDataFilter`（**只脱敏值、保留键名**；覆盖 extra 结构化字段含嵌套 dict、message 里 `key=value`、裸 JWT 字面量）；`resolve_level`（非法级别回落 INFO 不抛错）/ `resolve_format`（auto 按 APP_ENV 推导）；幂等的 `configure_logging()`（只移除自己上次装的 handler、不触碰他人 handler；把 uvicorn 三个 logger 收编到 root；`uvicorn.access` 压到 WARNING）。
+- `app/core/middleware.py`：新增 `RequestLoggingMiddleware`（访问日志一条含 method/path/status_code/duration；user_id 解 JWT `sub` **不查库**——中间件在路由层之前没有 Session，权威判定仍归端点；写进 ContextVar 供请求内下游日志复用；**异常也记 500**）。
+- `app/core/config.py`：`log_level` / `log_format` / `log_requests` 三项（§33 未给数值，取可覆盖默认）。
+- `app/main.py`：`configure_logging(settings)` 先于应用创建；访问日志中间件注册在限流**之后**（更外层 → duration 含限流开销，是客户端实际等待时间）。
+- `tests/conftest.py`：autouse 关闭访问日志（`log_requests=False`，与 `rate_limit_enabled` 同套路），避免 600+ 用例刷屏。
+- `.env.example`：补 `LOG_LEVEL` / `LOG_FORMAT` / `LOG_REQUESTS`。
+- `tests/test_logging.py`（新建）：**41 项**（JSON formatter 7 / 文本 2 / 脱敏 13 / 配置与中间件 19，全离线）。
+
+**本 TASK 实测发现并修复的 3 个真实缺陷**（前两个由新测试捕获、第三个由真实容器冒烟捕获；均非推测）：
+1. **脱敏过滤器吃掉 `%s` 占位符 → 整条日志静默丢失**：初版对 `record.msg` 一律脱敏，`logger.info("token=%s", token)` 的模板被改成 `"token=***"`，`getMessage()` 抛 `TypeError`，logging 吞掉异常使日志**消失**。修复：有 `args` 时**只脱敏 args**、保留模板。
+2. **访问日志 `user_id` 恒为 `null`**：初版在 `finally` 里先还原 ContextVar 再写日志，导致每个成功请求都丢掉 §33 要求携带的 user_id。修复：改用 `try/except/else/finally`，日志写在 `else`、还原交给 `finally`。
+3. **每个请求两条访问日志**：收编 uvicorn logger 后 `uvicorn.access` 那行也走了我们的 formatter，与中间件重复（且不含 duration/user_id）。修复：`uvicorn.access` 压到 WARNING。**此缺陷 pytest 测不出**（探针应用没有 uvicorn 层），只能靠真实容器冒烟发现——再次印证「部署冒烟不可省」。
+- 附带效应（已知可接受）：`db/session.py` 的 `echo=settings.debug` 此前因 root 无 handler 而不可见，现在**开发环境 SQL 语句日志会真正输出**（debug 的既有意图得以生效）；生产 `DEBUG=false` 不输出。
+
+**验证**：`tests/test_logging.py` **41 passed**（0.36s，全离线）；全量 **713 passed**（672 + 41，3m17s，零失败零错误）。**真实容器冒烟（重建镜像后，四服务 healthy）**：`/health` 与 `/` 均 200；`docker logs` 显示每个请求**恰好一条**结构化访问日志（`INFO app.core.middleware :: request completed | method=GET path=/health status_code=200 duration=3.498`），`uvicorn.access` 重复行已消失；容器内以 `APP_ENV=production` 独立进程验证 JSON 输出——字段与 §33 完全一致（`timestamp/level/logger/message/request_id/user_id`），且脱敏生效（`"password": "***"`、`"token=***"`）。测试环境要点：pytest 默认把 root logger 设为 WARNING，断言 INFO 日志的用例必须显式 `setLevel(INFO)`（本 TASK 修正两处会「假通过」的用例）。文档：TASKS.md 勾选 TASK-056；TESTING.md 新增「结构化日志（TASK-056）」章节；DECISIONS.md 新增 037（含三个缺陷）；`.env.example` 同步；PROGRESS 推进至 TASK-057。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

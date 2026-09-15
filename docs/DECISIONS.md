@@ -237,3 +237,17 @@
 - Reason：①信息量最大——前端调一次即可同步未读角标，无需再查 `GET /notifications`；②天然幂等——重复调用返回 0，客户端可用 N 判断是否有实际变化；③返回全量列表（备选方案）与 `GET` 端点职责重叠且响应体可能很大，不采用。
 - 实现落点：CRUD 用单条 `UPDATE ... WHERE user_id = :uid AND is_read = false`（只命中未读行，`rowcount` 即真翻转数，SQL 层限定自己的收件箱——资源级隔离）；空收件箱 → 200 `marked=0`（「没有未读」是合法的 0，不是 404）；`/read-all` 刻意声明在参数化路由 `/{notification_id}/read` 之前，消除路径解析歧义（两段路径本无实际冲突，防御性排序）。
 
+## Decision 037：结构化日志 = 环境推导格式 + 出口自动脱敏 + 全路径访问日志（用户确认，TASK-056）
+- Problem：§33 只说「使用 Python logging」「生产环境采用结构化日志格式」，未定义：①开发环境用什么格式？②§33 的「禁止输出 password/token」靠什么保证？③path/method/status_code/duration 四个字段怎么采集（端点内看不到总耗时与最终状态码）？
+- Decision（三项均经用户确认）：①**格式按环境推导**——`APP_ENV=production` → JSON、其余 → 人读文本，可用 `LOG_FORMAT=json|text` 显式覆盖（`auto` 为默认）；②**加出口自动脱敏过滤器**（`SensitiveDataFilter`），不依赖开发者自觉；③**访问日志用中间件记录全部路径**（含 `/health`、`/docs`、`/`），`LOG_REQUESTS=false` 可整体关闭。
+- Reason：①§33 只强制生产结构化，本地文本格式排障效率更高，且 `LOG_FORMAT` 让「本地/线上一致」也能按需达成；②硬禁止项靠约定必然会被一次 `logger.info(f"login {token}")` 击穿，出口统一脱敏是唯一可靠位置；③路径全记保证可观测性完整（探针请求同样有排查价值），噪声问题交给开关而不是默认裁剪信息。
+- 实现落点：`app/core/logging_config.py`（`request_id_var` / `user_id_var` 两个 ContextVar；`JsonFormatter` / `TextFormatter`；`SensitiveDataFilter`；幂等的 `configure_logging()`）+ `app/core/middleware.py` 的 `RequestLoggingMiddleware` + `app/main.py` 接线（日志先于应用创建配置；访问日志注册在限流**之后**，使其处于更外层，`duration` 才是客户端实际等待时间）。
+- Trade-off：不做第三方依赖（python-json-logger）——stdlib `Formatter` + `json.dumps` 足够，符合规则 §15「不增加无意义技术」；`JSONFormatter` 用 `default=str` 降级非原生类型，宁可格式化为字符串也不丢日志。
+- 边界：§34 的 `request_id`（生成 / 客户端透传 / 响应头）属 TASK-057，本 TASK 只建好字段通道（无值时输出 `null`，保持 schema 稳定）。
+- **本 TASK 实测发现并修复的 2 个真实缺陷**（均由新测试捕获，非推测）：
+  1. **脱敏过滤器会吃掉 `%s` 占位符 → 整条日志丢失**。初版对 `record.msg` 一律做文本脱敏，`logger.info("token=%s", token)` 的模板被改成 `"token=***"`，`getMessage()` 随即抛 `TypeError: not all arguments converted`；logging 吞掉该异常，日志**静默消失**（只在 stderr 留一行 "--- Logging error ---"）。修复：有 `args` 时**只脱敏 args**（模板原样保留），无 `args` 时才脱敏 msg。
+  2. **访问日志的 `user_id` 恒为 `null`**。初版在 `finally` 里先还原 ContextVar、之后才写日志，导致**每个成功请求**的访问日志都丢掉 user_id——正是 §33 要求必须携带的字段。修复：改用 `try/except/else/finally`，在 `else` 分支（日志写入后）才返回、`finally` 负责还原。
+  3. **每个请求产生两条访问日志**（真实容器冒烟发现，pytest 测不出——探针应用没有 uvicorn）。`configure_logging` 把 uvicorn 三个 logger 收编到 root 后，`uvicorn.access` 那行也走本项目的 formatter 输出了，与 `RequestLoggingMiddleware` 的日志重复，且它不含 duration/user_id。修复：把 `uvicorn.access` 级别压到 WARNING（例行访问行不再输出，异常日志保留）。
+- **附带效应（已知、可接受）**：`db/session.py` 用 `echo=settings.debug` 打开 SQL echo，此前 root 无 handler 因而 SQL 日志不可见；本 TASK 安装 handler 后**开发环境的 SQL 语句日志会真正输出**（debug=True 的既有意图得以生效）。生产 `DEBUG=false` 时不输出。
+- 测试环境教训：**pytest 默认把 root logger 级别设为 WARNING**，因此断言 INFO 级日志必须给目标 logger 显式 `setLevel(INFO)`，否则会得到「空输出」并可能让「开关关闭」类断言**假通过**（本 TASK 的两个用例已按此修正）。测试套件默认 `LOG_REQUESTS=false`（conftest autouse，与 `rate_limit_enabled` 同套路），访问日志自身的测试在用例内打开。
+

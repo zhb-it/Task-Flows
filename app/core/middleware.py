@@ -1,4 +1,12 @@
-"""限流中间件（TASK-046，项目文档 §22）。
+"""自定义 HTTP 中间件。
+
+本模块含两个中间件：
+
+- ``RateLimitMiddleware``（TASK-046，项目文档 §22）——滑动窗口限流；
+- ``RequestLoggingMiddleware``（TASK-056，项目文档 §33）——结构化访问日志
+  （method/path/status_code/duration/user_id），见文件末尾。
+
+================================ 限流中间件 ================================
 
 ## 为什么是中间件而不是路由依赖
 
@@ -36,6 +44,7 @@ fail-open 还必须**有延迟上界**：限流对每个请求都要访问 Redis
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -45,6 +54,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
+from app.core.logging_config import user_id_var
 from app.core.redis_keys import RATE_LIMIT_SCOPE_IP, RATE_LIMIT_SCOPE_USER
 from app.core.redis_keys import rate_limit_key
 from app.core.security import decode_access_token
@@ -152,3 +162,97 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             max(0, result.limit - result.current)
         )
         return response
+
+
+# ===========================================================================
+# 请求访问日志（TASK-056，§33）
+# ===========================================================================
+#
+# §33 要求日志至少记录 path / method / status_code / duration，这四个字段只有
+# 中间件拿得到（端点内看不到「本次请求的总耗时」与「最终状态码」，异常处理器
+# 返回的 4xx/5xx 也不会经过端点代码）。因此访问日志用中间件实现。
+#
+# 三个设计点：
+#
+# 1. **user_id 不查库**：与限流中间件同理由——中间件在路由层之前运行，此处
+#    没有 ``get_db`` Session；且「用户是谁」的权威判定仍在端点的
+#    ``get_current_user``（401/403 由它负责）。这里只解 JWT 的 ``sub`` 作为
+#    **日志标识**，解不出来就记 null（未认证请求）。
+# 2. **写进 ContextVar**：``user_id`` 不只出现在访问日志上——请求内任何一条
+#    业务日志（如 Service/任务里的 warning）都应带上它（§33）。因此中间件把
+#    user_id 存进 ``user_id_var``，请求结束还原；formatter 自动读取。
+#    ``request_id`` 的同理通道已由 TASK-056 建好，其**生成与透传**属 TASK-057。
+# 3. **异常也要记**：``call_next`` 抛异常时先记一条 status_code=500 再向上抛
+#    （Starlette 的 ``ServerErrorMiddleware`` 在最外层渲染 500），避免「出错
+#    的那次请求恰好没有日志」——那正是最需要日志的一次。
+
+
+def _user_id_from_request(request: Request) -> int | None:
+    """从 ``Authorization: Bearer`` 解出用户 id（纯计算，不查库）。"""
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization[7:].strip()
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        # Token 非法/过期不是日志层要报告的错误（认证层会给出 401）；
+        # 这里只需「拿不到可信身份」，记 null 即可。
+        return None
+    subject = payload.get("sub")
+    try:
+        return int(subject)
+    except (TypeError, ValueError):
+        return None
+
+
+def _log_request_completed(request: Request, status_code: int, started: float) -> None:
+    """输出一条结构化访问日志（duration 单位为毫秒）。"""
+    logger.info(
+        "request completed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": status_code,
+            # duration 用毫秒（float，保留 3 位）——比秒更易读且不丢亚毫秒信息。
+            "duration": round((time.perf_counter() - started) * 1000, 3),
+        },
+    )
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """为每个请求输出一条结构化访问日志（§33）。
+
+    记录**全部路径**（含 ``/health``、``/``、``/docs``）——TASK-056 用户确认：
+    编排器探针与文档页的访问同样有排查价值，日志完整性优先于「不被探针刷屏」。
+    需要压缩时可把 ``LOG_REQUESTS=false`` 整体关闭。
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if not get_settings().log_requests:
+            return await call_next(request)
+
+        started = time.perf_counter()
+        user_id = _user_id_from_request(request)
+        token = user_id_var.set(user_id) if user_id is not None else None
+        try:
+            response = await call_next(request)
+        except Exception:
+            _log_request_completed(request, 500, started)
+            raise
+        else:
+            # ⚠ 必须在 finally 还原 ContextVar **之前**写日志：访问日志的
+            # user_id 来自 user_id_var，若先还原再记录，每个成功请求的日志都会
+            # 丢掉 user_id（§33 明确要求日志带 user_id）——此为 TASK-056 实测
+            # 发现的缺陷。
+            _log_request_completed(request, response.status_code, started)
+            return response
+        finally:
+            if token is not None:
+                user_id_var.reset(token)

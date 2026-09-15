@@ -74,7 +74,7 @@
 - [x] TASK-055 通知端到端测试（真实派发全链路验收，见 TESTING「通知端到端测试（TASK-055）」）
 
 ## Phase 10：工程化
-- [ ] TASK-056 结构化日志
+- [x] TASK-056 结构化日志（JSON 格式 + 出口脱敏 + 访问日志中间件，见 DECISIONS 037）
 - [ ] TASK-057 Request ID
 - [x] TASK-058 Dockerfile
 - [ ] TASK-059 Production Compose

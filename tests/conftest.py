@@ -41,6 +41,19 @@ def _disable_rate_limit_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _silence_request_access_logs(monkeypatch):
+    """默认关闭请求访问日志（TASK-056），避免 600+ 用例的请求日志刷屏。
+
+    与 ``rate_limit_enabled`` 同一个套路：绝大多数测试关心的是业务行为，
+    不是「每个请求都打了一条日志」。访问日志自身的测试
+    （``tests/test_logging.py``）在用例内显式打开。
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "log_requests", False, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_notification_dispatch(monkeypatch):
     """通知派发是 Celery best-effort side-effect，测试里不真连 broker。
 

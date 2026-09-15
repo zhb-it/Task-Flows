@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     upload_dir: str = "storage"
     max_upload_size: int = 10485760
 
+    # Logging（§33 / TASK-056）
+    # §33 规定「生产环境采用结构化日志格式」，未给级别与开关；采用可经 .env
+    # 覆盖的默认值（DECISIONS 037）。
+    # log_format: auto（默认，按 app_env 推导：production→json、其余→text）| json | text
+    log_level: str = "INFO"
+    log_format: str = "auto"
+    # 请求访问日志（method/path/status_code/duration）开关：测试默认关闭以避免
+    # 海量访问日志刷屏，生产建议开启。
+    log_requests: bool = True
+
     # Maintenance tasks（§23 / TASK-050：日志归档 + 附件清理）
     # 规格未给数值，采用可经 .env 覆盖的默认值（DECISIONS 031/032）。
     # 归档保留期：operation_logs 超过该天数的行迁入 operation_logs_archive。
