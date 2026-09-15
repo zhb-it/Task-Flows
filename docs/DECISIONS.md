@@ -210,4 +210,10 @@
 - Decision：经用户确认，**清理 = 扫描 storage 卷，删除 DB 的 `attachments` 表无对应 `storage_path` 记录的物理孤儿文件**（契合 TASK-042 注释的责任划分，且绝不误删在用的附件）。加 `attachment_orphan_min_age_seconds`（默认 3600）年龄窗口：仅当文件 mtime 早于 `now - min_age` 才删，给正常删除流程留竞争缓冲，避免误删「正在上传（先落盘后落库）」或「刚删任务尚未回收」的文件。批大小 `maintenance_batch_size`（默认 1000）。
 - Reason：①孤儿来源单一且明确——任务删除触发 attachments 记录 CASCADE，物理文件遗留，本任务回收，闭环完整；②按时间清「已完成任务的附件」会删仍在库中的有效记录，风险更高且语义更模糊，故不采用；③年龄窗口是「不误删进行中文件」的工程护栏，非业务规则。
 - 安全性（§9）：只用 `LocalStorageBackend`（唯一做相对 key→绝对路径解析、且保证不越出存储根的地方）；删除前 `validate_key` 二次校验拒绝穿越/非法 key（双保险）；`backend.delete` 幂等（`missing_ok`），重投递再扫一遍时孤儿已不在 → no-op。
+
+## Decision 033：TASK-051 把「重试/幂等/失败」从声明层推到行为层（纯测试）
+- Problem：TASK-049/050 只断言了 `autoretry_for` 元组与「同幂等键第二次调用返回 skipped」——这是**声明层**。声明正确 ≠ 故障下真生效：Celery 真会在瞬态故障后重跑吗？超 `max_retries` 后真抛错吗？参数错误真在触达 DB 前短路吗？这些都没被验证过。
+- Decision：TASK-051（纯测试，不动应用代码）新增 `tests/test_task_resilience.py` **8 项**，把三个业务任务放进**真实故障场景**：①用 monkeypatch 让 `_insert_notification` 首跑抛 `SQLAlchemyError`、次跑成功 → 经 eager 模式 `delay()` 验证「真的重跑且恰好 1 行」；②让它永远失败且 `max_retries=2` → 验证「真的抛错、`_insert_notification` 被调用 3 次、零通知行」（§8 failure / §24 要求 1）；③非法参数 → 验证「`_insert_notification` 0 次调用、0 重试、0 行」（短路先于 DB）；④`archive` / `cleanup` 经 `delay()` 任务机端到端（此前只测直接调用）；⑤清理重跑 → 0 删除 0 错误（重投递幂等）；⑥三任务各跑两遍 → 累计副作用 = 单跑一遍（整体 at-least-once 安全整合验收）；⑦三个业务任务都不覆盖 App 级 `soft/hard_time_limit`（§8 的 300/600s 不被装饰器旁路）。
+- Reason：①TASK-040/044/047 已确立「声明层测过、行为层/整合层才暴露真问题」的先例，重试与幂等恰是最容易「声明正确、故障下崩」的两种机制；②维护任务此前绕过了 Celery 任务机直接当函数测，eager 派发才验证「任务真的注册进 Worker 能跑」；③超时不被绕过是 §8 的安全底线，只有钉成测试才不会被顺手改掉。
+- Trade-off：①eager 模式用同步重试，把 backoff/jitter 关掉让测试即时（不测退避数值，只测「会重试 / 会耗尽」语义）；②`max_retries` 在测试内临时降到 2，避免耗尽路径被 1+2+4+8+16s 退避睡死——还原在 `finally`，不污染全局；③`hard_time_limit` 未显式设置时不是任务对象属性（访问抛 `AttributeError`），断言改用 `getattr(task, "hard_time_limit", None) is None` 判定「未覆盖」。
 - 配套（幂等）：归档与清理都天然幂等，匹配 at-least-once（DECISIONS 027）——归档靠「id 复用 + `pg_insert ... ON CONFLICT (id) DO NOTHING` + 同事务删主表」，重投时主表可搬行已不在、归档表已存在 → no-op；清理靠「删文件幂等 + 孤儿判定只读 DB」。

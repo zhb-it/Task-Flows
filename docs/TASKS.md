@@ -65,7 +65,7 @@
 - [x] TASK-048 Celery App/Worker
 - [x] TASK-049 通知异步任务
 - [x] TASK-050 日志归档/附件清理任务
-- [ ] TASK-051 幂等、重试与任务测试
+- [x] TASK-051 幂等、重试与任务测试
 
 ## Phase 9：通知
 - [ ] TASK-052 Notification Model（建模部分已提前于 TASK-049 完成，见 DECISIONS 029）

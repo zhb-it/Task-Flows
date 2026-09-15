@@ -7,7 +7,7 @@ In Progress
 Phase 8：Redis 与 Celery
 
 ## Current Task
-TASK-050 日志归档/附件清理任务（已完成）
+TASK-051 幂等、重试与任务测试（已完成）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -59,6 +59,8 @@ TASK-050 日志归档/附件清理任务（已完成）
 - [x] TASK-047 限流测试
 - [x] TASK-048 Celery App/Worker
 - [x] TASK-049 通知异步任务（含提前完成的 notifications 建模，见 DECISIONS 029）
+- [x] TASK-050 日志归档/附件清理任务（见 DECISIONS 031/032）
+- [x] TASK-051 幂等、重试与任务测试（纯测试任务，Phase 8 收尾，见 DECISIONS 033）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -68,7 +70,7 @@ TASK-050 日志归档/附件清理任务（已完成）
 - None
 
 ## Next
-TASK-051 幂等、重试与任务测试（Phase 8 Redis 与 Celery）
+TASK-052 Notification Model（Phase 9 通知起点；建模部分已于 TASK-049 提前完成，见 DECISIONS 029）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -159,6 +161,23 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 **compose 部署冒烟（真实链路）**：重建镜像后 `celery inspect registered` 列出 `app.create_notification`；app 容器内真实派发（含幂等键）→ Worker 落库 `{'status': 'created', 'notification_id': 32}`，字段全对、`is_read=false`、完成标记 TTL≈7 天；随后精确删除该通知与标记，表归零。
 
 **验证**：`tests/test_notification_task.py` + `test_celery_app.py` **26 passed**；全量 **614 passed**（599 + 15）。文档：TASKS.md 勾选 TASK-049 并注明 TASK-052 建模部分已提前完成；TESTING.md 新增「通知异步任务（TASK-049）」章节；DECISIONS.md 新增 029（表提前建模，用户确认）/030（幂等先插库后标记 + 短命 engine + 同步 Redis 客户端）；PROGRESS 推进至 TASK-050。**异常记录**：TASK-048 提交中 Current Task 行的更新曾静默丢失（其它修改都在），本轮随 TASK-049 一并修正并在提交前逐行核验。
+
+## TASK-050 完成 日志归档/附件清理任务
+
+**范围**：§23 两类后台维护任务——`archive_operation_logs`（超期日志迁入 `operation_logs_archive`，DECISIONS 031）/ `cleanup_expired_attachments`（回收 storage 卷孤儿物理文件，DECISIONS 032）。两项「归档/过期」动作的业务规则 §23 未定义，经用户确认后落地。新增 `app/models/operation_log_archive.py` + 迁移 `524ab172e659`、两个 Celery 任务、3 项 Settings（保留期 90 天 / 孤儿年龄窗口 3600s / 批大小 1000）、`tests/test_maintenance_tasks.py` 13 项。全量 **627 passed**（614 + 13）。提交 `b850e30`（已推送）。详见 DECISIONS 031/032 与 TESTING「维护异步任务（TASK-050）」章节。
+
+## TASK-051 完成 幂等、重试与任务测试（Phase 8 收尾，纯测试任务）
+
+**范围**：TASK-048/049/050 已覆盖**声明层**（autoretry_for 元组、幂等键跳过、参数防御 ValueError）与**直接调用层**；本任务补**行为层**——这些声明在真实故障下是否真的生效（同 TASK-040/044/047「整合验收」定位，纯测试、不改应用代码）。新增 `tests/test_task_resilience.py` **8 项**，分六组：
+
+- **重试行为（真实）**：瞬态 `SQLAlchemyError` 后 Celery 真的重跑任务体并最终成功，恰好 1 行（幂等去重与重试协同）；永久故障超 `max_retries` 后真的抛错、`_insert_notification` 被调用 `1+max` 次、零通知行（§8 failure / §24 要求 1「主业务失败不产生错误通知」）。
+- **失败短路**：非法参数在触达 DB **之前**被 `_validate` 拦截，插入函数 0 次调用、0 重试、0 行（`ValueError` 不在 autoretry_for，重试永不成功）。
+- **维护任务经 Celery 任务机执行**：`archive` / `cleanup` 经 `delay()` → 任务机 → 执行端到端（此前只测了直接调用）。
+- **清理重投递幂等**：孤儿删后再跑一遍 → 0 删除、0 错误（删文件幂等 + 孤儿判定只读 DB）。
+- **整体 at-least-once 安全（跨模块整合）**：通知 / 归档 / 清理**各跑两遍**，累计副作用 = 单跑一遍，跨模块互不串扰（类比 TASK-044 整合验收）。
+- **超时不被绕过**：三个业务任务都不覆盖 App 级 `soft/hard_time_limit`，§8 的 300/600s 超时对其生效（钉住不被 `task(...)` 装饰器静默旁路）。
+
+**验证**：`tests/test_task_resilience.py` **8 passed**（3.45s）；全量 **635 passed**（627 + 8，4m06s，零失败零错误）。验证用前缀（`rsl_<RUN_TOKEN>_` / 幂等键前缀）teardown 精确清理，开发库零残留。**不重复既有测试**：未重写 autoretry 声明 / 幂等键跳过 / Redis fail-open 等已在 TASK-049/050 覆盖的细粒度断言，只补行为层与跨模块整合。文档：TASKS.md 勾选 TASK-051；TESTING.md 新增「Celery 任务韧性（TASK-051）」章节；DECISIONS.md 新增 033；PROGRESS 推进至 TASK-052（Phase 9）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

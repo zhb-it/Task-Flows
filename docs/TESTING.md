@@ -252,5 +252,18 @@ pytest、pytest-asyncio、httpx。
 
 **隔离纪律**：归档测试行用 `action` 前缀 `mt_<RUN_TOKEN>_` 隔离、teardown 精确清理两表；清理任务经 monkeypatch `settings.upload_dir` 指向 `tmp_path`，不污染真实 `storage/` 卷。
 
+## Celery 任务韧性（TASK-051）
+
+`tests/test_task_resilience.py`，8 项。**纯测试任务，不改应用代码**——只把 TASK-049/050 已覆盖的「声明层」推到「行为层」，类比 TASK-040/044/047 的整合验收定位。任务体内部 `asyncio.run`，故全部同步用例；验证用 asyncpg 直连 5433 与任务写入路径独立；幂等键 / 日志行 / 用户带本运行唯一前缀（`rsl_<RUN_TOKEN>_`），teardown 精确清理，开发库零残留。
+
+- **重试行为（真实，2 项）**：瞬态 `SQLAlchemyError` 后 Celery 经 eager `delay()` 真的重跑并最终成功、**恰好 1 行**（幂等去重与重试协同）；永久故障超 `max_retries` 后真抛错、`_insert_notification` 被调用 `1+max` 次、**零通知行**（§8 failure / §24 要求 1）。
+- **失败短路（1 项）**：非法参数在触达 DB 前被 `_validate` 拦截——`_insert_notification` **0 次调用**、0 重试、0 行（`ValueError` 不在 `autoretry_for`）。
+- **维护任务经 Celery 任务机（2 项）**：`archive_operation_logs.delay()` / `cleanup_expired_attachments.delay()` 端到端执行（此前只测直接调用）。
+- **清理重投递幂等（1 项）**：孤儿删后再跑一遍 → `deleted=0`、`errors=0`（删文件幂等 + 孤儿判定只读 DB）。
+- **整体 at-least-once 安全（1 项）**：通知 / 归档 / 清理**各跑两遍**，累计副作用 = 单跑一遍，跨模块互不串扰。
+- **超时不被绕过（1 项）**：三个业务任务都不覆盖 App 级 `soft/hard_time_limit`，§8 的 300/600s 对其生效（`hard_time_limit` 未显式设置时非对象属性，断言用 `getattr(..., None)`）。
+
+**不重复既有**：未重写 `autoretry_for` 声明、幂等键跳过、Redis fail-open 等 TASK-049/050 已覆盖的细粒度断言，只补行为层与跨模块整合。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
