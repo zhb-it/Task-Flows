@@ -10,7 +10,6 @@ with the Service layer (项目规则 §4 / ARCHITECTURE.md).
   TaskRead.assignees 内嵌字段——列表场景一次查询避免 N+1。
 """
 
-from datetime import datetime
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession

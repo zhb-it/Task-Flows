@@ -115,8 +115,6 @@ async def download_attachment(
       安全默认；需要强制下载的调用方可加 ``?download=1``，但默认不隐式
       改变类型。
     """
-    from urllib.parse import quote
-
     attachment, _uploader, handle = await attachment_service.open_attachment(
         db, user, attachment_id
     )

@@ -6,10 +6,8 @@ Importing :mod:`app.models` also registers the table on
 :data:`app.db.base.Base.metadata`, which Alembic relies on for autogenerate.
 """
 
-from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, String
-from sqlalchemy.orm import Mapped
 
 from app.db.base import Base
 from app.models import User

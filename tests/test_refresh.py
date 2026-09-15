@@ -25,7 +25,6 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedError
 from app.core.security import (
-    ACCESS_TOKEN_TYPE,
     REFRESH_TOKEN_TYPE,
     create_access_token,
     create_refresh_token,

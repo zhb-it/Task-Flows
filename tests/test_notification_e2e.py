@@ -32,7 +32,6 @@ from a running event loop``。生产里 Worker 是独立进程（独立 loop）�
 
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -46,7 +45,6 @@ from app.crud.role import assign_role_to_user, get_role_by_name
 from app.crud.user import create_user
 from app.db.session import get_db
 from app.main import app
-from app.models.notification import Notification
 from app.models.project import Project
 from app.models.task import Task
 from app.models.team import Team

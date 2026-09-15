@@ -23,13 +23,13 @@ import pytest
 import pytest_asyncio
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.security import create_access_token
 from app.crud.role import assign_role_to_user, get_role_by_name
-from app.crud.team import add_team_member, get_team
+from app.crud.team import add_team_member
 from app.crud.user import create_user
 from app.db.session import get_db
 from app.main import app

@@ -43,7 +43,7 @@ async def list_my_logs(
     db: AsyncSession = Depends(get_db),
 ) -> SuccessResponse[list[OperationLogRead]]:
     logs = await log_service.list_user_logs(db, user, skip=skip, limit=limit)
-    return SuccessResponse(data=[OperationLogRead.model_validate(l) for l in logs])
+    return SuccessResponse(data=[OperationLogRead.model_validate(log) for log in logs])
 
 
 @router.get(
@@ -72,4 +72,4 @@ async def list_resource_logs(
     logs = await log_service.list_resource_logs(
         db, user, resource_type, resource_id, skip=skip, limit=limit
     )
-    return SuccessResponse(data=[OperationLogRead.model_validate(l) for l in logs])
+    return SuccessResponse(data=[OperationLogRead.model_validate(log) for log in logs])

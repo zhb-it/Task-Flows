@@ -25,7 +25,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.security import create_access_token
 from app.crud.role import assign_role_to_user, get_role_by_name
-from app.crud.team import add_team_member, get_team, get_team_member
+from app.crud.team import add_team_member, get_team_member
 from app.crud.user import create_user
 from app.db.session import get_db
 from app.main import app

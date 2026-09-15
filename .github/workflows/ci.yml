@@ -1,0 +1,161 @@
+# TaskFlow Pro — CI（GitHub Actions；TASK-061；开发文档 §4 / §37 / §44）
+#
+# 三个 job 覆盖开发文档要求的四步「安装依赖 → lint → pytest → docker build」：
+#   lint          装依赖 + ruff check .
+#   test          Python 3.13 + postgres/redis service → 迁移可逆性 → 全量 pytest
+#   docker-build  构建应用镜像（只验证可构建，不推送任何镜像）
+#
+# ## 为什么 service 容器要占 5433 / 6389 这两个"古怪"端口
+#
+# 测试套件里有 40 个文件把 `127.0.0.1:5433`（DB）与 `127.0.0.1:6389`（Redis）
+# 写成模块级常量（历史原因：本机 5432 被另一个 PostgreSQL 占用，开发栈才映射到
+# 5433）。让 CI 的 service 端口去适配测试，而不是反过来改 40 个测试文件：
+#   1. 改测试属于「无关改动」（项目规则 §5）；
+#   2. 那会削弱「CI 跑的就是本地跑的那套断言」这个性质——同一个常量两套值，
+#      出问题时第一件要怀疑的事就变成"是不是端口配错了"。
+#
+# ## 为什么必须显式设 DATABASE_URL / REDIS_URL
+#
+# Settings 的默认值是**容器内服务名**（`postgres:5432` / `redis:6379`），而 `.env`
+# 不入库（.gitignore）。CI 里既没有 `.env` 也没有 Docker 网络，不设这两个变量就会
+# 去连不存在的主机名——报错信息和真实原因隔得很远。这里设成与本地 `.env` 完全
+# 相同的值，CI 与本地只有"谁提供 Postgres"这一点差别。
+#
+# ## 关于迁移可逆性（§37「如果条件允许增加 Alembic migration test」）
+#
+# CI 先把空库迁到 head，再 downgrade 回 base，再迁回 head，最后才跑 pytest：
+#   - 前两步验证 13 个迁移的 `downgrade()` 真的可用（防止「只有 upgrade 能跑、
+#     downgrade 早已腐坏」——这种腐坏平时不会被发现，真需要回滚时才炸）；
+#   - 最后一步顺便让 pytest 用上真实的迁移产物建表，而不是依赖 `create_all`。
+#     测试因此隐式验证了「迁移产出的 schema 足以支撑全部用例」。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  # 允许在 Actions 页面手动触发（排查偶发失败时不必造一个空提交）。
+  workflow_dispatch:
+
+# 最小权限：CI 只读仓库内容，不写任何东西（本 workflow 也不推送镜像）。
+permissions:
+  contents: read
+
+# 同一分支的旧 run 在新 run 开始后取消：推一串提交时不必排队等前面的跑完。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与 Dockerfile 的 `python:3.13-slim` 保持一致，避免 CI 与生产镜像是两个大版本。
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # 规则集与版本都钉死在仓库里（pyproject.toml 的 select / requirements-dev.txt
+      # 的 ruff==），因此「CI 是否通过」只取决于提交内容，与 CI 当天装到哪个版本无关。
+      - name: Ruff check
+        run: ruff check .
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/taskflow
+      REDIS_URL: redis://127.0.0.1:6389/0
+      # 仅用于 CI 的临时密钥，不是任何真实环境的凭据。显式设置是为了让 CI 与本地
+      # `.env`（其中同样设置了该值）行为一致，而不是落在 `change-me` 默认值上。
+      JWT_SECRET_KEY: ci-only-not-a-real-secret
+
+    services:
+      postgres:
+        # tag 与 docker-compose.yml / docker-compose.prod.yml 一致（postgres:16）。
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taskflow
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6389:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # 迁移脚本读的是 Settings.database_url（migrations/env.py），所以上面的
+      # DATABASE_URL 环境变量就是它的输入——alembic.ini 里的 url 留空是有意的。
+      #
+      # 三步共用一个 shell：`set -e` 让任一步失败都立即中断，不会出现
+      # 「downgrade 悄悄失败，后面的 upgrade 又是 no-op，最后 pytest 却在旧库上通过了」
+      # 这种假绿。
+      - name: Verify migrations are reversible
+        run: |
+          set -euo pipefail
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Run full test suite
+        run: pytest
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # 只验证「镜像可构建、依赖可安装」——这正是 §44 要求的 docker build 步骤。
+      # 刻意不推送镜像：
+      #   1. 推送需要 packages:write 权限与 registry 凭据，把权限面扩大到一个纯粹
+      #      的验证步骤上不值当；
+      #   2. 仓库目前没有镜像发布需求，推上去只会留下一堆不可追溯的 tag。
+      # tag 不用 `latest`：即使用完即弃，也不给「latest 到底指哪次 commit」留解释空间。
+      - name: Build application image
+        run: docker build --tag taskflow-app:ci .

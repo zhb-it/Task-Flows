@@ -290,7 +290,7 @@ async def test_mark_read_others_404(client):
 async def test_mark_read_nonexistent_404(client):
     u = await _make_user("u5", ["admin"])
     resp = await client.patch(
-        f"/api/v1/notifications/999999/read",
+        "/api/v1/notifications/999999/read",
         headers=_bearer(create_access_token(u.id)),
     )
     assert resp.status_code == 404

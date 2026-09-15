@@ -7,7 +7,7 @@ In Progress
 Phase 10：工程化
 
 ## Current Task
-TASK-061 GitHub Actions CI（Phase 10；TASK-060 反代层已交付）
+TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -70,6 +70,7 @@ TASK-061 GitHub Actions CI（Phase 10；TASK-060 反代层已交付）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 - [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml`：端口内外分离 + 密钥 fail-fast + 卷/项目名隔离，`tests/test_prod_compose.py` 26 项，见 DECISIONS 039）
 - [x] TASK-060 Nginx/Gunicorn/Uvicorn（`nginx/nginx.conf` + 唯一入口反代 + Gunicorn/UvicornWorker；覆盖式 `X-Forwarded-For` 与信任网段判定解决 DECISIONS 018 遗留约束；`tests/test_client_ip.py` 26 项 + `tests/test_nginx_config.py` 32 项，见 DECISIONS 040/041/042）
+- [x] TASK-061 GitHub Actions CI（`.github/workflows/ci.yml` 三 job：ruff lint / pytest（service 端口贴测试硬编码的 5433+6389 + 迁移可逆性验证）/ docker build；`requirements-dev.txt` 与 `[tool.ruff]` 钉死版本与规则集；`tests/test_ci_workflow.py` 35 项，见 DECISIONS 043）
 
 ## In Progress
 - [ ]
@@ -78,7 +79,7 @@ TASK-061 GitHub Actions CI（Phase 10；TASK-060 反代层已交付）
 - None
 
 ## Next
-TASK-061 GitHub Actions CI（Phase 10；其后 TASK-062 完整测试与质量检查、TASK-063 README 与面试技术难点）
+TASK-062 完整测试与质量检查（Phase 10；其后 TASK-063 README 与面试技术难点）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -325,6 +326,32 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
   - **拆除与残留**：`down -v` 后 prod 容器 / 卷 / 网络**全清**，开发栈（4 服务）全程 healthy 未受影响。
 - **过程中遇到的问题**：①`nginx:1.27-alpine` 镜像拉取被上游镜像站截断（`short read: expected N bytes but got 0: unexpected EOF`），连续重试后成功（属网络环境问题，非配置问题）；②`grep` 类断言两次失败**都是测试写法问题**（`server {` 被跨行正则吞进上一条指令的匹配、`access_log off`（健康探针）被误当成重复声明），已修正解析器与断言；③应用侧**真实缺口两处**：一是 `resolve_client_ip` 初版只对「采信路径」做 IPv4-mapped 归一，回落路径仍返回 `::ffff:203.0.113.7`（由本 TASK 测试捕获并修复）；二是**文本日志漏字段**——访问日志新增的 `client_ip` 只在生产 JSON 里出现，开发文本格式不渲染它（`TextFormatter` 对额外字段是白名单），**pytest 测不出**（用例只断言 JSON 负载），是开发容器冒烟发现的；已把 `client_ip` 加入白名单，并补一项断言防止回归（日志模块 41 → 42 项）。
 - **文档产物**：`docs/DEPLOYMENT.md` 大幅补全（反代层、真实 IP 配置、TLS 现状与后续接入点、两个健康探针的区别）；`docs/TESTING.md` 新增「Nginx 反代与真实客户端 IP（TASK-060）」章节并订正 TASK-059 章节中已过时的两条断言；`docs/DECISIONS.md` 新增 040/041/042 并为 039 补「TASK-060 更新」；TASKS.md 勾选 TASK-060。
+
+## TASK-061 完成 GitHub Actions CI（Phase 10 第五个任务）
+
+**范围**：§4 指定文件路径 `.github/workflows/ci.yml`，§44 要求流水线至少执行「安装依赖 → lint → pytest → docker build」，§37 允许时加 Alembic migration test。四项文档未定义的契约经**用户确认**（DECISIONS 043）：①lint 门槛用 ruff **经典默认规则集** `E4/E7/E9/F`（不引入 I/UP/B/S）；②**不启用 `ruff format`** 作为格式门禁；③CI **含迁移可逆性验证**（`upgrade head → downgrade base → upgrade head`）；④docker build 只构建应用镜像、**不推送**。
+
+**实现**
+- `.github/workflows/ci.yml`（**新建**，161 行）：三 job。`lint` 装 `requirements-dev.txt` 后 `ruff check .`；`test` 带 `postgres:16` / `redis:7` 两个 service（**端口映射为 5433 / 6389**）、先跑迁移三步再 `pytest`；`docker-build` 执行 `docker build --tag taskflow-app:ci .`。另含最小权限（`contents: read`）、`concurrency` 取消同分支旧 run、每个 job 的 `timeout-minutes`、`workflow_dispatch`。
+- `requirements-dev.txt`（**新建**）：`-r requirements.txt` + `ruff==0.16.7`（`==` 钉死）。**刻意不把 ruff 并进 `requirements.txt`**——那是 Dockerfile 装进生产镜像的文件，lint 工具进镜像既是死重量也让「生产镜像装了什么」无法单独审计。
+- `pyproject.toml`：新增 `[tool.ruff]`（`target-version = "py313"`，与 `python:3.13-slim` 对齐）与 `[tool.ruff.lint] select = ["E4","E7","E9","F"]`。**规则集显式写死**：实测同一份代码在 ruff 0.16.7 下，不写 `select` 报 219 项、写成本集报 36 项——依赖默认值等于把「CI 是否通过」交给 CI 当天装到的版本决定。
+- `tests/test_ci_workflow.py`（**新建**，35 项，全离线）：把 CI 必须成立的性质固化成断言（触发事件 / 最小权限 / job 与步骤顺序 / Python 版本与 Dockerfile 交叉校验 / ruff 版本与规则集钉死 / **service 端口契约** / 配置等价性 / 迁移三步顺序 / 不含任何发布动作）。
+- **应用代码的 lint 修复（36 项，全部为真实缺陷，非风格问题）**：未用导入 / 重复导入（重定义）/ 歧义变量名 / 无效 f-string / 未用变量。33 项由 `ruff check --fix` 自动修复；另 4 处先逐条核对上下文再手工改——`app/api/v1/attachments.py`（函数内重复导入 `quote`，保留模块级那份）、`app/crud/notification.py`（`from sqlalchemy import desc, select, update, update`，`update` 写了两遍）、`app/api/v1/logs.py`（推导式变量 `l` 改名）、`tests/test_rbac_crud.py`（文件末尾悬挂的重复 `UserRole` 导入，其 `# noqa: E402` 随之删除）。**自动修会顺手删导入**，而有的导入是为模块级副作用存在的，故未全盘交给 `--fix`。
+
+**验证**
+- `ruff check .` → `All checks passed!`（exit 0）。
+- `tests/test_ci_workflow.py` **35 passed**（0.19s，全离线）；全量 pytest **867 passed**（832 + 35，零失败零错误）；开发库零残留。
+- **迁移可逆性真实验证**（本 TASK 最重要的一次实证）：用真实应用镜像起容器，**仅靠环境变量**（不挂 `.env`）把 `DATABASE_URL` 指向一次性探针库，跑 `alembic upgrade head` → `downgrade base` → `upgrade head`：三步 exit 全 0，业务表数 **16 → 0 → 16**；容器内 `ls -a /app` 实证**没有 `.env`**（前提成立）；探针库用后即删，`pg_database` 只剩 `taskflow`。这一步不能只靠本地验证——本机**永远有 `.env`**，所以「没有 `.env` 时 alembic 还能不能跑」这条路径（CI 的既有状态）从未被覆盖过。
+- **配置等价性核查**：逐字段对比 `.env` 与 `Settings` 默认值，真正的差异只有三处（`DATABASE_URL` / `REDIS_URL` 默认值是 compose 服务名 `postgres:5432` / `redis:6379`、`JWT_SECRET_KEY` 默认 `change-me`），CI 恰好显式设了这三个——CI 与本地只差「谁提供 Postgres / Redis」。该结论已固化为断言（含反向断言：多设一个键也会红，因为那会引入第三种配置，让「CI 绿 ⇒ 本地绿」悄悄失效）。
+- **docker build 真实验证**：按 CI 的命令（`docker build --tag taskflow-app:ci .`）执行，exit 0，镜像产出（9 步全绿，构建上下文 41KB）；验证后 `docker rmi` 删除该镜像，本机只剩 TASK-059/060 的 `taskflow-app:latest` / `:prod`。
+
+**问题与解决**
+- 本机 **PyPI 清华镜像没有 ruff**，`pip install ruff` 找不到包；改用官方源 + 本地代理装成功（`--index-url https://pypi.org/simple --proxy http://127.0.0.1:7897`）。这条只影响本机开发，CI 上无此问题；已记入 DEPLOYMENT.md。
+- **`on:` 被 PyYAML 读成布尔 `True`**（YAML 1.1 把 `on`/`off`/`yes`/`no` 当布尔值）：契约测试若直接 `doc["on"]` 会 KeyError。已在 `_triggers()` 里同时接受两种键并注明这是 PyYAML 的既知行为，不是 workflow 写错了。
+- **契约测试的端口扫描有个自指陷阱**：测试自身当然会提到 5433 / 6389，若不排除自己，「扫描 tests 目录」的断言会自我指涉。已跳过本文件，并剔除整行注释（注释里的地址是叙述性的）。
+- 本 TASK **未发现既有实现缺陷**——三处需要判断的地方都是「测试写法/解析」层面的问题（见上两条），与应用代码无关。
+
+**文档产物**：`docs/DEPLOYMENT.md` 新增 CI 章节（三 job 各做什么、端口为何是 5433/6389、迁移可逆性验证、本地如何跑同一套 lint）；`docs/TESTING.md` 新增「CI workflow 契约测试（TASK-061）」章节并订正全量用例数；`docs/DECISIONS.md` 新增 043；TASKS.md 勾选 TASK-061。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

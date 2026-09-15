@@ -8,7 +8,7 @@
 - user_roles / role_permissions：id 主键 + 双 FK CASCADE（带索引）+ 复合 UNIQUE
 """
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, String, UniqueConstraint
 
 from app.db.base import Base
 from app.models import Permission, Role, RolePermission, UserRole

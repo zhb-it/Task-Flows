@@ -22,7 +22,7 @@ from datetime import datetime
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import Index, BigInteger, Boolean, DateTime, ForeignKey, String, Text, func, select
+from sqlalchemy import BigInteger, Boolean, DateTime, String, Text, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 

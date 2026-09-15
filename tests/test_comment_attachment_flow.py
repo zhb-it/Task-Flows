@@ -741,7 +741,6 @@ async def test_comment_delete_audit_is_atomic(client, storage_root, monkeypatch)
     评论与附件都必须满足「要么都成，要么都不成」，不允许出现
     「评论没了但没日志」或「日志写了但评论还在」。
     """
-    from app.models.team_member import TeamRole
     from app.services import comment as comment_service
 
     owner = await _make_user("atom1", ["admin"])

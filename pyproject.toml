@@ -2,3 +2,21 @@
 pythonpath = ["."]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+# 目标版本与 Dockerfile（python:3.13-slim）保持一致，避免规则按旧语法给建议。
+target-version = "py313"
+
+[tool.ruff.lint]
+# 规则集**显式钉死**，不依赖 ruff 的默认值。
+#
+# 实测：同一份代码在 ruff 0.16.7 下，不写 select 时报 219 项（默认集已远宽于
+# 经典默认），写成本集则报 36 项。若依赖默认值，「CI 是否通过」就取决于 CI 当天
+# 装到的 ruff 版本，同一份提交会时红时绿——故必须显式写死。
+#
+# 选这四条的理由（见 DECISIONS 043）：它们抓的是**缺陷**而非风格——
+#   E4 导入相关（重复导入等）、E7 语句级错误、E9 运行时错误（如语法级问题）、
+#   F Pyflakes（未用导入/变量、重定义、未定义名）。
+# 不引入 I（import 排序）/ UP（语法现代化）/ B（bugbear）/ S（bandit）等：
+# 那些会让本 TASK 顺带重排、改写大量既有代码，与项目规则 §5「不进行无关重构」冲突。
+select = ["E4", "E7", "E9", "F"]

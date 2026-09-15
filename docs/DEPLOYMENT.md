@@ -102,5 +102,45 @@ TCP 对端落在 `TRUSTED_PROXY_IPS` 网段内、该头恰好是一个合法 IP�
 - `/nginx-health`（nginx 本地，不依赖上游）
 
 ## CI
-GitHub Actions 至少执行：
-安装依赖 -> lint -> pytest -> docker build。
+
+`.github/workflows/ci.yml`（GitHub Actions，TASK-061）三个 job，对应 §44 的四步：
+
+| job | 内容 |
+|---|---|
+| `lint` | 装 `requirements-dev.txt` → `ruff check .` |
+| `test` | Python 3.13 + `postgres:16` / `redis:7` service → 迁移可逆性验证 → 全量 `pytest` |
+| `docker-build` | `docker build --tag taskflow-app:ci .`（只验证可构建，**不推送**） |
+
+- **service 端口是 5433 / 6389**，不是默认的 5432 / 6379。测试套件里 40 个文件把
+  `127.0.0.1:5433` / `127.0.0.1:6389` 写成模块级常量（本机 5432 被另一个
+  PostgreSQL 占用），让 CI 的映射去适配测试，而不是反过来改 40 个测试文件。理由见
+  DECISIONS 043。
+- **必须显式设 `DATABASE_URL` / `REDIS_URL` / `JWT_SECRET_KEY`**：CI 里没有 `.env`
+  （它被 `.gitignore` 与 `.dockerignore` 排除），而 `Settings` 的默认值是容器服务名
+  （`postgres:5432` / `redis:6379`），在 runner 上无法解析。这三个键恰好是与代码默认值
+  有差异的全部配置项——CI 与本地因此只差「谁提供 Postgres / Redis」。
+- **迁移可逆性**：`alembic upgrade head` → `alembic downgrade base` → `alembic upgrade head`
+  三步在同一条 shell 里（`set -euo pipefail`，避免「downgrade 悄悄失败、最后一步是 no-op、
+  pytest 却在旧库上通过」的假绿）。前两步即 §37 要求的 migration test，最后一步顺便让
+  pytest 用真实的迁移产物建表。
+- **触发**：`push` 与 `pull_request` 到 `master`，另支持手动 `workflow_dispatch`。权限为
+  `contents: read`；同一分支的旧 run 会被新 run 取消。
+- **不在 CI 里做的事**：推送镜像（需要 `packages:write` 与 registry 凭据，一个纯验证步骤
+  不该带这把钥匙）；起 `docker-compose.prod.yml` 全栈跑 nginx 反代（属部署验证，见
+  TESTING.md 的容器冒烟章节）。
+
+### 本地跑与 CI 相同的检查
+
+```bash
+pip install -r requirements-dev.txt   # 含 ruff（版本已在文件里钉死）
+ruff check .                          # 与 CI 的 lint job 完全相同
+pytest                                # 与 CI 的 test job 相同（需本机 PG 5433 / Redis 6389）
+```
+
+注意：**PyPI 清华镜像没有 ruff**，若本机 pip 指向镜像源需显式换官方源
+（`--index-url https://pypi.org/simple`，必要时再带 `--proxy`）。
+
+规则集与版本都写死在仓库里（`pyproject.toml` 的 `[tool.ruff.lint] select`、
+`requirements-dev.txt` 的 `ruff==`），因此「CI 是否通过」只取决于提交内容，与 CI
+当天装到哪个版本无关。
+

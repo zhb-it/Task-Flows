@@ -20,7 +20,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
-from fastapi import status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

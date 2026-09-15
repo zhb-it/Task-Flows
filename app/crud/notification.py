@@ -9,7 +9,7 @@
 「不存在或非接收人」，交给 Service 统一转 404（IDOR 防枚举）。
 """
 
-from sqlalchemy import desc, select, update, update
+from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification

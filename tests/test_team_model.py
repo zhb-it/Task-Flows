@@ -16,7 +16,7 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, SmallInteger, String, UniqueConstraint, select
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, SmallInteger, String, UniqueConstraint, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool

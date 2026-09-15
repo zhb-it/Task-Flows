@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any

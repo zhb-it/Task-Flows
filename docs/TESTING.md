@@ -361,5 +361,28 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 
 见下方 PROGRESS 的 TASK-060 条目：`docker port` 实证只有 nginx 对外、宿主经 nginx 访问全链路可用、`X-Forwarded-For` 覆盖行为与信任网段的实测对照、Gunicorn+UvicornWorker 生效、附件下载仍走鉴权。
 
+## CI workflow 契约（TASK-061）
+
+`tests/test_ci_workflow.py` — **35 项**，全离线（不联网、不跑 Actions）：解析 `.github/workflows/ci.yml` 并交叉校验它引用的 `Dockerfile` / `requirements*.txt` / `pyproject.toml` / 两个 compose 文件，把「CI 必须成立的性质」固化成断言。
+
+理由是这类文件的错误**只在推送几分钟后**才以「红的 run」出现，而那条反馈路径足够慢，慢到让人养成「再跑一次试试」的习惯。最要紧的两条性质：**service 端口必须匹配测试里硬编码的地址**（40 个测试文件写死了 `127.0.0.1:5433` / `127.0.0.1:6389`，CI 的映射一旦被改，全量用例集体连接失败——而这件事本地跑不出来），以及**迁移可逆性步骤必须真的在跑**（`downgrade()` 的腐坏平时无人察觉）。
+
+- **文件、触发与权限（8 项）**：workflow 位于 §4 指定的路径；可解析且声明了 `name`；`push` 与 `pull_request` 都触发到 `master`（只管 push 则 PR 无门禁，只管 PR 则直推 master 无人拦）；支持 `workflow_dispatch`（排查偶发失败不必造空提交）；**不使用 `pull_request_target`**（该事件在目标仓库上下文里运行、含 secrets，却由外部 PR 内容触发，是常见提权路径）；`permissions` 仅 `contents: read`；`concurrency` 取消同分支旧 run；**每个 job 都有 `timeout-minutes`**（默认上限 360 分钟，一个卡住的 job 会白占六小时）。
+- **job 与步骤顺序（6 项）**：三 job 集合；lint 先装依赖再 `ruff check`（没装 ruff 就跑它以 127 失败，报错毫无信息量）；test 的三段按「装依赖 → 迁移 → pytest」（迁移排在 pytest 之后或缺失，用例会跑在没有表的库上，症状是一堆 `UndefinedTableError`，与真实原因隔得很远）；docker-build 用根 Dockerfile、tag 显式且非 `latest`；**CI 的 Python 版本从 Dockerfile 反向读出并比对**（两处漂移的后果很隐蔽：CI 全绿而生产镜像是另一个 Python 大版本）；lint / test 都装 `requirements-dev.txt`。
+- **lint 可复现性（4 项）**：`requirements-dev.txt` 里 ruff 用 `==` **钉死版本**（用 `>=` 则「这次提交能不能过 lint」取决于 CI 当天装到哪个版本，同一份提交时红时绿）；dev 依赖以 `-r requirements.txt` 扩展而非重抄一遍；**ruff 不得出现在 `requirements.txt`**（那是 Dockerfile 装进生产镜像的文件）；`[tool.ruff.lint] select` 显式声明且 `target-version` 与镜像一致（实测不写 `select` 报 219 项、写成本集报 36 项，依赖默认值等于把门禁交给 ruff 的版本决定）。
+- **service 端口契约（11 项）**：service 镜像与两个 compose 里的**同名同 tag**；**测试硬编码的每个端口都有 service 监听**（核心断言）；端口映射的**目标**端口也对（只断言宿主端口的话，「把 5433 映射到 redis 的 6379」这种错位仍会通过）；反向断言**不提供测试用不到的端口**；`REQUIRED_SERVICE_PORTS` 自身也不得腐坏（清单里每个端口在 `tests/` 中确有引用）；`tests/` 里出现的端口要么需要服务、要么登记在「已知例外」里（`1` / `6399` 是刻意用来验证 Redis 不可用降级的端口，`8000` 只出现在说明文字中）——这是**防漂移**：将来有人引用第三个端口时 CI 会红，逼他明确决定是加 service 还是登记为例外；例外清单不得与必需端口重叠（否则等于用一个标签悄悄豁免了核心断言）；两个 service 都有 `--health-cmd` / `--health-retries`（没有健康检查时，容器一起来就跑，安装依赖的几十秒**通常**够 Postgres 就绪，于是这变成一个「多数时候能过」的偶发失败）；`DATABASE_URL` / `REDIS_URL` 的端口与 service 映射一致（两处是同一件事的两种写法，漂移后症状与「service 没起来」几乎一样）；`DATABASE_URL` 必须是 `postgresql+asyncpg://`（写成同步驱动会在创建引擎时失败，报错与「连接串写错」相差很远）。
+- **配置等价性（3 项）**：CI 传的每个环境变量名都是真实的 `Settings` 字段（拼错如 `DATABSE_URL` 不会报错，只会静默按默认值运行，于是 CI 去连 `postgres:5432`，失败信息看起来像「service 没起来」）；环境变量集合**恰好**是那三个「默认值在本环境不可用」的项（`DATABASE_URL` / `REDIS_URL` 的默认值是 compose 服务名，`JWT_SECRET_KEY` 默认 `change-me`）——断言「恰好」而非「包含」，多出来的键会引入第三种配置，让「CI 绿 ⇒ 本地绿」悄悄失效；设了的值必须真的改掉容器服务名（若把 `DATABASE_URL` 又抄成 `postgres:5432`，这个变量就形同虚设，且端口断言仍会通过）。
+- **迁移可逆性（2 项）**：三步命令与顺序为 `upgrade head` → `downgrade base` → `upgrade head`（§37）；三步写在**同一条 shell** 里并 `set -euo pipefail`（拆成三个 step 时若失败被吞，后续在旧库上继续，会呈现出「pytest 通过」的假绿）。
+- **不发布镜像（1 项）**：正文不得出现 `docker push` / `docker/login-action` / `ghcr.io` / `packages: write`——一个纯粹回答「能不能构建」的步骤不该带上发布凭据。
+
+**已知边界**：本文件依赖 `.github/workflows/ci.yml` 这个**仓库文件**存在（CI 与本地都满足），所以在「只有应用代码」的环境（如生产镜像）里跑不全——那类环境本来也不跑测试。
+
+### 真实验证（非 pytest）
+
+- **迁移三步在「无 `.env`」下跑通**（本 TASK 最重要的一次实证）：用真实应用镜像起容器，**仅靠环境变量**把 `DATABASE_URL` 指向一次性探针库，跑 `alembic upgrade head` → `downgrade base` → `upgrade head`：三步 exit 全 0、业务表数 **16 → 0 → 16**；容器内 `ls -a /app` 实证**没有 `.env`**（前提成立）。这一步不能只靠本地——本机**永远有 `.env`**，所以「没有 `.env` 时 alembic 还能不能跑」这条 CI 的既有路径从未被覆盖过（`.env` 已被 `.dockerignore` 排除）。
+- **docker build**：按 CI 的命令 `docker build --tag taskflow-app:ci .` 执行，exit 0、镜像产出（9 步全绿）；验证后删除该镜像。
+- **配置等价性核查**：逐字段对比本机 `.env` 与 `Settings` 默认值，真正的差异只有三处，CI 恰好显式设了这三个——CI 与本地只差「谁提供 Postgres / Redis」。
+- **本地跑同一套 lint**：`pip install -r requirements-dev.txt && ruff check .`。注意本机 PyPI 清华镜像**没有 ruff**，需指定官方源（见 DEPLOYMENT.md）。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

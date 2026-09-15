@@ -337,7 +337,7 @@ async def test_user_permissions_empty_without_roles(session):
 async def test_user_permissions_revoke_takes_effect(session):
     user = await _make_user(session, "revoked_u")
     member = await get_role_by_name(session, "member")
-    grant = await assign_role_to_user(session, user_id=user.id, role_id=member.id)
+    await assign_role_to_user(session, user_id=user.id, role_id=member.id)
     assert len(await get_user_permissions(session, user.id)) == 10
     await revoke_role_from_user(session, user_id=user.id, role_id=member.id)
     assert await get_user_permissions(session, user.id) == []
@@ -358,6 +358,3 @@ async def test_delete_user_cascades_role_grant(session):
         .where(UserRole.user_id == user.id)
     )
     assert count == 0
-
-
-from app.models.user_role import UserRole  # noqa: E402  (used in cascade test)
