@@ -71,6 +71,7 @@ TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
 - [x] TASK-059 Production Compose（独立完整文件 `docker-compose.prod.yml`：端口内外分离 + 密钥 fail-fast + 卷/项目名隔离，`tests/test_prod_compose.py` 26 项，见 DECISIONS 039）
 - [x] TASK-060 Nginx/Gunicorn/Uvicorn（`nginx/nginx.conf` + 唯一入口反代 + Gunicorn/UvicornWorker；覆盖式 `X-Forwarded-For` 与信任网段判定解决 DECISIONS 018 遗留约束；`tests/test_client_ip.py` 26 项 + `tests/test_nginx_config.py` 32 项，见 DECISIONS 040/041/042）
 - [x] TASK-061 GitHub Actions CI（`.github/workflows/ci.yml` 三 job：ruff lint / pytest（service 端口贴测试硬编码的 5433+6389 + 迁移可逆性验证）/ docker build；`requirements-dev.txt` 与 `[tool.ruff]` 钉死版本与规则集；`tests/test_ci_workflow.py` 35 项，见 DECISIONS 043）
+- [x] TASK-062 完整测试与质量检查（956 passed；覆盖率 2373 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支，仅本地基线与文档、不进 CI 门禁；新增 4 个测试模块 80 项——存储安全守卫 / 有价值分支 / 质量契约 / N+1 运行时护栏；顺带修复 2 处生产缺陷（并发注册 409 兜底不可达、非字符串日志消息绕过脱敏）与 3 处测试自身残留，订正 3 处文档矛盾，`docs/QUALITY.md` 新建，见 DECISIONS 044）
 
 ## In Progress
 - [ ]
@@ -79,7 +80,7 @@ TASK-062 完整测试与质量检查（Phase 10；TASK-061 CI 已交付）
 - None
 
 ## Next
-TASK-062 完整测试与质量检查（Phase 10；其后 TASK-063 README 与面试技术难点）
+TASK-063 README 与面试技术难点（Phase 10 收尾；TASK-062 已完成，见 DECISIONS 044）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
