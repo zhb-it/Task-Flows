@@ -20,3 +20,13 @@ class NotificationRead(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationMarkAllRead(BaseModel):
+    """``PATCH /notifications/read-all``（TASK-054）的出站契约。
+
+    ``marked`` = 本次真正从已读翻转为已读的条数（已是已读的不计入），
+    前端据此更新未读角标；重复调用幂等返回 0。
+    """
+
+    marked: int

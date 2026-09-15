@@ -283,5 +283,14 @@ pytest、pytest-asyncio、httpx。
 
 **隔离纪律**：用户（含其通知 FK CASCADE）/ 团队链资源按 `ntfapi_<RUN_TOKEN>_` 前缀精确清理；通知直连造行（绕开 API——通知只能由系统派发，无创建端点）。触发流转的用例用 **admin** 角色 actor——`task:transition` 仅 admin 持有（§6 / API_CONTRACT.md），`member` 触发流转按协议 403（沿用既有 RBAC 契约，本 TASK 未改动）；`notification_dispatch.clear()` 用于隔离「分配派发」与「状态变更派发」两阶段断言。
 
+## 通知 read-all 标记全部已读（TASK-054）
+
+`tests/test_notification_api.py` 增补 **3 项**（A2 组），同模块同模式。覆盖 `PATCH /notifications/read-all`（§25.8 第三端点 / DECISIONS 036 的响应体决策）：
+
+- **只标记未读且幂等**：3 未读 + 1 已读（预置经单条端点）→ `marked == 3`（只统计真翻转的未读条数，不计已读行）；GET 复查全部 `is_read=true`；重复调用 `marked == 0`（幂等）。
+- **资源级隔离**：a、b 各有通知，a 调 read-all → `marked` 只计 a 自己的条数，b 的通知保持未读（CRUD 的 WHERE 带 `user_id` 条件，SQL 层限定自己的收件箱）。
+- **空收件箱**：无任何通知 → 200 `marked == 0`（「没有未读」是合法的 0，不是 404）。
+- 无 Token → 401（并入既有 `test_unauthenticated_401`，三通知端点全覆盖）。
+
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

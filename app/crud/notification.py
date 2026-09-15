@@ -9,7 +9,7 @@
 「不存在或非接收人」，交给 Service 统一转 404（IDOR 防枚举）。
 """
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
@@ -59,3 +59,20 @@ async def mark_read(
         notif.is_read = True
         await db.flush()
     return notif
+
+
+async def mark_all_read(db: AsyncSession, user_id: int) -> int:
+    """把某用户**全部未读**通知标记为已读（flush-only，Service 提交）。
+
+    单条 UPDATE 只命中 ``is_read = false`` 的行——已是已读的行不被触碰
+    （rowcount 只统计真翻转的条数，天然幂等：重复调用返回 0）。
+    WHERE 带归属条件，SQL 层就限定「只动自己的收件箱」。
+    """
+    stmt = (
+        update(Notification)
+        .where(Notification.user_id == user_id, Notification.is_read.is_(False))
+        .values(is_read=True)
+    )
+    result = await db.execute(stmt)
+    await db.flush()
+    return result.rowcount

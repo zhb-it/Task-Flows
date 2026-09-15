@@ -7,7 +7,7 @@ In Progress
 Phase 9：通知
 
 ## Current Task
-TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线；read-all 标记已读属 TASK-054）
+TASK-055 通知端到端测试（Phase 9 通知第 4 个任务）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -63,6 +63,7 @@ TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线�
 - [x] TASK-051 幂等、重试与任务测试（纯测试任务，Phase 8 收尾，见 DECISIONS 033）
 - [x] TASK-052 Notification Model（建模提前于 TASK-049，本 TASK 补 Model 检查测试 `tests/test_notification_model.py` 16 项，见 DECISIONS 034）
 - [x] TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线，见 DECISIONS 035）
+- [x] TASK-054 通知 read-all / 标记全部已读（响应体返回标记条数 `{"marked": N}`，见 DECISIONS 036）
 - [x] TASK-058 Dockerfile（因 TASK-009 要求在 Docker 中部署而提前完成并验证）
 
 ## In Progress
@@ -72,7 +73,7 @@ TASK-053 通知 Service/API（查询/标记已读端点 + 业务派发点接线�
 - None
 
 ## Next
-TASK-054 通知 read-all / 标记全部已读（Phase 9 通知第 3 个任务；单条标记已读已在 TASK-053 交付）
+TASK-055 通知端到端测试（Phase 9 收尾）
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -205,6 +206,19 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - `tests/test_notification_api.py`（新建）：11 项（见 TESTING 章节）。
 
 **验证**：`tests/test_notification_api.py` **11 passed**；全量 **662 passed**（651 + 11，零失败零错误）；开发库零残留。文档：TASKS.md 勾选 TASK-053；TESTING.md 新增「通知 Service/API（TASK-053）」章节；DECISIONS.md 新增 035；PROGRESS 推进至 TASK-054（Phase 9）。
+
+## TASK-054 完成 通知 read-all / 标记全部已读
+
+**范围**：Phase 9 通知第 3 个任务。交付 `PATCH /api/v1/notifications/read-all`（§25.8 第三端点）——把当前登录用户**全部未读**通知标记为已读。资源级隔离沿用 TASK-053/DECISIONS 035（仅认证 `CurrentUser`、只动自己的收件箱），无新权限项、无迁移。**响应体决策（用户确认，DECISIONS 036）**：返回 `{"data": {"marked": N}}`，N = 本次真正从已读翻转为已读的条数（已读的不计入）——前端一次调用即可同步未读角标，重复调用幂等返回 0。
+
+**实现**
+- `app/crud/notification.py`：新增 `mark_all_read`（flush-only）——单条 `UPDATE ... WHERE user_id = :uid AND is_read = false`，只命中未读行（`rowcount` 即真翻转数），SQL 层 WHERE 带归属条件限定自己的收件箱。
+- `app/services/notification.py`：新增 `mark_all_notifications_read`（Service 提交）；空收件箱 → 200 `marked=0`（「没有未读」是合法的 0，不是 404）。
+- `app/schemas/notification.py`：新增 `NotificationMarkAllRead`（`marked: int`）出站契约。
+- `app/api/v1/notifications.py`：挂载 `PATCH /read-all`，**刻意声明在参数化路由 `/{notification_id}/read` 之前**消除路径解析歧义（两段路径本无实际匹配冲突，防御性排序）。
+- `tests/test_notification_api.py` 增补 3 项（A2 组）+ 既有 401 用例扩到 read-all：只标记未读且幂等（3 未读 + 1 已读 → `marked==3`、GET 全已读、重复调 `marked==0`）、资源级隔离（a 标记只计自己条数，b 的通知保持未读）、空收件箱 `marked==0`。
+
+**验证**：`tests/test_notification_api.py` **14 passed**（11 + 3）；全量 **665 passed**（662 + 3，3m01s，零失败零错误）；开发库零残留（`ntfapi_` 前缀用户 0、notifications 表 0 行）。因无既有端点行为变更（纯新增端点），未重建镜像（消费时随下一镜像重建冒烟）。文档：TASKS.md 勾选 TASK-054；TESTING.md 新增「通知 read-all 标记全部已读（TASK-054）」章节；API_CONTRACT.md Notification 章节补齐三端点契约；DECISIONS.md 新增 036；PROGRESS 推进至 TASK-055（Phase 9 收尾）。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

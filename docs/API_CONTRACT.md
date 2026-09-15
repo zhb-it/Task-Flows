@@ -322,9 +322,9 @@ Request：
   - 删任务 / 删用户级联清附件**元数据**（FK ON DELETE CASCADE）；物理文件的批量回收由 Celery 清理任务负责（§17 / TASK-050）。
 
 ## Notification
-- GET `/api/v1/notifications`
-- PATCH `/api/v1/notifications/{notification_id}/read`
-- PATCH `/api/v1/notifications/read-all`
+- GET `/api/v1/notifications` —— 当前用户自己的通知时间线（TASK-053，资源级隔离）；按 `created_at DESC`，分页 `skip`/`limit`（`le=100`）；响应 `list[NotificationRead]`：`id / user_id / type / title / content / is_read / created_at`。仅认证（`CurrentUser`），无功能级权限（DECISIONS 035）。
+- PATCH `/api/v1/notifications/read-all`（TASK-054）—— 把当前用户**全部未读**通知标记为已读；响应 `{"marked": N}`（N = 本次真正翻转的条数，重复调用幂等返回 0；空收件箱是合法的 0，不报 404）。仅认证；资源级隔离由 SQL WHERE `user_id` 保证，只动自己的收件箱。
+- PATCH `/api/v1/notifications/{notification_id}/read` —— 标记自己的一条通知为已读；已在读幂等；非接收人 / 不存在 → 404 `Notification not found`（同文案防枚举）。
 
 ## Logs
 - GET `/api/v1/logs` —— 操作审计日志（TASK-039）。功能级 `log:read`（admin/member 均持有）；**仅返回当前用户自己**的日志（资源级隔离，最小暴露面）；分页 `skip`/`limit`（`le=100`）；响应 `list[OperationLogRead]`：`id / user_id / resource_type / resource_id / action / payload(JSONB) / created_at`，按 `created_at DESC`。

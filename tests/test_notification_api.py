@@ -302,6 +302,76 @@ async def test_unauthenticated_401(client):
     assert resp.status_code == 401
     resp = await client.patch("/api/v1/notifications/1/read")
     assert resp.status_code == 401
+    resp = await client.patch("/api/v1/notifications/read-all")
+    assert resp.status_code == 401
+
+
+# --- A2. read-all 标记全部已读（TASK-054）------------------------------------
+
+
+async def test_read_all_marks_only_unread_and_is_idempotent(client):
+    u = await _make_user("ra1", ["admin"])
+    for i in range(3):
+        await _insert_notification(u.id, "task_assigned", f"unread-{i}")
+    nid_read = await _insert_notification(u.id, "task_assigned", "already-read")
+    # 预置一条已读（走单条端点，顺带覆盖混合初态）
+    resp = await client.patch(
+        f"/api/v1/notifications/{nid_read}/read",
+        headers=_bearer(create_access_token(u.id)),
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        "/api/v1/notifications/read-all",
+        headers=_bearer(create_access_token(u.id)),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["marked"] == 3  # 只统计真翻转的未读条数
+
+    # GET 复查：全部已读
+    resp = await client.get(
+        "/api/v1/notifications", headers=_bearer(create_access_token(u.id))
+    )
+    assert {n["is_read"] for n in resp.json()["data"]} == {True}
+
+    # 幂等：再调一次 → 0
+    resp = await client.patch(
+        "/api/v1/notifications/read-all",
+        headers=_bearer(create_access_token(u.id)),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["marked"] == 0
+
+
+async def test_read_all_scoped_to_own_inbox(client):
+    a = await _make_user("ra2a", ["admin"])
+    b = await _make_user("ra2b", ["admin"])
+    await _insert_notification(a.id, "task_assigned", "A-1")
+    await _insert_notification(a.id, "task_status_changed", "A-2")
+    await _insert_notification(b.id, "task_assigned", "B-1")
+
+    resp = await client.patch(
+        "/api/v1/notifications/read-all",
+        headers=_bearer(create_access_token(a.id)),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["marked"] == 2  # 只动自己的
+
+    # b 的通知不受影响
+    resp = await client.get(
+        "/api/v1/notifications", headers=_bearer(create_access_token(b.id))
+    )
+    assert all(n["is_read"] is False for n in resp.json()["data"])
+
+
+async def test_read_all_empty_inbox_returns_zero(client):
+    u = await _make_user("ra3", ["admin"])
+    resp = await client.patch(
+        "/api/v1/notifications/read-all",
+        headers=_bearer(create_access_token(u.id)),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["marked"] == 0  # 没有未读是合法的 0，不是 404
 
 
 # --- B. 派发点接线（§24）-------------------------------------------------

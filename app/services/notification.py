@@ -14,7 +14,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ResourceNotFoundError
-from app.crud.notification import list_by_user, mark_read
+from app.crud.notification import list_by_user, mark_all_read, mark_read
 from app.models.notification import Notification
 from app.models.user import User
 
@@ -41,3 +41,15 @@ async def mark_notification_read(
         raise ResourceNotFoundError(NOTIFICATION_NOT_FOUND)
     await db.commit()
     return notif
+
+
+async def mark_all_notifications_read(db: AsyncSession, user: User) -> int:
+    """把当前用户全部未读通知标记为已读（TASK-054）。
+
+    返回本次真正翻转的条数（已是已读的不计入，重复调用幂等返回 0）。
+    资源级隔离由 CRUD 的 WHERE 条件保证——只更新 ``user_id`` 属于
+    当前用户的行，不存在 404 语义（「没有未读」是合法的 0，不是错误）。
+    """
+    marked = await mark_all_read(db, user.id)
+    await db.commit()
+    return marked

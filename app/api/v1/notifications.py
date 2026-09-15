@@ -6,8 +6,13 @@ Router 只做 HTTP ⇄ Service 翻译（项目规则 §4）。通知是用户私
 
 端点：
 - ``GET /notifications``：当前用户自己的通知时间线（最新在前，分页）。
+- ``PATCH /notifications/read-all``：把当前用户全部未读通知标记为已读，
+  返回本次真正翻转的条数（TASK-054）。
 - ``PATCH /notifications/{notification_id}/read``：标记自己的一条通知为已读；
   非接收人 / 不存在 → 404 同文案（IDOR 防枚举）。
+
+``/read-all`` 是固定路径，与 ``/{notification_id}/read``（两段路径）无匹配
+冲突，但刻意声明在参数化路由之前，避免路径解析歧义。
 """
 
 from typing import Annotated
@@ -18,9 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import CurrentUser
 from app.db.session import get_db
 from app.schemas.common import SuccessResponse
-from app.schemas.notification import NotificationRead
+from app.schemas.notification import NotificationMarkAllRead, NotificationRead
 from app.services.notification import (
     list_user_notifications,
+    mark_all_notifications_read,
     mark_notification_read as svc_mark_notification_read,
 )
 
@@ -44,6 +50,21 @@ async def list_my_notifications(
     return SuccessResponse(
         data=[NotificationRead.model_validate(n) for n in notifs]
     )
+
+
+@router.patch(
+    "/read-all",
+    response_model=SuccessResponse[NotificationMarkAllRead],
+    status_code=status.HTTP_200_OK,
+    summary="Mark all of the current user's unread notifications as read",
+)
+async def mark_all_my_notifications_read(
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> SuccessResponse[NotificationMarkAllRead]:
+    """全部标记已读（仅自己的收件箱）；返回真正翻转的条数，幂等。"""
+    marked = await mark_all_notifications_read(db, user)
+    return SuccessResponse(data=NotificationMarkAllRead(marked=marked))
 
 
 @router.patch(

@@ -230,3 +230,10 @@
 - Trade-off：若未来出现「管理员代看他人通知 / 全局通知广播」等需求，再单独加 `notification:*` 权限项与对应资源级判定；届时服务水平隔离（仅自己）仍由 Service 层按 `user.id` 强制，权限依赖只做「能否访问收件箱」的粗粒度开关。
 - 实现落点：`app/services/notification.py` 模块 docstring 记录该决策；Service 层 `list_user_notifications` / `mark_notification_read` 都按 `user.id` 过滤，非接收人 / 不存在 → 404 同文案（`Notification not found`），IDOR 防枚举；Router 仅声明 `CurrentUser`，不引 `require_permission`。
 - 配套（幂等）：归档与清理都天然幂等，匹配 at-least-once（DECISIONS 027）——归档靠「id 复用 + `pg_insert ... ON CONFLICT (id) DO NOTHING` + 同事务删主表」，重投时主表可搬行已不在、归档表已存在 → no-op；清理靠「删文件幂等 + 孤儿判定只读 DB」。
+
+## Decision 036：read-all 响应体返回标记条数 `{"marked": N}`（用户确认，TASK-054）
+- Problem：§25.8 只定义了 `PATCH /notifications/read-all` 端点路径，未定义响应体——返回空成功体、更新后的列表、还是统计信息？
+- Decision：经用户确认，响应 `{"data": {"marked": N}}`，N = 本次真正从已读翻转为已读的条数（已是已读的不计入）。
+- Reason：①信息量最大——前端调一次即可同步未读角标，无需再查 `GET /notifications`；②天然幂等——重复调用返回 0，客户端可用 N 判断是否有实际变化；③返回全量列表（备选方案）与 `GET` 端点职责重叠且响应体可能很大，不采用。
+- 实现落点：CRUD 用单条 `UPDATE ... WHERE user_id = :uid AND is_read = false`（只命中未读行，`rowcount` 即真翻转数，SQL 层限定自己的收件箱——资源级隔离）；空收件箱 → 200 `marked=0`（「没有未读」是合法的 0，不是 404）；`/read-all` 刻意声明在参数化路由 `/{notification_id}/read` 之前，消除路径解析歧义（两段路径本无实际冲突，防御性排序）。
+
