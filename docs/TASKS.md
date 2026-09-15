@@ -90,7 +90,13 @@
   - 验收标准：真实库中扩展已装、列为 `is_generated='ALWAYS'` 的 tsvector、两索引为 GIN 且带 `gin_trgm_ops`；`EXPLAIN` 实证 `ILIKE '%x%'` 走 `ix_tasks_title_trgm`、`search_vector @@ tsquery` 走 `ix_tasks_search_vector`；迁移 `upgrade → downgrade base → upgrade` 往返无损（CI 等价验证）；开发库零残留。
   - 附带交付：`scripts/check_docs.py` + `tests/test_docs_consistency.py`——把「提交前核验 PROGRESS 三处」变成 CI 自动拦截的断言，根治 TASK-048/049/051/062 四度复发的文档静默丢失。
   - 测试要求：新增用例覆盖离线声明层、真实落库层、执行计划层、中文非分词边界、keyword 语义未变五类；并含反向用例证明一致性检查器不是空转。
-- [ ] TASK-063 README 与面试技术难点
+- [x] TASK-063 README 与面试技术难点（README 按规格 §Phase 17 的 19 个必需部分重写为仓库门面；新建 `docs/INTERVIEW.md` 逐条作答规格 §56 的 9 领域 35 问；两者一并纳入文档护栏，见 DECISIONS 046）
+  - 目标：把「项目做了什么、为什么这么做、怎么证明」写成**可核查**的两份文档——README 面向读者全貌，INTERVIEW.md 面向逐问追问；并让它们的每一个数字/结构声明都受 CI 断言约束，而不是靠人记得更新。
+  - 依赖：TASK-001~062（README 必须如实描述全部已交付能力）、TASK-064（文档护栏机制与搜索索引章节）。
+  - 涉及文件：`README.md`（重写）、`docs/INTERVIEW.md`（**新建**）、`scripts/check_docs.py`（扩 3 组规则）、`tests/test_readme.py`（**新建**）、`tests/test_docs_consistency.py`（补「全部完成后 `## Next`」边界用例）、`docs/QUALITY.md`（基线声明行）、`docs/TASKS.md`/`docs/PROGRESS.md`/`docs/DECISIONS.md`/`docs/TESTING.md`。
+  - 实现要求：README 覆盖 §Phase 17 全部 19 个部分；**所有数字取自真实仓库**（迁移数、测试文件数、表/外键/约束数、OpenAPI 操作数与路径数、模块数），不凭印象；INTERVIEW.md 的 35 条题干**逐字照抄** §56（改写会让「其实是另一个问题」蒙混过去），答案锚定本项目的文件、决策号或测试名而非通用八股，且不掩盖未实现项。
+  - 验收标准：`scripts/check_docs.py` 退出码 0；README 的结构性声明与 ORM `metadata` / OpenAPI schema / 文件系统逐一相符；INTERVIEW.md 覆盖 9 领域 35 问且题干与 §56 逐字一致；README 内相对链接全部可解析；README 与 QUALITY 的基线数字一致。
+  - 测试要求：`tests/test_readme.py` 除守护仓库现状外，每条规则都要配**反向用例**（合成输入弄坏它并断言真的报错）；并断言契约正则仍在 README 中可匹配——否则改写措辞即可让检查静默失效。
 
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。

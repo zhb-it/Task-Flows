@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-In Progress
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-064 全部勾选，无未完成任务。
 
 ## Current Phase
 Phase 10：工程化
 
 ## Current Task
-TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（Phase 10；落实 TASK-062 记录的 §57 遗留项，编号晚于 TASK-063 但按用户指示先执行）
+TASK-063 README 与面试技术难点（Phase 10：README 按规格 §Phase 17 的 19 个部分重写 + `docs/INTERVIEW.md` 覆盖 §56 的 9 领域 35 问 + 两者纳入文档护栏）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -73,6 +73,7 @@ TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（Phase 10；落实 TASK-0
 - [x] TASK-061 GitHub Actions CI（`.github/workflows/ci.yml` 三 job：ruff lint / pytest（service 端口贴测试硬编码的 5433+6389 + 迁移可逆性验证）/ docker build；`requirements-dev.txt` 与 `[tool.ruff]` 钉死版本与规则集；`tests/test_ci_workflow.py` 35 项，见 DECISIONS 043）
 - [x] TASK-062 完整测试与质量检查（956 passed；覆盖率 2373 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支，仅本地基线与文档、不进 CI 门禁；新增 4 个测试模块 80 项——存储安全守卫 / 有价值分支 / 质量契约 / N+1 运行时护栏；顺带修复 2 处生产缺陷（并发注册 409 兜底不可达、非字符串日志消息绕过脱敏）与 3 处测试自身残留，订正 3 处文档矛盾，`docs/QUALITY.md` 新建，见 DECISIONS 044）
 - [x] TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（落实 §57 与 §14：`CREATE EXTENSION pg_trgm` + `GIN (title gin_trgm_ops)` + `search_vector` 生成列 + `GIN (search_vector)`；`EXPLAIN` 实证 `ILIKE '%x%'` 由顺序扫描转为 `Bitmap Index Scan`，`keyword` 查询语义不变；附带把「PROGRESS 三处核验」变成 CI 自动拦截的 `scripts/check_docs.py` + `tests/test_docs_consistency.py`，见 DECISIONS 045）
+- [x] TASK-063 README 与面试技术难点（README 按规格 §Phase 17 的 19 个必需部分重写，全部数字取自真实仓库且受断言约束；新建 `docs/INTERVIEW.md` 逐条作答 §56 的 9 领域 35 问、题干逐字照抄；`tests/test_readme.py` 把 README 的结构性声明与 ORM metadata / OpenAPI schema / 文件系统对齐，含反向用例，见 DECISIONS 046）
 
 ## In Progress
 - [ ]
@@ -81,7 +82,7 @@ TASK-064 数据库搜索索引 `pg_trgm` / `tsvector`（Phase 10；落实 TASK-0
 - None
 
 ## Next
-TASK-063 README 与面试技术难点（Phase 10 收尾；TASK-064 已完成，见 DECISIONS 045）
+无——TASK-001 ~ TASK-064 全部交付，`docs/TASKS.md` 中已无未勾选任务（见 DECISIONS 046 与 §60 开发终点）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -419,6 +420,29 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - **探针脚本路径多套了一层 `dirname`**：`os.path.dirname(os.path.dirname(__file__))` 把项目根算成了上一级，alembic 报 `No 'script_location' key found in configuration`——错误信息指向配置，真实原因是 cwd 错了。
 
 **文档产物**：`docs/DB_SCHEMA.md`（任务表新增 `search_vector` 行与搜索索引说明、「Task 索引」与「PostgreSQL 能力」两节标记为已实现）；`docs/QUALITY.md`（D5 从「未实现」改为「已由 TASK-064 实现」并保留原记录）；`docs/DECISIONS.md` 新增 045；`docs/TESTING.md` 新增两节（搜索索引测试策略、文档一致性护栏）；`docs/TASKS.md` 新增 TASK-064 条目并把 TASK-062 的遗留项标记为已处理。
+
+## TASK-063 完成 README 与面试技术难点（Phase 10 收尾，项目最后一个 TASK）
+
+**目标**：交付两份**可核查**的文档——`README.md` 给读者全貌，`docs/INTERVIEW.md` 给逐问追问；并让它们的每一个数字与结构声明都受 CI 断言约束，而不是靠人记得更新。
+
+**实现**
+- `README.md` 由 60 行重写为 849 行，覆盖规格 §Phase 17 列出的 19 个部分：项目介绍 / 技术栈 / 系统架构 / 目录结构 / ER 图（mermaid，16 表 20 外键 + 删除策略说明）/ 核心业务流程（登录、创建任务、状态流转、附件上传、通知异步化）/ API 文档（40 操作 + 统一响应与错误码表 + 列表查询约定）/ 环境配置 / Docker 启动（开发栈与生产栈）/ 数据库迁移 / 测试 / CI / 性能优化 / Redis 限流原理 / Celery 原理 / JWT 原理 / 状态机设计 / 项目难点（10 条）/ 解决方案（逐条给出落点与「怎么证明」）。
+- `docs/INTERVIEW.md`（**新建**，632 行）：规格 §56 的 9 个领域 35 问逐条作答，每条先给**一句话结论**，其余锚定本项目的文件 / 决策号 / 测试名；**不掩盖缺口**（如 Access Token 黑名单只定义了 key 未接入校验链路、状态流转未加行锁）。
+- `scripts/check_docs.py` 扩三组规则：README ↔ 规格（19 个必需部分）、README ↔ TASKS/PROGRESS/QUALITY（进度前沿 / 当前 Phase / 基线数字）、INTERVIEW ↔ §56（9 领域 + 35 问**逐字**比对）；另加两条文件系统事实核对（迁移数、测试文件数）。
+- `tests/test_readme.py`（**新建**，27 项）：守护仓库现状之外，把 README 的结构性声明与**代码事实**对齐——表/外键/唯一约束/CHECK 对 `Base.metadata`，操作数与 `/api/v1` 路径数对 `app.openapi()`，目录模块数 / 迁移数 / 测试文件数对文件系统，相对链接必须可解析；12 个反向用例逐条证明规则真的会报错；并断言契约正则仍能在 README 中匹配。
+
+**验证**
+- 全量 `pytest -q --cov --cov-report=term-missing` → **1011 passed**（0 failed / 0 error / 0 skipped），62 个测试文件 / 924 个 `def test_*`；覆盖率 **2376 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支**，**与 TASK-064 后完全一致**（本 TASK 未改 `app/`，这是覆盖率表应有的行为）。
+- `ruff check .` → `All checks passed!`；`python scripts/check_docs.py` → 退出码 0。
+- README 结构性声明与事实逐项相符：`Base.metadata` 16 表 / 20 外键 / 8 唯一约束 / 3 CHECK；`app.openapi()` 40 操作 / 25 条 `/api/v1` 路径；`app/api/v1` 9、`app/crud` 12、`app/models` 16、`app/schemas` 10、`app/services` 13 个模块；迁移 14；测试文件 62。
+- 开发库逐表核对：仅 RBAC 种子字典表非空（roles 2 / permissions 22 / role_permissions 32，属**种子数据**），其余 13 张业务表 0 行。
+
+**问题与解决**
+- **护栏第一次运行就抓到两处**：①README 仍写着「61 个测试文件」，而新增本模块后实际是 62——正是它该抓的漂移；②README 里「3 个测试文件的 teardown 漏洞并补齐」被 `(\d+) 个测试文件` 误读成「总共有 3 个测试文件」。后者是**检查器自身的歧义**，用 `(?!的)` 负向先行断言修掉，并在注释里写明「同类歧义请改写措辞，不要把正则复杂化」。
+- **`## Next` 的收尾分支原先无人管**：原实现只在「还有未勾选任务」时断言 Next 指向第一个未勾选项；本 TASK 是最后一个任务，`pending` 变空后 Next 即便还写着 `TASK-063` 也**不会报错**——「已经做完了」没人写下来，而检查器静默通过。已改为「禁止再指向任何 TASK」，并补正反两条用例。
+- **README 里「共 25 条路径」有歧义**（40 个操作中 38 个在 `/api/v1` 下，而总路径含 `/` 与 `/health` 共 27 条）：改写为「共 25 条 `/api/v1` 路径」，并把该措辞写成受断言约束的声明——歧义与漂移一并消除。
+
+**文档产物**：`README.md`（重写）、`docs/INTERVIEW.md`（新建）、`scripts/check_docs.py`（扩规则）、`tests/test_readme.py`（新建）、`tests/test_docs_consistency.py`（补 2 项）、`docs/QUALITY.md`（加基线声明行 + D8 扩展 + §57 工程化行）、`docs/DECISIONS.md`（046）、`docs/TESTING.md`（护栏章节 + 基线）；本文件的 `Project Status` 转为 Completed、`Next` 改为声明全部完成。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

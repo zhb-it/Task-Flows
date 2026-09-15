@@ -393,5 +393,24 @@
 - Trade-off：①`search_vector` 列给每行带来一点存储与写入开销（生成列在 INSERT/UPDATE 时计算），换到的是 §14 声明的全文检索能力真的可用；由于它不参与列表查询，读路径无额外成本（`SELECT` 会取回该列，但本项目列表查询的瓶颈在语句条数与行数，不在这一列——`tests/test_query_efficiency.py` 的语句计数不受影响）。②`'simple'` 配置对英文只做小写化、不做词干还原（`login` 与 `logins` 不互相命中），要更强能力需引入 `zhparser`/`pg_jieba` 等外部扩展——**本轮不引入**，属于「不为炫技增加依赖」（规则 §6/§15）。③trigram 索引对**少于 3 字符的模式**选择性差（实测 `'%登录%'` 的成本远高于 `'%登录缺陷%'`），索引仍可用但过滤力弱——这是 pg_trgm 的固有性质，已作为事实留在测试注释里。④文档一致性成为 CI 门禁意味着**纯文档问题也会让 CI 变红**：这是刻意的，因为该问题的历史成本（四次静默说谎）高于偶尔一次红的打扰。⑤新增 `scripts/` 目录与 `tests` 侧导入（namespace package），轻微扩大了仓库结构——收益是「核验」从人的记忆变成可执行命令。
 - 实证：`tests/test_task_search_indexes.py` **14 passed**、`tests/test_docs_consistency.py` **12 passed**、`scripts/check_docs.py` 退出码 0。真实 PG 16.15（`SET LOCAL enable_seqscan = off`）：`ILIKE '%login%'` → `Bitmap Index Scan on ix_tasks_title_trgm`；`ILIKE '%登录缺陷%'`（中文）同样走该索引；`search_vector @@ to_tsquery('simple','login')` → `Bitmap Index Scan on ix_tasks_search_vector`；生产默认 `plan_cache_mode=auto` 下**绑定参数**形式亦走索引（另复核 `force_custom_plan` / `force_generic_plan` 均可用）。落库实证：`is_generated='ALWAYS'`、`data_type='tsvector'`、`pg_indexes` 显示 `USING gin (title gin_trgm_ops)` 与 `USING gin (search_vector)`、`pg_extension` 有 `pg_trgm 1.6`。tokenization 实证：`'Fix Login Bug'` → `'bug':3 'fix':1 'login':2`；`'修复登录缺陷'` → `'修复登录缺陷':1`。迁移可逆性在**一次性探针库**上复现 CI 三步 `upgrade head → downgrade base → upgrade head` 全部 OK，往返后 16 张业务表齐全、`search_vector` 为 `tsvector`、`pg_trgm=1.6`、tasks 的 5 个 `ix_tasks_*` 索引全部存在（探针库用完即删，开发库未参与）。
 
+## Decision 046：README 与面试文档的每个数字都由断言兜底；文档护栏扩展到全部门面文档（TASK-063）
+
+- Problem：规格 §Phase 17 要求 README 覆盖 19 个部分，§56 要求项目完成后能独立解释 9 个领域 35 个问题——而这两份文档恰好是**最容易悄悄失真**的：它们描述「项目现在长什么样」，而项目一直在变。仓库存量 README 只有 60 行（初始化阶段产物），既没有 ER 图、状态机、限流原理，也没有任何可核查的数字。同时 TASK-064 建立的文档护栏只覆盖 `PROGRESS.md ↔ TASKS.md`，**门面文档反而在护栏之外**。
+- Decision：
+  1. README 按 §Phase 17 的 19 个部分**重写**（849 行），所有数字取自真实仓库；新建 `docs/INTERVIEW.md` 逐条作答 §56 的 35 问（632 行）。
+  2. 面试文档的 35 条题干**逐字照抄** §56：不改写、不合并、不删减。
+  3. 把 README / INTERVIEW 纳入 `scripts/check_docs.py`（新增三组规则），并由新建的 `tests/test_readme.py`（27 项）承担 CI 门禁。
+  4. 结构性声明不只与**另一份文档**对齐，还要与**代码事实**对齐：ORM `metadata` / OpenAPI schema / 文件系统。
+  5. README 与 QUALITY 的基线数字以「当前基线」为锚点互相校验。
+- Reason：
+  1. **为什么题干必须逐字照抄**：改写会让「其实是另一个问题」蒙混过去——把「Lua 为什么必要」答成「Redis 怎么保证原子性」，读起来一模一样，但漏掉的正是原来那个问题的考点。逐字比对是唯一能机器验证的形式。
+  2. **为什么数字要与代码事实对齐而不是与另一份文档**：两份文档可以**一起**错——这正是 TASK-062 发现的三处文档矛盾的性质（`API_CONTRACT.md` 与实现矛盾，其它文档跟着照抄）。`Base.metadata` 与 `app.openapi()` 不会说谎。
+  3. **为什么接受「数字一变 CI 就红」**：README 是仓库门面，数字静默失真正是本项目反复吃亏的失败模式（文档说谎四次、矛盾三处）。一次红的打扰成本远低于一篇说谎的 README。这条取舍**明写出来**，因为它违反「别让 CI 太啰嗦」的直觉。
+  4. **为什么契约正则要被断言「仍能匹配」**：一条 `(\d+) 个测试文件` 在 README 改写措辞后会**静默不再匹配**——检查变成空转而测试全绿。所以 `tests/test_readme.py` 断言这些正则仍能命中；`MIGRATION_COUNT_RE` / `TEST_FILE_COUNT_RE` 因此改为**公开**常量供测试直接复用，避免「仍在声明」与「真的在检查」各写一份而分叉。
+  5. **为什么 `TEST_FILE_COUNT_RE` 带 `(?!的)`**：README 里同时存在「62 个测试文件」与「3 个测试文件的 teardown 漏洞并补齐」——后者不是总数。实测这条歧义会让检查器把 `3` 当成声明值而误报。用一个负向先行断言解决，并在注释里写明「遇到同类歧义请改写措辞，不要把这个正则复杂化」。
+  6. **为什么补「全部完成后 `## Next` 不许指向 TASK」**：这是 TASK-063 收尾当天才会走到的分支（`pending` 为空）。原实现只在 `pending` 非空时断言，于是收尾时 `## Next` 即便还写着 `TASK-063` 也**不会报错**——「已经做完了」这件事没人写下来，而检查器静默通过。这正是 D8 要防的假绿，只是换了个位置。
+- Trade-off：①README 里「16 张业务表 / 20 条外键 / 40 个操作 / 25 条路径 / 62 个测试文件 / 14 个迁移」这类数字全部成了**受约束声明**，将来任何一次增删都要同步改 README（新增测试文件那条尤其频繁）。这是拿维护成本换可核查性，**有意为之**。②**没有**做「与数据库实况对齐」的表/外键计数——那需要连库，会让 `check_docs.py` 从「随时可跑的纯文本检查」退化成「需要 Docker 的检查」；折中是统计 ORM `metadata`，它与迁移产出的库结构由 `tests/test_alembic.py` 与 CI 的迁移三步保证一致。③`INTERVIEW.md` 的**答案质量**（是否真的解释清楚）无法机器验证，只有「是否覆盖 + 题干是否一致」能验证——这一点写在文档里，不假装护栏比它实际做到的更多。④README 长到 849 行：面向「读者能看全貌 + 面试能追问到底」的目标，宁可长而完整，逐问展开已拆到 `docs/INTERVIEW.md`。
+- 实证：`pytest -q --cov --cov-report=term-missing` → **1011 passed**（0 failed / 0 error / 0 skipped；62 个测试文件 / 924 个 `def test_*`），全量 **2376 语句 / 1 未覆盖 / 358 分支 / 0 分支半覆盖 → 99.96% 行、100% 分支**——**与 TASK-064 后完全相同**（TASK-063 未改 `app/`，这正是覆盖率表应有的行为）。`ruff check .` → `All checks passed!`；`python scripts/check_docs.py` → 退出码 0。README 结构性声明与事实逐项相符（`Base.metadata` 16 表 / 20 外键 / 8 唯一 / 3 CHECK；`app.openapi()` 40 操作 / 25 条 `/api/v1` 路径；目录模块数 9/12/16/10/13；迁移 14；测试文件 62）。**护栏在本次工作中立刻生效两次**：先报出 README 仍写着「61 个测试文件」（新增本模块后应为 62），又暴露「3 个测试文件的 teardown」被误读为总数（由此得到上面第 5 条）。开发库逐表核对：仅 RBAC 种子字典表非空（roles 2 / permissions 22 / role_permissions 32），其余 13 张业务表 0 行。
+
 
 

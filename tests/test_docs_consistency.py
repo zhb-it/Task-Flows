@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_docs import PROJECT_ROOT, check, check_text
+from scripts.check_docs import PROJECT_ROOT, check_text
 
 REPO_TASKS = PROJECT_ROOT / "docs" / "TASKS.md"
 REPO_PROGRESS = PROJECT_ROOT / "docs" / "PROGRESS.md"
@@ -68,8 +68,15 @@ def _replace(progress_text: str, old: str, new: str) -> str:
 
 
 def test_repository_docs_are_consistent() -> None:
-    """docs/PROGRESS.md 必须与 docs/TASKS.md 一致；不一致时打印全部矛盾点。"""
-    problems = check()
+    """仓库里真实的 PROGRESS.md 必须与 TASKS.md 一致；不一致时打印全部矛盾点。
+
+    只断言 TASKS/PROGRESS 这一组（`check_text`），README / 面试文档那几组在
+    `tests/test_readme.py` 里断言——那里会调用覆盖全部规则的 `check()`。
+    """
+    problems = check_text(
+        REPO_TASKS.read_text(encoding="utf-8"),
+        REPO_PROGRESS.read_text(encoding="utf-8"),
+    )
     assert problems == [], (
         "docs/PROGRESS.md 与 docs/TASKS.md 不一致（通常是回写文档时内容没落盘）：\n"
         + "\n".join(f"  - {problem}" for problem in problems)
@@ -180,3 +187,42 @@ def test_empty_tasks_document_is_reported() -> None:
     problems = check_text("# Tasks\n\n暂时没有任务\n", CONSISTENT_PROGRESS)
 
     assert problems == ["docs/TASKS.md 里没有解析到任何 `- [x] TASK-NNN` 条目"]
+
+
+#: 一份**全部任务已完成**的样例（TASK-063 收尾后的形态：`## Next` 不再指向任何 TASK）。
+ALL_DONE_TASKS = CONSISTENT_TASKS.replace("- [ ] TASK-003 登录", "- [x] TASK-003 登录")
+
+ALL_DONE_PROGRESS = """# Progress
+
+## Current Phase
+Phase 2：认证
+
+## Current Task
+TASK-003 登录
+
+## Completed
+- [x] TASK-001 骨架
+- [x] TASK-002 依赖
+- [x] TASK-003 登录
+
+## Next
+无——全部任务已完成
+"""
+
+
+def test_next_still_naming_a_task_after_everything_is_done_is_detected() -> None:
+    """全部任务勾完后 `## Next` 若还停在某个 TASK 上，要报出来。
+
+    这是 TASK-063 收尾时才会走到的分支（`pending` 为空）：若不处理，「已经做完了」
+    这件事就没人写下来，而检查器会静默通过——正是本文件要防的那类假绿。
+    """
+    progress = _replace(ALL_DONE_PROGRESS, "无——全部任务已完成", "TASK-003 登录")
+
+    problems = check_text(ALL_DONE_TASKS, progress)
+
+    assert any("已没有未勾选任务" in problem for problem in problems), problems
+
+
+def test_next_declaring_completion_is_accepted() -> None:
+    """与之配套的正向用例：显式声明「全部完成」时不得报错。"""
+    assert check_text(ALL_DONE_TASKS, ALL_DONE_PROGRESS) == []

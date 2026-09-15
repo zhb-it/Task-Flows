@@ -395,7 +395,7 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 - `pytest-cov==7.1.0` 进 `requirements-dev.txt`（**不进** `requirements.txt`：那是 Dockerfile 装进生产镜像的文件）。与 ruff 同样的问题——本机 PyPI 清华镜像没有它，安装需指定官方源 + 代理。
 - 配置在 `pyproject.toml`：`[tool.coverage.run]`（`source = ["app"]`、`branch = true`）+ `[tool.coverage.report]`（`show_missing = true`、`exclude_also = ["def __repr__"]`）。**CI 不传 `--cov`、不设 `fail_under`**——本轮测量的目的是「找出值得补的分支」，而不是维持一条数字线；设阈值会催生为达标而写的空测试（Phase 14 明确告诫）。
 - 命令：`pytest -q --cov --cov-report=term-missing`。
-- **基线（2026-09-15）**：**982 passed**，全量 2376 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2408 / 33 / **98.63%**。（TASK-062 完成当时为 956 passed / 2373 语句；TASK-064 新增两个模块共 26 项后为当前值，`models` 层 +3 语句来自 `search_vector` 列与 `SEARCH_VECTOR_SQL`。）
+- **基线（2026-09-15）**：**1011 passed**，全量 2376 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2408 / 33 / **98.63%**。（演进：TASK-062 完成当时为 956 passed / 2373 语句；TASK-064 新增两个模块共 26 项、`models` 层 +3 语句来自 `search_vector` 列与 `SEARCH_VECTOR_SQL`；TASK-063 新增 `tests/test_readme.py` 27 项并补 2 项文档边界用例——**TASK-063 未改 `app/`，故语句数/未覆盖/分支数与 TASK-064 后完全一致**。）
 - 唯一未覆盖行是 `app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法），属**刻意不测**（为数字而测无业务价值的代码被 Phase 14 明令禁止）。
 
 ### 新增测试模块（4 个，80 个用例）
@@ -447,6 +447,20 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 
 - **迁移可逆性（CI 等价）**：在**一次性探针库**上复现 CI 的三步 `alembic upgrade head → downgrade base → upgrade head`，三步均 OK；往返后 16 张业务表齐全、`search_vector` 为 `tsvector`、`pg_trgm=1.6`、tasks 的 5 个 `ix_tasks_*` 索引全部存在。探针库用完即删（`DROP DATABASE ... WITH (FORCE)`），**开发库未参与**——比在开发库上跑 `downgrade base` 安全得多（那会连 RBAC 种子一起拆掉）。
 - **执行计划人工复核**：除测试断言外，另在 `plan_cache_mode` 的 `auto` / `force_custom_plan` / `force_generic_plan` 三种取值下确认绑定参数形式都能用上索引（生产默认是 `auto`）。
+
+## README / 面试文档护栏（TASK-063）
+
+README 是仓库门面，也是**最容易悄悄说谎**的文档——它描述「项目现在长什么样」，而项目一直在变。TASK-064 为 `PROGRESS.md ↔ TASKS.md` 建的机制，在 TASK-063 扩展到 README 与 `docs/INTERVIEW.md`。
+
+分工：`scripts/check_docs.py` 是**人的入口**（只读文本与文件系统，不连库不上网，可随时跑）；`tests/test_readme.py` 是 **CI 门禁**，并且能做检查器做不到的事——导入 app 取 **ORM `metadata`** 与 **OpenAPI schema**，把 README 的结构性声明与**代码事实**对齐（两份文档可以一起错，代码不会）。
+
+- **规格一致性**：README 必须包含规格 §Phase 17 列出的全部 19 个部分（清单从开发文档的代码块里解析，不在这里重抄一份）；`docs/INTERVIEW.md` 必须覆盖 §56 的 9 个领域 35 个问题，且**题干逐字一致**——改写题干是危险的，因为它让「其实是另一个问题」蒙混过去。
+- **跨文档一致**：README 的**进度前沿**（`TASK-001 ~ TASK-NNN 全部交付`）对齐 `TASKS.md` 的已勾选最大编号；**当前 Phase** 对齐 `PROGRESS.md` 的 `## Current Phase`；**基线数字**对齐 `QUALITY.md`——靠「当前基线」这个关键词定位（历史数字可以留在文中，不会被误判）。
+- **与代码事实一致**：表 / 外键 / 唯一约束 / CHECK 数对齐 `Base.metadata`；操作数与 `/api/v1` 路径数对齐 `app.openapi()`；目录下的模块数、迁移数、测试文件数对齐文件系统；README 内相对链接必须能解析到真实文件。
+- **代价是明确的**：这些数字一变 CI 就会红（新增一个迁移或测试文件都要顺手改 README）。这是**有意**的取舍——README 数字静默失真正是本项目反复吃亏的失败模式，一次红的打扰远低于一篇说谎的 README。同理，`MIGRATION_COUNT_RE` / `TEST_FILE_COUNT_RE` 被断言「仍能在 README 中匹配到」，否则改一句措辞就能悄悄关掉一条检查。
+- **不空转的保证**：`tests/test_readme.py`（**27 项**）用**合成文档**构造 12 种矛盾，逐条断言检查器真的报错——没有这一层，「仓库一致」那条断言被一个永远返回空列表的检查器就能骗过。
+
+`tests/test_docs_consistency.py` 同步补了 2 项：**全部任务勾完后 `## Next` 不许再指向任何 TASK**（TASK-063 收尾当天才会走到的分支，不处理就会静默通过），以及与之配套的正向用例。
 
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。

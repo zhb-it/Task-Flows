@@ -19,15 +19,22 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 982 passed
-pytest -q --cov --cov-report=term-missing   # 982 passed，并输出下表
+pytest -q                                  # 1011 passed
+pytest -q --cov --cov-report=term-missing   # 1011 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-- **982 个用例全部通过**，0 failed / 0 error / 0 skipped（61 个测试文件，895 个
-  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m18s**。
-  （TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*` / 约 3m13s；
-  TASK-064 新增两个模块共 26 项，见 1.2 节末的更新说明。）
+> **当前基线（快照 2026-09-15）**：1011 passed / 62 个测试文件 / 924 个 `def test_*` /
+> 2376 语句 / 99.96% 行、100% 分支。
+> 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
+> 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
+> 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
+
+- **1011 个用例全部通过**，0 failed / 0 error / 0 skipped（62 个测试文件，924 个
+  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m20s**。
+  （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
+  TASK-064 新增 2 个模块 26 项；TASK-063 新增 `tests/test_readme.py` 27 项 +
+  `tests/test_docs_consistency.py` 补 2 项边界用例。）
 - 覆盖率配置在 `pyproject.toml` 的 `[tool.coverage.*]`（`source = ["app"]`、
   `branch = true`），**CI 不传 `--cov`、不设阈值**——这是 TASK-062 的确认决策
   （见第 8 节 D6）。
@@ -47,11 +54,14 @@ ruff check .                               # All checks passed!
 | `app/main.py` | 47 | 0 | 0 | 100% |
 | **TOTAL** | **2376** | **1** | **358** | **99.96% 行 / 100% 分支** |
 
-> **TASK-064 更新（2026-09-15）**：上表数字已是 TASK-064 完成后的实测值（`models` 由
-> 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与 `SEARCH_VECTOR_SQL`
-> 常量；总语句 2373 → 2376）。用例总数 **956 → 982**（新增 `test_task_search_indexes.py`
-> 14 项 + `test_docs_consistency.py` 12 项）。未覆盖行数与分支数**未变**——新代码
-> 全部被覆盖。TASK-062 完成当时的基线是 956 passed / 2373 语句。
+> **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
+> （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
+> `SEARCH_VECTOR_SQL` 常量；总语句 2373 → 2376）。**TASK-063 只增加测试与文档，没有
+> 动 `app/`，因此语句数、未覆盖行数、分支数在 TASK-063 前后完全相同**——这正是本表
+> 该有的行为：它是 `app/` 的度量，不该被文档工作搅动。
+> 用例总数演进：956（TASK-062）→ 982（TASK-064 新增 2 模块 26 项）→ **1011**
+> （TASK-063 新增 `tests/test_readme.py` 27 项 + `tests/test_docs_consistency.py` 补 2 项）。
+> TASK-062 完成当时的基线是 956 passed / 2373 语句。
 
 **唯一的未覆盖行**：`app/services/attachment.py:179`——`_UploadReader.readable()`
 返回 `True`。这是 starlette `UploadFile` 协议要求的**纯声明式**方法（无分支、无
@@ -111,7 +121,9 @@ Notification / Redis 限流 / Celery——每一项都有对应的迁移、Servi
 Docker（`Dockerfile`，`python:3.13-slim`） / Docker Compose（开发 `docker-compose.yml`
 + 生产 `docker-compose.prod.yml`） / Nginx + Gunicorn + Uvicorn（`nginx/nginx.conf`，
 唯一入口反代 + `X-Forwarded-For` 覆盖式写入 + 信任网段判定） / pytest /
-GitHub Actions（`.github/workflows/ci.yml`，三 job） / README / `.env.example`。
+GitHub Actions（`.github/workflows/ci.yml`，三 job） / README（**TASK-063 重写**：覆盖
+§Phase 17 的全部 19 个部分，其结构性声明由 `tests/test_readme.py` 与 ORM metadata /
+OpenAPI schema / 文件系统对齐） / `.env.example`。
 
 ---
 
@@ -144,7 +156,7 @@ GitHub Actions（`.github/workflows/ci.yml`，三 job） / README / `.env.exampl
 
 | Phase 14 要求 | 结论 |
 | --- | --- |
-| `pytest` 可运行、覆盖核心业务 | ✅ 956 passed；Router/CRUD/Model/Schema 全 100%，Service 99.96% |
+| `pytest` 可运行、覆盖核心业务 | ✅ 1011 passed（TASK-063 后）；Router/CRUD/Model/Schema 全 100%，Service 99.96% |
 | 「核心 Service + API 有较高测试覆盖率」 | ✅ Service 724 语句 / 1 未覆盖；API 274 语句 / 0 未覆盖 |
 | 「不要为了追求数字而测试没有业务价值的代码」 | ✅ 显式执行：未覆盖的那 1 行（协议声明式方法）**刻意不测**，见 1.2 与第 7 节 |
 
@@ -326,21 +338,35 @@ CI 的 pytest job **不传 `--cov`**，也不设 `fail_under`。理由：本次�
 
 `app/services/attachment.py:179`（`_UploadReader.readable()`）。属第 1.2 节的刻意排除项。
 
-### D8 进度文档的一致性原先只靠人工核验（已由 TASK-064 转为 CI 断言）
+### D8 文档一致性原先只靠人工核验（已由 TASK-064 转为 CI 断言，TASK-063 扩展到 README / 面试文档）
 
 - **问题**：`docs/PROGRESS.md` 的回写**四次**出现「编辑报成功但内容没落盘」
   （TASK-048 / 049 / 051 / 062），表现是 `## Current Task` 更新了、`## Completed` 与
   `## Next` 停在上一轮。这类缺失不报错、不影响任何测试，唯一的表现是文档说谎；
   两次是提交后人工核验才发现。
-- **处置**：新增 `scripts/check_docs.py`（可手动执行的一致性检查，退出码 0/1）与
-  `tests/test_docs_consistency.py`（12 项）——后者让 **CI 的 pytest 自动拦截**。
+- **处置（TASK-064 建机制）**：新增 `scripts/check_docs.py`（可手动执行的一致性检查，
+  退出码 0/1）与 `tests/test_docs_consistency.py`——后者让 **CI 的 pytest 自动拦截**。
   校验的不变量含：`## Completed` 与 `docs/TASKS.md` 的勾选集合/顺序一致、
   **`## Completed` 最后一条 == `## Current Task`**、`## Next` == 第一个未勾选任务、
-  `## Current Phase` 与当前任务所属 Phase 一致。
-- **不空转的保证**：测试用**合成文档**构造 9 种矛盾，断言检查器真的会报出来——
-  一个「永远返回空列表」的假检查器也能让「仓库文件一致」那条断言通过。
+  `## Current Phase` 与当前任务所属 Phase 一致。TASK-063 补上「全部任务完成后
+  `## Next` 不许再指向任何 TASK」这一边界（收尾当天才会走到的分支，不处理就会静默通过）。
+- **扩展（TASK-063）**：把 README 与 `docs/INTERVIEW.md` 纳入同一机制，新增三组规则——
+  README 必须含规格 §Phase 17 的 19 个部分；README 的**进度前沿 / 当前 Phase / 基线数字**
+  必须与 `TASKS.md` / `PROGRESS.md` / `QUALITY.md` 一致；`INTERVIEW.md` 必须覆盖 §56 的
+  9 个领域 35 个问题且**题干逐字一致**。README 与 QUALITY 的基线数字靠「当前基线」这个
+  关键词对齐（历史数字可以留在文中，不会被误判）。
+- **数量声明怎么防漂移**：`tests/test_readme.py` 把 README 里的结构性声明与**代码事实**
+  对齐——表/外键/唯一约束/CHECK 数对 `Base.metadata`，操作数与 `/api/v1` 路径数对
+  `app.openapi()`，目录下的模块数与迁移数/测试文件数对文件系统。**代价是这些数字一变，
+  CI 就会红**（新增一个迁移或测试文件都要顺手改 README）。这是**有意**的取舍：README 是
+  仓库门面，它的数字静默失真是本项目反复吃亏的失败模式；一次红的打扰远低于一篇说谎的
+  README。同一理由下，契约正则被 `tests/test_readme.py` 断言「仍能在 README 中匹配到」
+  ——否则改写一句措辞就能悄悄关掉一条检查。
+- **不空转的保证**：两个测试文件都用**合成文档**构造矛盾（`test_docs_consistency.py` 9 种
+  + `test_readme.py` 12 种），断言检查器真的会报出来——一个「永远返回空列表」的假检查器
+  也能让「仓库文件一致」那条断言通过。
 - **取舍**：纯文档问题从此也会让 CI 变红。这是有意的——该问题的历史成本（四次静默
-  说谎、两次靠人发现）高于偶尔一次红的打扰（见 DECISIONS 045）。
+  说谎、两次靠人发现）高于偶尔一次红的打扰（见 DECISIONS 045 / 046）。
 
 ---
 
