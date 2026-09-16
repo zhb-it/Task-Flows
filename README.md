@@ -15,12 +15,12 @@
 | HTTP 接口 | 49 个操作（43 个在 `/api/v1` 下，共 29 条 `/api/v1` 路径；另有 `GET /` 与 5 个健康探针：`/health` `/health/live` `/health/ready` `/health/db` `/health/redis`） |
 | 缓存与队列 | Redis 7：滑动窗口限流（ZSET + Lua）+ Celery Broker/Backend |
 | 认证授权 | JWT 双 Token（jti 落库 + 轮换 + 登出撤销）· Argon2id · RBAC + 资源级归属链 |
-| 测试 | 1053 passed，0 failed / 0 error / 0 skipped；覆盖率 99.88% 行、99.48% 分支 |
+| 测试 | 1070 passed，0 failed / 0 error / 0 skipped；覆盖率 99.88% 行、99.49% 分支 |
 | 部署 | Dockerfile（`python:3.13-slim`，非 root）· 开发/生产两套 Compose · Nginx + Gunicorn/Uvicorn |
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 18（生产可靠性地基），TASK-001 ~ TASK-088 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
+> 当前处于 Phase 18（生产可靠性地基），TASK-001 ~ TASK-089 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -128,7 +128,7 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 | `app/db` | 引擎、Session、Redis 客户端 |
 | `app/tasks` | Celery 应用与业务任务 |
 | `migrations` | Alembic 迁移（15 个，可逆性在 CI 里验证） |
-| `tests` | 64 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
+| `tests` | 65 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
 | `scripts` | 文档一致性检查（`check_docs.py`） |
 
 ---
@@ -155,7 +155,7 @@ task-flow/
 │   └── versions/                # 15 个迁移（含 RBAC 种子数据与 member 角色回填）
 ├── nginx/nginx.conf             # 生产反代配置（只读挂载进容器）
 ├── scripts/check_docs.py        # 文档一致性检查（退出码 0/1）
-├── tests/                       # 64 个测试文件 + conftest.py
+├── tests/                       # 65 个测试文件 + conftest.py
 ├── .github/workflows/ci.yml     # 三 job：ruff / pytest / docker build
 ├── Dockerfile                   # python:3.13-slim，非 root 运行
 ├── docker-compose.yml           # 开发栈（app + worker + postgres + redis）
@@ -500,8 +500,8 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-16，TASK-088 重测）**：1053 passed，0 failed / 0 error / 0 skipped；
-覆盖率 2510 语句 / 3 未覆盖 / 386 分支 → 99.88% 行、99.48% 分支。
+**当前基线（快照 2026-09-16，TASK-089 重测）**：1070 passed，0 failed / 0 error / 0 skipped；
+覆盖率 2542 语句 / 3 未覆盖 / 392 分支 → 99.88% 行、99.49% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。
 

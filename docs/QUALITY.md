@@ -19,23 +19,27 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1053 passed
-pytest -q --cov --cov-report=term-missing   # 1053 passed，并输出下表
+pytest -q                                  # 1070 passed
+pytest -q --cov --cov-report=term-missing   # 1070 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-088 重测）**：1053 passed / 64 个测试文件 / 956 个 `def test_*` /
-> 2510 语句 / 99.88% 行、99.48% 分支。
+> **当前基线（快照 2026-09-16，TASK-089 重测）**：1070 passed / 65 个测试文件 / 972 个 `def test_*` /
+> 2542 语句 / 99.88% 行、99.49% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1053 个用例全部通过**，0 failed / 0 error / 0 skipped（64 个测试文件，956 个
+- **1070 个用例全部通过**，0 failed / 0 error / 0 skipped（65 个测试文件，972 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
   （TASK-088 实现增量：`tests/test_health.py` 新建 16 项——四端点正常路径、
   DB/Redis 不可用/双降级路径、`/health` 兼容不变量、探针免认证；登记增量 2 项见上。）
+  （TASK-089 增量 17 项：`tests/test_beat_schedule.py` 新建 11 项——调度登记契约 /
+  时刻语义 / 错峰 / 配置可注入 / 无未注册条目；`test_maintenance_tasks.py` 补归档表
+  终态清理 3 项；`test_prod_compose.py` 补 beat 契约 3 项——beat 命令 / 不可扩展 /
+  调度环境变量可配。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -50,15 +54,15 @@ ruff check .                               # All checks passed!
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
 | `app/api/v1`（Router） | 311 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志） | 442 | 0 | 108 | 100% |
+| `app/core`（配置/安全/中间件/日志） | 446 | 0 | 108 | 100% |
 | `app/crud` | 347 | 0 | 28 | 100% |
 | `app/db`（engine / session / redis） | 38 | 0 | 8 | 100% |
 | `app/models` | 241 | 0 | 0 | 100% |
 | `app/schemas` | 102 | 0 | 0 | 100% |
 | `app/services` | 785 | 3 | 204 | 99.62% 行 / 99.02% 分支 |
-| `app/tasks`（Celery） | 177 | 0 | 32 | 100% |
+| `app/tasks`（Celery，含 beat_schedule） | 205 | 0 | 38 | 100% |
 | `app/main.py`（含健康探针族） | 67 | 0 | 2 | 100% |
-| **TOTAL** | **2510** | **3** | **386** | **99.88% 行 / 99.48% 分支** |
+| **TOTAL** | **2542** | **3** | **392** | **99.88% 行 / 99.49% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -67,12 +71,13 @@ ruff check .                               # All checks passed!
 > 该有的行为：它是 `app/` 的度量，不该被文档工作搅动。
 > 用例总数演进：956（TASK-062）→ 982（TASK-064 新增 2 模块 26 项）→ 1011
 > （TASK-063 新增 `tests/test_readme.py` 27 项 + `tests/test_docs_consistency.py` 补 2 项）→
-> 1037（TASK-088 登记增量 2 项护栏反向用例）→ **1053**（TASK-088 实现增量 16 项）。
+> 1037（TASK-088 登记增量 2 项护栏反向用例）→ 1053（TASK-088 实现增量 16 项）→
+> **1070**（TASK-089：beat 契约 11 + 终态清理 3 + compose 契约 3）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
-> **TASK-088 更新（2026-09-16）**：上表为本轮实测值（`main.py` 47 → 67 语句，来自
-> 健康探针族；总语句 2376 → 2510——差额主要来自 TASK-081~087 的 `app/` 增量此前
-> 未重测，本轮一并落入）。`app/core` +1 语句来自 `HEALTH_PROBE_TIMEOUT` 配置。
+> **TASK-088/089 更新（2026-09-16）**：上表为 TASK-089 重测值（`tasks` 层 177 → 205
+> 语句：beat_schedule 登记 + 归档表终态清理；`app/core` +4 语句来自调度配置；总语句
+> 2510 → 2542）。`tasks` 层保持 100% 覆盖。
 
 **未覆盖行（3 处）**：
 
@@ -91,7 +96,7 @@ ruff check .                               # All checks passed!
 
 **双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 16 个模型
 里 `__repr__` 的 **32 条语句**排除在分母外。若把它们计入，数字是
-**2542 语句 / 35 未覆盖 / 98.62% 行**。之所以排除，是因为它们无业务语义；之所以
+**2574 语句 / 35 未覆盖 / 98.64% 行**。之所以排除，是因为它们无业务语义；之所以
 在此写明，是因为「99.88%」这个数字**依赖于该配置**——不披露就是误导。
 
 ---
@@ -177,7 +182,7 @@ OpenAPI schema / 文件系统对齐） / `.env.example`。
 
 | Phase 14 要求 | 结论 |
 | --- | --- |
-| `pytest` 可运行、覆盖核心业务 | ✅ 1053 passed（TASK-088 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.02% 分支 |
+| `pytest` 可运行、覆盖核心业务 | ✅ 1070 passed（TASK-089 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.02% 分支 |
 | 「核心 Service + API 有较高测试覆盖率」 | ✅ Service 724 语句 / 1 未覆盖；API 274 语句 / 0 未覆盖 |
 | 「不要为了追求数字而测试没有业务价值的代码」 | ✅ 显式执行：未覆盖的那 1 行（协议声明式方法）**刻意不测**，见 1.2 与第 7 节 |
 

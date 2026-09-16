@@ -24,6 +24,12 @@ services:
       # would silently orphan the DB rows pointing at them.
       UPLOAD_DIR: /app/storage
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-10485760}
+      # 维护任务调度（TASK-089）：间隔经 .env 可配，缺省错峰
+      # （归档每日 19:30 UTC ≈ 北京 03:30；清理每小时第 45 分）。
+      ARCHIVE_SCHEDULE_HOUR: ${ARCHIVE_SCHEDULE_HOUR:-19}
+      ARCHIVE_SCHEDULE_MINUTE: ${ARCHIVE_SCHEDULE_MINUTE:-30}
+      CLEANUP_SCHEDULE_MINUTE: ${CLEANUP_SCHEDULE_MINUTE:-45}
+      ARCHIVE_FINAL_RETENTION_DAYS: ${ARCHIVE_FINAL_RETENTION_DAYS:-365}
     volumes:
       - attachment_storage:/app/storage
     ports:
@@ -61,6 +67,10 @@ services:
       # 通知/清理类任务（TASK-049/050）同样需要读库与附件目录。
       UPLOAD_DIR: /app/storage
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-10485760}
+      ARCHIVE_SCHEDULE_HOUR: ${ARCHIVE_SCHEDULE_HOUR:-19}
+      ARCHIVE_SCHEDULE_MINUTE: ${ARCHIVE_SCHEDULE_MINUTE:-30}
+      CLEANUP_SCHEDULE_MINUTE: ${CLEANUP_SCHEDULE_MINUTE:-45}
+      ARCHIVE_FINAL_RETENTION_DAYS: ${ARCHIVE_FINAL_RETENTION_DAYS:-365}
     volumes:
       - attachment_storage:/app/storage
     depends_on:
@@ -75,6 +85,33 @@ services:
       timeout: 15s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  # TASK-089（§61）：Celery Beat —— 维护任务（日志归档 / 附件清理）的周期调度器。
+  # ⚠ **beat 必须单实例**：多个 beat 会按各自时刻表重复投递同一条任务。
+  #   任务本身幂等（TASK-051），重复执行不会产生重复副作用，但会浪费队列与
+  #   worker 资源——幂等只保证「不错」，不保证「不浪费」。因此本服务刻意
+  #   不声明 replicas / 不可扩展，扩容只发生在 celery_worker 上。
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: taskflow-app:latest
+    command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=info"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-taskflow}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+      ARCHIVE_SCHEDULE_HOUR: ${ARCHIVE_SCHEDULE_HOUR:-19}
+      ARCHIVE_SCHEDULE_MINUTE: ${ARCHIVE_SCHEDULE_MINUTE:-30}
+      CLEANUP_SCHEDULE_MINUTE: ${CLEANUP_SCHEDULE_MINUTE:-45}
+      ARCHIVE_FINAL_RETENTION_DAYS: ${ARCHIVE_FINAL_RETENTION_DAYS:-365}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   postgres:

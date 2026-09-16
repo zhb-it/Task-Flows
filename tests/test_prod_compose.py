@@ -35,10 +35,21 @@ DEV_COMPOSE = PROJECT_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 
 #: 生产栈应有的服务（TASK-060 起包含 nginx——它是 §31 要求的唯一对外入口；
-#: TASK-079 起包含 frontend——前端规格 §56 的 Vue 静态镜像，仍只在 compose 内网）。
-EXPECTED_SERVICES = {"app", "celery_worker", "nginx", "frontend", "postgres", "redis"}
+#: TASK-079 起包含 frontend——前端规格 §56 的 Vue 静态镜像，仍只在 compose 内网；
+#: TASK-089 起包含 celery_beat——维护任务的周期调度器，§61 C1 的解法）。
+EXPECTED_SERVICES = {
+    "app",
+    "celery_worker",
+    "celery_beat",
+    "nginx",
+    "frontend",
+    "postgres",
+    "redis",
+}
 
 #: 需要健康检查的服务——缺了健康检查，depends_on 的 service_healthy 条件就形同虚设。
+#: celery_beat 刻意不在列：beat 没有 inspect 端点（inspect 探的是 worker），
+#: 它的存活监督靠 restart: always 与容器日志（TASK-089，理由见 compose 注释）。
 SERVICES_WITH_HEALTHCHECK = {"app", "celery_worker", "nginx", "frontend", "postgres", "redis"}
 
 #: 允许挂载宿主路径的**唯一**例外：nginx 的配置文件（只读）。
@@ -337,3 +348,39 @@ def test_worker_graceful_shutdown_window(prod_services: dict) -> None:
     assert "worker" in command
     assert "--loglevel=info" in command
     assert "${CELERY_CONCURRENCY:-" in command
+
+
+# ---------------------------------------------------------------------------
+# 6. Celery Beat（TASK-089 / §61）
+# ---------------------------------------------------------------------------
+
+
+def test_beat_runs_the_beat_command_not_a_worker(
+    prod_services: dict, dev_services: dict
+) -> None:
+    """两套 compose 的 celery_beat 都必须是 beat 命令——写成 worker 会出现
+    「两个 worker、零个调度器」的静默失效。"""
+    for label, services in (("prod", prod_services), ("dev", dev_services)):
+        command = " ".join(services["celery_beat"]["command"])
+        assert "beat" in command, f"{label} compose 的 celery_beat 没有跑 beat 命令"
+        assert "worker" not in command, f"{label} compose 的 celery_beat 跑成了 worker"
+
+
+def test_beat_cannot_scale_out(prod_services: dict) -> None:
+    """beat 单实例约束：多副本会重复投递同一条任务（幂等只保证「不错」，
+    不保证「不浪费」）。compose 不得声明副本/扩容语义。"""
+    beat = prod_services["celery_beat"]
+    assert "deploy" not in beat, "celery_beat 不得声明 deploy（replicas 等扩容语义）"
+
+
+def test_beat_schedule_config_is_injectable_via_env(
+    prod_services: dict, prod_text: str
+) -> None:
+    """调度间隔经 .env 可配（§61）：app 共享锚点与 beat 都能拿到同一份配置。"""
+    for var in (
+        "ARCHIVE_SCHEDULE_HOUR",
+        "ARCHIVE_SCHEDULE_MINUTE",
+        "CLEANUP_SCHEDULE_MINUTE",
+        "ARCHIVE_FINAL_RETENTION_DAYS",
+    ):
+        assert f"{var}: ${{{var}:-" in prod_text, f"prod compose 缺少 {var} 的可配注入"

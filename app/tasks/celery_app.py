@@ -39,6 +39,7 @@
 """
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
 
@@ -48,6 +49,43 @@ TASK_MODULES = ["app.tasks.notification_tasks", "app.tasks.maintenance_tasks"]
 
 # 挂在 Redis 上的所有 Celery 键前缀（TASK-045 键约定）。
 CELERY_KEY_PREFIX = "taskflow:"
+
+# 维护任务名（TASK-089 起收敛到本模块声明，maintenance_tasks 从这里引用）。
+# beat_schedule 与任务注册用同一个常量，改名不会出现「调度还在投旧名字」的静默失效。
+TASK_NAME_ARCHIVE_LOGS = "app.archive_operation_logs"
+TASK_NAME_CLEANUP_ATTACHMENTS = "app.cleanup_expired_attachments"
+
+
+def build_beat_schedule() -> dict:
+    """Build the ``beat_schedule`` mapping from current settings.
+
+    TASK-089（§61 C1）：``archive_operation_logs`` 与
+    ``cleanup_expired_attachments`` 在 TASK-050/051 就已完成（含 13+2 项
+    测试），但没有任何调度登记——生产里它们永远不会被执行，操作日志与
+    孤儿附件只增不减。这里把两项登记进 beat：
+
+    - **归档**：``crontab(hour, minute)`` 每日一次，默认 19:30 UTC
+      （≈ 北京时间 03:30，低位时段），可经 ``ARCHIVE_SCHEDULE_HOUR/_MINUTE`` 覆盖；
+    - **清理**：``crontab(minute=...)`` 每小时一次（hour 缺省即 ``*``），
+      默认第 45 分，与整点任务、归档时刻错峰，可经 ``CLEANUP_SCHEDULE_MINUTE`` 覆盖。
+
+    任务不带参数：任务体内部读同一份 Settings 取默认值（保留期 / 批大小），
+    调度侧与执行侧不会出现两份口径。
+    """
+    settings = get_settings()
+    return {
+        TASK_NAME_ARCHIVE_LOGS: {
+            "task": TASK_NAME_ARCHIVE_LOGS,
+            "schedule": crontab(
+                hour=settings.archive_schedule_hour,
+                minute=settings.archive_schedule_minute,
+            ),
+        },
+        TASK_NAME_CLEANUP_ATTACHMENTS: {
+            "task": TASK_NAME_CLEANUP_ATTACHMENTS,
+            "schedule": crontab(minute=settings.cleanup_schedule_minute),
+        },
+    }
 
 
 def create_celery_app() -> Celery:
@@ -98,6 +136,10 @@ def create_celery_app() -> Celery:
         broker_transport_options={"global_keyprefix": CELERY_KEY_PREFIX},
         result_backend_transport_options={"global_keyprefix": CELERY_KEY_PREFIX},
     )
+
+    # 周期调度（TASK-089）：beat 进程读这份表决定何时投递维护任务。
+    # 只登记基础设施层面的固定条目；动态/业务侧的定时需求不往这里堆。
+    app.conf.beat_schedule = build_beat_schedule()
     return app
 
 

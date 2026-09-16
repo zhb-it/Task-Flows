@@ -300,7 +300,7 @@
   - 验收标准：四个端点语义各自成立；停掉 PostgreSQL 后 `/health/ready` 返回 503，而 `/health/live`、`/health` 仍 200 且 `/health` 的 body 标 `database: down`；`/health` 既有响应结构未变。
   - 测试要求：`tests/test_health.py` 覆盖四项正常路径 + DB 不可用 / Redis 不可用 / 两者都不可用三种降级路径（用可注入探针打桩，不真停容器）；含「探针端点免认证」断言。
 
-- [ ] TASK-089 Celery Beat 周期调度与归档终态保留
+- [x] TASK-089 Celery Beat 周期调度与归档终态保留
   - 目标：关闭 **C1**——`archive_operation_logs` 与 `cleanup_expired_attachments` 目前在生产**永远不会执行**（`app/` 内 `beat|crontab|beat_schedule` 0 命中、两个 compose 均无 `celery_beat`、唯一调用点在 `tests/`）。
   - 依赖：无（任务本身的重试/幂等/超时已完成并有 13+2 项测试）。
   - 涉及文件：`app/tasks/celery_app.py`、`app/core/config.py`、`docker-compose.yml`、`docker-compose.prod.yml`、`tests/test_beat_schedule.py`（新建）、`tests/test_maintenance_tasks.py`（补终态清理用例）、`docs/DEPLOYMENT.md`。

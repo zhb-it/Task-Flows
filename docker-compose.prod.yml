@@ -73,6 +73,12 @@ x-app-environment: &app-environment
   # 就会由「ASGI server 一层 + 应用一层」共同决定，两处逻辑可能不一致；
   # 显式置空让 app/core/client_ip.py 成为**唯一**判定点。
   FORWARDED_ALLOW_IPS: ""
+  # 维护任务调度（TASK-089）：间隔经 .env 可配，缺省错峰
+  # （归档每日 19:30 UTC ≈ 北京 03:30；清理每小时第 45 分）。
+  ARCHIVE_SCHEDULE_HOUR: ${ARCHIVE_SCHEDULE_HOUR:-19}
+  ARCHIVE_SCHEDULE_MINUTE: ${ARCHIVE_SCHEDULE_MINUTE:-30}
+  CLEANUP_SCHEDULE_MINUTE: ${CLEANUP_SCHEDULE_MINUTE:-45}
+  ARCHIVE_FINAL_RETENTION_DAYS: ${ARCHIVE_FINAL_RETENTION_DAYS:-365}
 
 # 容器日志轮转：开发机磁盘小，不轮转的 json-file 日志会持续增长。
 x-logging: &default-logging
@@ -163,6 +169,29 @@ services:
     # worker 收到 SIGTERM 会走 warm shutdown（等当前任务结束）。任务本身幂等
     # （TASK-051 / §24），因此即使超时被强杀，重投也不会产生重复副作用。
     stop_grace_period: 30s
+
+  # Celery beat（TASK-089 / §61）：维护任务（日志归档 / 附件清理）的周期调度器。
+  # 在 TASK-089 之前这两个任务只有测试调用点——生产永远不会执行。
+  # ⚠ **beat 必须单实例**：多个 beat 按各自时刻表重复投递同一条任务。任务幂等
+  #   （TASK-051）只保证重复执行无副作用，不保证不浪费队列/worker 资源。
+  #   本服务刻意不声明副本数、不可扩展；扩容只发生在 celery_worker 上。
+  #   不配 healthcheck：beat 没有 inspect 端点（inspect 探的是 worker），
+  #   存活监督靠 restart: always + 容器日志（挂载同一份 beat_schedule 契约测试）。
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: taskflow-app:prod
+    command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=info"]
+    environment:
+      <<: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+    restart: always
 
   # 前端 SPA（TASK-079；前端规格 §56 / §59 阶段 15）：多阶段构建的静态镜像。
   #   阶段 1 node:22-alpine 执行 npm ci + vite build；阶段 2 nginx:1.27-alpine

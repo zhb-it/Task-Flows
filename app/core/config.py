@@ -91,6 +91,17 @@ class Settings(BaseSettings):
     # 归档批大小：每批独立事务搬 N 行，避免长事务锁主表 / 触发 soft timeout。
     maintenance_batch_size: int = 1000
 
+    # Beat 调度（§61 / TASK-089：两项维护任务的周期登记）
+    # Celery 时区为 UTC（celery_app.conf）。默认错峰：
+    #   归档 19:30 UTC ≈ 北京时间 03:30（每日低位时段）；
+    #   清理每小时第 45 分（不与整点任务、归档时刻重合）。
+    # 存储期限最小化（§61）：归档表不是终点——archived_at 超过
+    # archive_final_retention_days 天的行被删除，审计数据也有保留上限。
+    archive_schedule_hour: int = 19
+    archive_schedule_minute: int = 30
+    cleanup_schedule_minute: int = 45
+    archive_final_retention_days: int = 365
+
 
 @lru_cache
 def get_settings() -> Settings:

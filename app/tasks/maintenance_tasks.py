@@ -16,8 +16,11 @@
   归档靠「id 复用 + ON CONFLICT DO NOTHING + 同事务删主表」，清理靠
   「删文件幂等 + 孤儿判定只读 DB」。
 
-§23 把任务拆为独立模块，本模块与 notification_tasks 平级，登记进
-``celery_app.TASK_MODULES`` 供 Worker 启动自动导入。
+TASK-089（§61）：两项任务由 celery_app 的 ``beat_schedule`` 周期投递
+（此前生产永远不会执行——beat 缺位）；归档任务在迁移完成后追加归档表
+**终态清理**（``archived_at`` 超过 ``archive_final_retention_days`` 的行
+删除，存储期限最小化）。任务名常量收敛到 ``celery_app`` 声明，
+本模块从那里引用，调度侧与注册侧共用同一份名字。
 """
 
 import asyncio
@@ -40,13 +43,13 @@ from app.services.storage import (
     UnsafeStorageKeyError,
     validate_key,
 )
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import (
+    TASK_NAME_ARCHIVE_LOGS,
+    TASK_NAME_CLEANUP_ATTACHMENTS,
+    celery_app,
+)
 
 logger = logging.getLogger(__name__)
-
-# Celery 任务名（派发方按此名字符串解耦引用）。
-TASK_NAME_ARCHIVE_LOGS = "app.archive_operation_logs"
-TASK_NAME_CLEANUP_ATTACHMENTS = "app.cleanup_expired_attachments"
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +115,46 @@ async def _archive_one_batch(
         await engine.dispose()
 
 
+async def _purge_expired_archive_batch(
+    database_url: str, cutoff: datetime, batch_size: int
+) -> int:
+    """删除归档表中 ``archived_at < cutoff`` 的一批行，返回本批行数。
+
+    TASK-089（§61 存储期限最小化）：归档表在 TASK-050 落地时**只进不出**——
+    主表 90 天迁出后，归档表按 id 只增不减，审计数据没有保留上限，与合规
+    口径（个保法 / GDPR 的存储期限最小化）相悖。这里补上终态：归档行保留
+    ``archive_final_retention_days`` 天（按 ``archived_at`` 计），到期删除。
+
+    与迁移同样的分批事务模式：每批先选 id 再按 id 删、独立事务提交，长事务
+    与 soft timeout 都不会出现；按 id 删天然幂等（重投时行已不在 → 0 行）。
+    """
+    engine = create_async_engine(database_url, pool_pre_ping=True)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            ids = (
+                (
+                    await session.execute(
+                        select(OperationLogArchive.id)
+                        .where(OperationLogArchive.archived_at < cutoff)
+                        .order_by(OperationLogArchive.id)
+                        .limit(batch_size)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not ids:
+                return 0
+            await session.execute(
+                delete(OperationLogArchive).where(OperationLogArchive.id.in_(ids))
+            )
+            await session.commit()
+            return len(ids)
+    finally:
+        await engine.dispose()
+
+
 @celery_app.task(
     bind=False,
     name=TASK_NAME_ARCHIVE_LOGS,
@@ -122,13 +165,19 @@ async def _archive_one_batch(
     max_retries=5,
 )
 def archive_operation_logs(
-    retention_days: int | None = None, batch_size: int | None = None
+    retention_days: int | None = None,
+    batch_size: int | None = None,
+    final_retention_days: int | None = None,
 ) -> dict:
     """把超过保留期的 operation_logs 迁入 operation_logs_archive（§23 / TASK-050）。
 
     :param retention_days: 保留期（天）；缺省用 ``log_archive_retention_days``。
     :param batch_size: 每批行数；缺省用 ``maintenance_batch_size``。
-    :returns: ``{"archived": int}``——本次（含重投）累计迁入的行数。
+    :param final_retention_days: 归档表终态保留期（天，按 ``archived_at`` 计）；
+        缺省用 ``archive_final_retention_days``（TASK-089）。迁移完成后执行
+        终态清理——归档不是数据的终点，审计数据同样有保留上限。
+    :returns: ``{"archived": int, "purged": int}``——本次迁入主表->归档表的
+        行数，与从归档表删除的行数。
 
     分批循环：每批独立事务，批大小远小于 soft timeout（300s），避免长事务
     锁主表；数据量巨大导致总时长超 hard limit（600s）被杀死时，已归档行被
@@ -137,20 +186,46 @@ def archive_operation_logs(
     settings = get_settings()
     retain = retention_days if retention_days is not None else settings.log_archive_retention_days
     batch = batch_size if batch_size is not None else settings.maintenance_batch_size
+    final_retain = (
+        final_retention_days
+        if final_retention_days is not None
+        else settings.archive_final_retention_days
+    )
     if retain <= 0:
         raise ValueError("retention_days must be positive")
     if batch <= 0:
         raise ValueError("batch_size must be positive")
+    if final_retain <= 0:
+        raise ValueError("final_retention_days must be positive")
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=retain)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=retain)
     total = 0
     while True:
         n = asyncio.run(_archive_one_batch(settings.database_url, cutoff, batch))
         if n == 0:
             break
         total += n
-    logger.info("operation logs archived: total=%s cutoff=%s", total, cutoff)
-    return {"archived": total}
+
+    # 终态清理：归档表中 archived_at 超过保留期的行删除（TASK-089）。
+    purge_cutoff = now - timedelta(days=final_retain)
+    purged = 0
+    while True:
+        n = asyncio.run(
+            _purge_expired_archive_batch(settings.database_url, purge_cutoff, batch)
+        )
+        if n == 0:
+            break
+        purged += n
+
+    logger.info(
+        "operation logs archived: total=%s cutoff=%s; archive purged=%s purge_cutoff=%s",
+        total,
+        cutoff,
+        purged,
+        purge_cutoff,
+    )
+    return {"archived": total, "purged": purged}
 
 
 # ---------------------------------------------------------------------------

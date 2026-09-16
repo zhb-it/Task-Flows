@@ -12,7 +12,9 @@
 7. **清理年龄窗口**：太新的孤儿跳过，改旧后删除；
 8. **清理参数防御**：min_age_seconds 负 → ValueError；
 9. **重试语义声明**：两任务 autoretry_for 含 SQLAlchemyError/OSError、不含
-   ValueError、max_retries=5（规则 §8）。
+   ValueError、max_retries=5（规则 §8）；
+10. **归档表终态清理**（TASK-089）：archived_at 超过保留期的归档行被删除、
+    刚迁移的行不受误伤、重投幂等、非法参数快速失败（存储期限最小化）。
 
 实现约束（同 tests/test_notification_task.py）
 -----------------------------------------
@@ -442,3 +444,113 @@ def test_cleanup_counts_per_file_failures_without_aborting_the_batch(
     )
     assert failed.exc_info is not None
     assert "held by another process" in str(failed.exc_info[1])
+
+
+# ---------------------------------------------------------------------------
+# 6. 归档表终态清理（TASK-089，§61 存储期限最小化）
+# ---------------------------------------------------------------------------
+
+
+async def _insert_archive_row(
+    log_id: int, when: datetime, archived_at: datetime, action: str
+) -> None:
+    """直插归档表并显式指定 archived_at（终态清理的判定依据）。"""
+    import asyncpg
+
+    conn = await asyncpg.connect(POSTGRES_DSN)
+    try:
+        await conn.execute(
+            "INSERT INTO operation_logs_archive "
+            "(id, user_id, resource_type, resource_id, action, payload, created_at, archived_at) "
+            "VALUES ($1, 1, 'task', 1, $2, $3::jsonb, $4, $5)",
+            log_id,
+            action,
+            json.dumps({"k": "v"}),
+            when,
+            archived_at,
+        )
+    finally:
+        await conn.close()
+
+
+def _next_archive_id() -> int:
+    """归档表 id 复用主表 id 且非自增；测试用高位随机 id 避免与真实数据撞车。"""
+    return 900_000_000_000 + uuid.uuid4().int % 100_000_000
+
+
+def test_archive_purges_expired_archive_rows_and_keeps_recent():
+    """终态清理：archived_at 超期的归档行被删，刚迁移/新归档的行不受误伤。"""
+    now = datetime.now(timezone.utc)
+    expired_ids = [
+        _next_archive_id() for _ in range(2)
+    ]
+    for log_id in expired_ids:
+        _run(
+            _insert_archive_row(
+                log_id,
+                now - timedelta(days=400),
+                now - timedelta(days=200),
+                ACTION_PREFIX + "expired",
+            )
+        )
+    fresh_id = _next_archive_id()
+    _run(
+        _insert_archive_row(
+            fresh_id,
+            now - timedelta(days=10),
+            # 终态判定用的 cutoff 由任务体在运行时现算，比测试的 now 晚一点点；
+            # 边界值（正好 -1d）会被判进超期，这里取保留期内远端避免竞态。
+            now - timedelta(hours=12),
+            ACTION_PREFIX + "fresh",
+        )
+    )
+    # 一条还在主表保留期内的旧日志：任务应把它迁入归档表（archived_at=now），
+    # 而终态清理不得误删它。
+    migrated_id = _run(_insert_log(now - timedelta(days=2), ACTION_PREFIX + "migrated"))
+
+    result = archive_operation_logs(
+        retention_days=1, batch_size=10, final_retention_days=1
+    )
+
+    assert result["archived"] == 1
+    assert result["purged"] == 2
+    assert _run(_count_archive()) == 2  # fresh + 刚迁移的行
+    assert _run(_count_main()) == 0
+    assert _run(_fetch_archive_row(migrated_id)) != {}  # 刚迁移的行完好
+    assert _run(_fetch_archive_row(fresh_id)) != {}
+
+
+def test_archive_purge_is_idempotent_on_redelivery():
+    """重投幂等：已删除的行不会再出现，第二次运行 purged=0。"""
+    now = datetime.now(timezone.utc)
+    for _ in range(3):
+        _run(
+            _insert_archive_row(
+                _next_archive_id(),
+                now - timedelta(days=400),
+                now - timedelta(days=200),
+                ACTION_PREFIX + "expired",
+            )
+        )
+
+    first = archive_operation_logs(
+        retention_days=1, batch_size=10, final_retention_days=1
+    )
+    second = archive_operation_logs(
+        retention_days=1, batch_size=10, final_retention_days=1
+    )
+
+    assert first["purged"] == 3
+    assert second["purged"] == 0
+    assert _run(_count_archive()) == 0
+
+
+def test_archive_invalid_final_retention_raises_without_side_effects():
+    now = datetime.now(timezone.utc)
+    _run(_insert_log(now - timedelta(days=3), ACTION_PREFIX + "old"))
+
+    with pytest.raises(ValueError):
+        archive_operation_logs(final_retention_days=0)
+
+    # 参数错误快速失败：迁移与清理都不应发生。
+    assert _run(_count_main()) == 1

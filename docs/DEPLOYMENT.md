@@ -6,6 +6,7 @@ Docker Compose 至少包含：
 - redis
 - api
 - celery_worker
+- celery_beat（TASK-089：维护任务周期调度器）
 
 ## Production
 推荐：
@@ -47,6 +48,26 @@ docker compose -f docker-compose.prod.yml down -v
   `stop_grace_period: 30s`（与 Gunicorn `--graceful-timeout=30` 对齐）。
 - **不注入宿主 `.env`**：容器内地址由 compose 用服务名拼装；注入宿主 `.env`
   （`DATABASE_URL` 指向 `127.0.0.1:5433`）会让容器连不上任何东西。
+
+### 维护任务调度（TASK-089，§61）
+
+`celery_beat` 服务（dev/prod 两套 compose 均有，与 app 同镜像、独立命令
+`celery -A app.tasks.celery_app beat`）按 `beat_schedule` 周期投递两项维护任务：
+
+| 任务 | 默认时刻（UTC） | 说明 |
+|---|---|---|
+| `archive_operation_logs` | 每日 19:30（≈ 北京时间 03:30，低位时段） | 超期日志主表 → 归档表；随后按 `ARCHIVE_FINAL_RETENTION_DAYS`（默认 365 天，按 `archived_at` 计）清理归档表终态 |
+| `cleanup_expired_attachments` | 每小时第 45 分 | 回收 storage 卷中的孤儿物理文件 |
+
+- 间隔经 `.env` 可配：`ARCHIVE_SCHEDULE_HOUR` / `ARCHIVE_SCHEDULE_MINUTE` /
+  `CLEANUP_SCHEDULE_MINUTE` / `ARCHIVE_FINAL_RETENTION_DAYS`。
+- ⚠ **beat 必须单实例**：多副本 beat 会重复投递同一条任务。任务幂等
+  （TASK-051）只保证重复执行无副作用，不保证不浪费队列/worker 资源。
+  celery_beat 服务刻意不可扩展；扩容只发生在 celery_worker 上。
+- beat 无 healthcheck（`inspect` 探的是 worker）；存活监督靠 `restart: always`
+  与容器日志。调度正确性由 `tests/test_beat_schedule.py` 契约测试钉住。
+- 验证下一次执行时间：`docker compose -f docker-compose.prod.yml exec celery_beat
+  celery -A app.tasks.celery_app inspect scheduled`（需 worker 在跑才能看到条目）。
 
 ### 反代层：Nginx + Gunicorn（TASK-060，§31）
 
