@@ -11,8 +11,8 @@
 | 维度 | 事实 |
 | --- | --- |
 | 运行时 | Python 3.13（CI 与镜像）· FastAPI 0.141 · SQLAlchemy 2.0 async · Pydantic v2 |
-| 数据库 | PostgreSQL 16 · 14 个 Alembic 迁移 · 16 张业务表 · 20 条外键 · 8 个唯一约束 · 3 个 CHECK |
-| HTTP 接口 | 40 个操作（38 个在 `/api/v1` 下，共 25 条 `/api/v1` 路径；另有 `GET /` 与 `GET /health`） |
+| 数据库 | PostgreSQL 16 · 15 个 Alembic 迁移 · 16 张业务表 · 20 条外键 · 8 个唯一约束 · 3 个 CHECK |
+| HTTP 接口 | 45 个操作（43 个在 `/api/v1` 下，共 29 条 `/api/v1` 路径；另有 `GET /` 与 `GET /health`） |
 | 缓存与队列 | Redis 7：滑动窗口限流（ZSET + Lua）+ Celery Broker/Backend |
 | 认证授权 | JWT 双 Token（jti 落库 + 轮换 + 登出撤销）· Argon2id · RBAC + 资源级归属链 |
 | 测试 | 1011 passed，0 failed / 0 error / 0 skipped；覆盖率 99.96% 行、100% 分支 |
@@ -20,7 +20,7 @@
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 15（前端优化，规格 §59 阶段 16），TASK-001 ~ TASK-080 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080；前端规格 §59 全部阶段收官）。
+> 当前处于 Phase 16（RBAC 权限闭环），TASK-001 ~ TASK-084 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线）。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -43,7 +43,7 @@
 - **性能问题要能解释**：N+1 不靠「记得加 eager load」，而是把关联读取写成显式
   批量 `IN` 查询，并用运行时 SQL 计数测试钉死。
 
-已实现的能力（对应 25 条 `/api/v1` 路径 / 40 个操作）：
+已实现的能力（对应 29 条 `/api/v1` 路径 / 45 个操作）：
 
 | 模块 | 能力 |
 | --- | --- |
@@ -127,8 +127,8 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 | `app/core` | 配置、安全（JWT/口令）、异常、日志、中间件、真实客户端 IP 判定 |
 | `app/db` | 引擎、Session、Redis 客户端 |
 | `app/tasks` | Celery 应用与业务任务 |
-| `migrations` | Alembic 迁移（14 个，可逆性在 CI 里验证） |
-| `tests` | 62 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
+| `migrations` | Alembic 迁移（15 个，可逆性在 CI 里验证） |
+| `tests` | 63 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
 | `scripts` | 文档一致性检查（`check_docs.py`） |
 
 ---
@@ -139,23 +139,23 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 task-flow/
 ├── app/
 │   ├── main.py                  # 应用装配：中间件顺序、路由、异常处理、/health
-│   ├── api/v1/                  # Router 层（9 个模块：auth/users/teams/projects/tasks/
+│   ├── api/v1/                  # Router 层（10 个模块：auth/users/permissions/teams/projects/tasks/
 │   │                            #   comments/attachments/notifications/logs）
 │   ├── core/                    # config / security / exceptions / deps /
 │   │                            #   logging_config / middleware / client_ip / redis_keys
 │   ├── crud/                    # 12 个数据访问模块
 │   ├── db/                      # base / session / redis
 │   ├── models/                  # 16 个模型模块
-│   ├── schemas/                 # 10 个请求响应模型模块
-│   ├── services/                # 13 个业务服务（含 state_machine / authorization /
-│   │                            #   rate_limit / storage）
+│   ├── schemas/                 # 11 个请求响应模型模块
+│   ├── services/                # 14 个业务服务（含 state_machine / authorization /
+│   │                            #   rate_limit / storage / rbac）
 │   └── tasks/                   # celery_app / notification_tasks / maintenance_tasks
 ├── migrations/
 │   ├── env.py
-│   └── versions/                # 14 个迁移（含 RBAC 种子数据）
+│   └── versions/                # 15 个迁移（含 RBAC 种子数据与 member 角色回填）
 ├── nginx/nginx.conf             # 生产反代配置（只读挂载进容器）
 ├── scripts/check_docs.py        # 文档一致性检查（退出码 0/1）
-├── tests/                       # 62 个测试文件 + conftest.py
+├── tests/                       # 63 个测试文件 + conftest.py
 ├── .github/workflows/ci.yml     # 三 job：ruff / pytest / docker build
 ├── Dockerfile                   # python:3.13-slim，非 root 运行
 ├── docker-compose.yml           # 开发栈（app + worker + postgres + redis）
@@ -306,12 +306,14 @@ FastAPI（业务事务已提交）
 - 契约文档（人读的版本，含每端点的授权、错误码、字段约束）：
   [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md)。
 
-### 端点总览（38 个 `/api/v1` 操作）
+### 端点总览（43 个 `/api/v1` 操作）
 
 | 分组 | 路径 | 说明 |
 | --- | --- | --- |
-| Auth | `POST /auth/register`、`POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout` | 注册 / 登录 / 刷新（轮换）/ 登出（撤销） |
+| Auth | `POST /auth/register`、`POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout` | 注册（自动绑 member 角色）/ 登录 / 刷新（轮换）/ 登出（撤销） |
 | User | `GET /users/me` | 当前用户 |
+| User（RBAC） | `GET /users`、`GET /users/me/permissions`、`GET|PUT /users/{user_id}/roles` | 用户列表 / 我的有效权限 / 角色管理（PUT 仅 admin） |
+| Permissions | `GET /permissions` | 角色-权限矩阵（仅 admin） |
 | Team | `GET|POST /teams`、`GET|PATCH|DELETE /teams/{team_id}` | 团队 CRUD |
 | Team Members | `GET|POST /teams/{team_id}/members`、`DELETE /teams/{team_id}/members/{user_id}` | 成员管理 |
 | Project | `GET|POST /projects`、`GET|PATCH|DELETE /projects/{project_id}` | 项目 CRUD |
@@ -471,9 +473,10 @@ alembic revision --autogenerate -m "add xxx"
 alembic downgrade -1
 ```
 
-14 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
+15 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
 teams/team_members → projects → tasks → task_assignees → comments → attachments →
-operation_logs → operation_logs_archive → notifications → 任务搜索索引。
+operation_logs → operation_logs_archive → notifications → 任务搜索索引 →
+无角色用户补绑 member 角色（数据回填，downgrade 为显式 no-op）。
 
 **可逆性是被 CI 验证的**：CI 在空库上跑 `upgrade head → downgrade base → upgrade head`，
 三步共用一个 shell 且 `set -euo pipefail`——任一步失败立即中断，从而排除「downgrade
@@ -497,7 +500,7 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-15）**：1011 passed，0 failed / 0 error / 0 skipped；
+**当前基线（快照 2026-09-16）**：1033 passed，0 failed / 0 error / 0 skipped；
 覆盖率 2376 语句 / 1 未覆盖 / 358 分支 → 99.96% 行、100% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。

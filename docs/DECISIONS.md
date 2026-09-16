@@ -558,3 +558,14 @@
 - 效果：主 chunk 1074→250 kB（-77%）、CSS 353→57 kB（-84%）；el-date-picker/el-table 等重组件随路由/组件拆 chunk 按需加载；构建零体积警告。
 - 验证口径：四门全绿 + 70 项单测不回退之外，补三道按需引入专项核对——①「模板用到的 45 个 el-* 标签 ⊆ components.d.ts 解析集」静态等价；② dist 中 el-message/el-loading 样式与 zh-cn locale 在位；③ dev server 转换产物抽检（组件 import + 样式配对 + 指令解析可见）。
 - Trade-off：① 多一个构建插件与一份生成类型文件（components.d.ts 随用随更，人工不编辑）；② 命令式 API 的样式靠人肉清单——漏补不会报错只会丢样式（已用注释与文档双通道提醒，风险面是「新弹窗没样式」而非「旧功能坏」）；③ 组件级拆 chunk 让产物文件数变多（nginx 按 hash 长缓存，浏览器并行加载，实际不劣化）。
+
+## 060 RBAC 管理端点的权限语义与守卫边界（TASK-081~084）
+
+- Date：2026-09-16
+- Context：注册用户此前零角色（`assign_role_to_user` 无任何调用点），登录后所有功能级守卫一律 403——「普通成员登录即权限不足」的根因。同时前端拿不到权限集合（D4/Q1），admin 也无法在界面上分配角色。
+- Decision：
+  1. **注册即 member**：`register_user` 与 `create_user` 同事务绑定 `member`；种子角色缺失（库未到 head）抛 `RuntimeError` 快速失败，绝不静默产出零权限用户。存量无角色用户由数据迁移 e3a7c1f9b2d4 回填（只补 `user_roles` 为空者；downgrade no-op——无法区分回填的与应用侧绑定的 member）。
+  2. **读自己的权限只需登录，看配置矩阵要 user:update**：`GET /users/me/permissions` 仅认证（同一 `get_user_permissions` 数据源，与 `require_permission` 判定一致）；`GET /permissions`（角色-权限矩阵）挂 user:update——矩阵是管理面配置数据，member 的 `user:read` 是协作语义（找同事/看负责人），不该顺带看到全部 RBAC 配置。不新增权限项、不动 22 项种子清单。
+  3. **PUT 角色全量替换 + 禁止操作自己**：PUT（非 PATCH）语义为全量替换（缺失补授、不在清单撤销），Service 层 commit；目标用户/角色不存在 → 404；**operator 修改自己的角色 → 403**——系统没有「至少保留一个 admin」的全局不变量，允许自我降权等于提供一键锁死的按钮。前端编辑对话框同样不渲染本人一行（体验一致，安全由后端兜底）。
+  4. **前端权限数据失败退化为空，不虚构**：auth store 并行拉取权限，失败归空集合不阻塞登录；菜单/按钮据此隐藏只影响入口观感（规格 §35「隐藏按钮 ≠ 安全」），真正的裁决永远在后端 403。
+- Consequence：新用户开箱即有日常读写能力（403 提示大幅减少）；admin 全流程界面化。代价：member 能 `GET /users` 列出全部用户（user:read 种子语义的既定结论，与团队邀请按 user_id 一致）；`PUT /users/{id}/roles` 依赖「不能改自己」这条软不变量，未来若引入「全局唯一 admin」不变量需在 Service 补强校验。

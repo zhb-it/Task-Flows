@@ -37,18 +37,29 @@ from app.crud.refresh_token import (
     get_refresh_token_by_jti,
     revoke_refresh_token,
 )
+from app.crud.role import assign_role_to_user, get_role_by_name
 from app.crud.user import create_user, get_user_by_email, get_user_by_username
 from app.models.user import User
 from app.schemas.auth import LoginRequest
 from app.schemas.user import UserCreate
 from app.services.user import load_current_user
 
+#: 注册默认角色（TASK-081）：每个新注册用户在**同一事务**内绑定 `member`。
+# 之前注册不绑任何角色，零角色 = 零权限，新用户登录后所有功能级守卫一律 403
+# （「普通成员登录即权限不足」的根因）。种子迁移 0de65c197efc 保证 `member`
+# 角色存在于升级到 Alembic head 的每个环境。
+DEFAULT_ROLE_NAME = "member"
+
 
 async def register_user(db: AsyncSession, payload: UserCreate) -> User:
     """Register a new active user and return the persisted row.
 
+    The user is granted the default ``member`` role in the same transaction
+    (TASK-081) — a roleless user would fail every permission guard with 403.
+
     Raises:
         ConflictError: if the username or the email is already taken.
+        RuntimeError: if the seed roles are missing (DB not at Alembic head).
     """
     if await get_user_by_username(db, payload.username) is not None:
         raise ConflictError("Username is already registered")
@@ -61,12 +72,23 @@ async def register_user(db: AsyncSession, payload: UserCreate) -> User:
     # a 500 instead of a 409. Found by TASK-062's real-concurrency registration
     # test — see DECISIONS 044.
     try:
+        member_role = await get_role_by_name(db, DEFAULT_ROLE_NAME)
+        if member_role is None:
+            # 种子角色缺失说明库没升到 Alembic head——宁可当场失败（500 且
+            # 日志里点名根因），也不能静默产出一个零权限用户：那正是
+            # TASK-081 修复的缺陷，再兜底一次等于把 bug 埋回去。
+            raise RuntimeError(
+                f"Default role '{DEFAULT_ROLE_NAME}' not found — "
+                "database is not migrated to head (seed migration 0de65c197efc)"
+            )
         user = await create_user(
             db,
             username=payload.username,
             email=payload.email,
             password_hash=hash_password(payload.password),
         )
+        # 与 create_user 同一事务：角色绑定失败则整个注册回滚，不留半成品。
+        await assign_role_to_user(db, user_id=user.id, role_id=member_role.id)
         await db.commit()
     except IntegrityError as exc:
         # Two concurrent registrations can both pass the checks above; the DB

@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-080 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-084 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084）。
 
 ## Current Phase
-Phase 15：前端优化（规格 §59 阶段 16 / §74）
+Phase 16：RBAC 权限闭环（TASK-081~084）
 
 ## Current Task
-TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §59 阶段 16 / §74）——主产物不再携带全量 Element Plus，主 chunk 1074→250 kB、CSS 353→57 kB。
+TASK-084 前端权限闭环：权限页升级为真实角色管理 + usePermission 接入 `/users/me/permissions` 真实数据 + 菜单按权限过滤（TASK-081~083 后端端点：注册默认绑 member、me/permissions、/permissions 矩阵、GET/PUT /users/{id}/roles）。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -90,6 +90,10 @@ TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §5
 - [x] TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71：新建 format / composables-usePermission / store-auth / store-notification 四个 spec 共 33 项，37 → 70（8 文件）；format 空值/非法降级 + 相对时间五档边界（vi.setSystemTime）+ 文件大小 1024 进制；usePermission 钉住权限集合恒为空（§4-D4）；auth store 钉住令牌唯一来源、登录失败不留半截状态、登出撤销失败不阻塞；notification store 钉住 silent 预览、未读数前端统计、已读同步；组件测试与 E2E 降级口径登记 DECISIONS 057）
 - [x] TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56：frontend 多阶段构建镜像 node:22-alpine 构建 → nginx:1.27-alpine 托管 dist；入口 Nginx 分流 / → 前端、/api/ → FastAPI；compose 增 frontend 服务不发布宿主端口；契约测试演进后 68 项全绿，本机真实构建 + 冒烟：SPA 深链回退、hash 资源单条 immutable 缓存头 + gzip、/api/v1 注册/登录/users/me/notifications 全通、暴露面仅 nginx:18081、down -v 零残留；冒烟修两坑——/assets/ root 需 server 级声明、expires 与 add_header Cache-Control 重复头合并）
 - [x] TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §59 阶段 16 / §74：unplugin-vue-components 编译期解析模板组件与 v-loading 指令，main.ts 去全量注册/全量 CSS、命令式 API 样式集中补引，locale 迁 el-config-provider，删除零引用 echarts，chunkSizeWarningLimit 回默认 500 kB；主 chunk 1074→250 kB（-77%）、CSS 353→57 kB（-84%）；四门全绿 70 passed，产物核对 el-message/el-loading 样式与 zh-cn locale 在位，45/45 el-* 标签全被 components.d.ts 解析，dev 转换产物抽检通过）
+- [x] TASK-081 注册默认绑定 member 角色 + 存量回填
+- [x] TASK-083 我的权限集合与权限矩阵端点（GET /users/me/permissions、GET /permissions）
+- [x] TASK-082 用户-角色管理端点（GET /users、GET/PUT /users/{user_id}/roles，仅 admin 写）
+- [x] TASK-084 前端权限闭环：权限页 + usePermission 真实数据 + 菜单权限过滤
 
 ## In Progress
 - [ ]
@@ -537,3 +541,5 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
+
+无——TASK-001 ~ TASK-084 全部交付（后端 TASK-001~064、前端 TASK-065~080、RBAC 权限闭环 TASK-081~084）。注册默认绑定 member 角色后「登录即 403」已消解；D4/Q1（权限集合端点与前端权限页）已随 TASK-081~084 关闭。剩余降级项：跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、更新资料/改密 Q4、组件测试/E2E 口径 DECISIONS 057，待后端补端点或环境解除限制后自然消解。

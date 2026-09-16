@@ -244,6 +244,9 @@ export const http = {
   patch<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return unwrap<T>(instance.patch<ApiEnvelope<T>>(url, body, options))
   },
+  put<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return unwrap<T>(instance.put<ApiEnvelope<T>>(url, body, options))
+  },
   delete<T>(url: string, options?: RequestOptions): Promise<T> {
     return unwrap<T>(instance.delete<ApiEnvelope<T>>(url, options))
   },

@@ -24,6 +24,13 @@ export interface MenuItem {
   path: string
   title: string
   icon: string
+  /**
+   * 持有其中任一权限（OR 语义）才显示菜单项（TASK-084）。不写 = 所有登录
+   * 用户可见。数据源是 `/users/me/permissions` 的真实权限集合；集合为空
+   * （拉取失败）时该项隐藏——菜单隐藏只管入口观感，页面本身仍由后端 403
+   * 兜底（规格 §35「隐藏按钮 ≠ 安全」）。
+   */
+  requiresAnyPermission?: string[]
 }
 
 export const MENU_ITEMS: readonly MenuItem[] = [
@@ -33,6 +40,12 @@ export const MENU_ITEMS: readonly MenuItem[] = [
   { path: '/teams', title: '团队', icon: 'UserFilled' },
   { path: '/notifications', title: '通知', icon: 'Bell' },
   { path: '/logs', title: '操作日志', icon: 'Document' },
+  {
+    path: '/permissions',
+    title: '权限管理',
+    icon: 'Lock',
+    requiresAnyPermission: ['user:update'],
+  },
 ]
 
 export const routes: RouteRecordRaw[] = [
@@ -153,6 +166,15 @@ export const routes: RouteRecordRaw[] = [
         name: 'operation-log-list',
         component: () => import('@/views/operation-log/OperationLogList.vue'),
         meta: { title: '操作日志', icon: 'Document', inMenu: true },
+      },
+      {
+        // TASK-084：权限管理（用户-角色分配 + 权限矩阵）。路由本身不做权限
+        // 拦截——页面内按 `can('user:update')` 决定加载管理区，矩阵 403 时
+        // 诚实降级提示（规格 §35：真正的裁决在后端）。
+        path: 'permissions',
+        name: 'permission-manage',
+        component: () => import('@/views/permission/PermissionManage.vue'),
+        meta: { title: '权限管理', icon: 'Lock', inMenu: true },
       },
       {
         path: 'profile',

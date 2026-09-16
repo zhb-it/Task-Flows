@@ -18,11 +18,14 @@ import {
   Document,
   FolderOpened,
   HomeFilled,
+  Lock,
   Tickets,
   UserFilled,
 } from '@element-plus/icons-vue'
 
-import { APP_TITLE, MENU_ITEMS } from '@/router/routes'
+import { APP_TITLE, MENU_ITEMS, type MenuItem } from '@/router/routes'
+import { useAuthStore } from '@/stores/auth'
+import { hasAnyPermission } from '@/utils/permission'
 
 const props = defineProps<{ collapsed: boolean }>()
 
@@ -34,6 +37,7 @@ const ICONS: Record<string, Component> = {
   UserFilled,
   Bell,
   Document,
+  Lock,
 }
 
 function iconFor(name: string): Component {
@@ -41,6 +45,20 @@ function iconFor(name: string): Component {
 }
 
 const route = useRoute()
+const authStore = useAuthStore()
+
+/**
+ * 按权限过滤菜单（TASK-084）：声明了 `requiresAnyPermission` 的项只在当前
+ * 用户持有其一（OR 语义）时显示。权限集合为空（拉取失败/未登录）时受控项
+ * 隐藏——后端 403 仍然兜底，这里只管入口观感。
+ */
+const visibleMenuItems = computed<readonly MenuItem[]>(() =>
+  MENU_ITEMS.filter(
+    (item) =>
+      !item.requiresAnyPermission ||
+      hasAnyPermission(authStore.permissions, ...item.requiresAnyPermission),
+  ),
+)
 
 const activePath = computed(() => {
   const matched = MENU_ITEMS.filter(
@@ -69,7 +87,7 @@ const activePath = computed(() => {
       router
       class="tf-sidebar__menu"
     >
-      <el-menu-item v-for="item in MENU_ITEMS" :key="item.path" :index="item.path">
+      <el-menu-item v-for="item in visibleMenuItems" :key="item.path" :index="item.path">
         <el-icon><component :is="iconFor(item.icon)" /></el-icon>
         <template #title>{{ item.title }}</template>
       </el-menu-item>

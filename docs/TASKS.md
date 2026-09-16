@@ -231,6 +231,37 @@
   - 验收标准：四门全绿（typecheck/lint/test/build）；主 chunk 显著缩减且构建无体积警告；静态核对「模板用到的 `el-*` 标签 ⊆ components.d.ts 解析集」；dev server 转换产物抽检确认组件/`v-loading` 指令/样式配对按需引入；`el-message`/`el-loading` 样式与 zh-cn locale 在产物中存在。
   - 测试要求：不新增应用逻辑；既有 70 项单测不回退；验证手段 = 四门 + 产物静态核对 + dev 转换产物抽检（运行时浏览器冒烟受既定安全策略口径约束不绕过）。
 
+## Phase 16：RBAC 权限闭环（TASK-081~084）
+
+- [x] TASK-081 注册默认绑定 member 角色 + 存量回填
+  - 目标：消除「普通成员登录即权限不足」的根因——注册用户零角色 = 零权限，所有功能级守卫一律 403。
+  - 依赖：TASK-015（注册）、TASK-022（RBAC 种子）。
+  - 涉及文件：`app/services/auth.py`、`migrations/versions/e3a7c1f9b2d4_backfill_member_role.py`（新建）、`tests/test_register.py`。
+  - 实现要求：① `register_user` 在与 `create_user` **同一事务**内绑定 `member` 角色；② `member` 角色缺失（库未到 Alembic head）时抛 `RuntimeError` 快速失败，不允许静默产出零权限用户；③ 数据迁移把存量无角色用户补绑 `member`（只补 `user_roles` 为空的用户；`ON CONFLICT DO NOTHING` 幂等；downgrade 显式 no-op——无法区分回填的与应用侧绑定的 member）。
+  - 验收标准：注册后用户角色恰为 `[member]`；新 member 登录后挂 `team:read` 守卫的端点 200、`team:create` 403；并发注册 409 语义不回归。
+  - 测试要求：`test_register.py` 增默认角色断言与功能级守卫端到端断言；全量回归无新增失败。
+- [x] TASK-083 我的权限集合与权限矩阵端点
+  - 目标：前端按钮级显隐与权限页有真实数据源（关闭 D4/Q1）。
+  - 依赖：TASK-023（权限判定）、TASK-022（种子）。
+  - 涉及文件：`app/api/v1/users.py`、`app/api/v1/permissions.py`（新建）、`app/api/v1/__init__.py`、`app/services/rbac.py`（新建）、`app/schemas/user.py`、`app/schemas/role.py`（新建）、`tests/test_rbac_admin_api.py`（新建）。
+  - 实现要求：① `GET /users/me/permissions` 仅需登录，返回当前用户有效权限名集合（与 `require_permission` 同一数据源 `get_user_permissions`，去重、字典序）；② `GET /permissions` 返回角色-权限矩阵，守卫选 **user:update**（种子中仅 admin 持有）——矩阵是 RBAC 管理面配置，member 的 `user:read` 是协作语义，不应顺带看到全部配置；③ Router 不直接 import CRUD（`services/rbac.py` 承载矩阵装配）；④ 权限名统一字典序输出，与 me/permissions 顺序契约一致。
+  - 验收标准：member 调 me/permissions 得种子 10 项；member 调矩阵 403、admin 200 且 admin 角色 22 项。
+  - 测试要求：`test_rbac_admin_api.py` 10 项覆盖上述断言 + 未认证 401。
+- [x] TASK-082 用户-角色管理端点（admin）
+  - 目标：admin 能在界面上给用户授/撤角色（此前只能手改数据库）。
+  - 依赖：TASK-081（默认角色语义）。
+  - 涉及文件：`app/api/v1/users.py`、`app/services/user.py`、`app/crud/user.py`（get_users 已有）、`app/schemas/user.py`、`tests/test_rbac_admin_api.py`。
+  - 实现要求：① `GET /users`（user:read，skip/limit 分页，单查询批量带角色名，不 N+1）；② `GET/PUT /users/{user_id}/roles`——GET 挂 user:read，PUT 挂 user:update；③ PUT 为**全量替换**语义（不在清单中的既有授权被撤销、缺失的补授），Service 层 commit（写路径事务边界在 Service）；④ 守卫：目标用户/角色名不存在 → 404；**禁止操作自己的角色** → 403（没有「至少一个 admin」的全局不变量，允许自我降权等于一键锁死系统）；⑤ 路由声明顺序：`/users/me/*` 在 `/users/{user_id}/*` 之前。
+  - 验收标准：admin 替换角色后 GET 与 PUT 视角一致（按 Role.id 排序）；member PUT 403；未知角色/用户 404；改自己 403。
+  - 测试要求：`test_rbac_admin_api.py` 覆盖上述全部路径。
+- [x] TASK-084 前端权限闭环：权限页 + usePermission 真实数据 + 菜单权限过滤
+  - 目标：前端与后端 RBAC 能力对齐，权限页从「能力审计」升级为真实管理（关闭 D4 前端侧）。
+  - 依赖：TASK-081/082/083（端点）。
+  - 涉及文件：`src/api/permission.ts`、`src/types/permission.ts`（新建）；`src/stores/auth.ts`、`src/composables/usePermission.ts`、`src/utils/request.ts`（增 put）、`src/router/routes.ts`、`src/components/layout/AppSidebar.vue`、`src/views/permission/PermissionManage.vue`（新建）；`tests/unit/{store-auth,composables-usePermission,router}.spec.ts`（演进）。
+  - 实现要求：① auth store 登录/守卫拉用户资料时**并行**拉 `/users/me/permissions`，失败归空集合不阻塞登录；② `usePermission` 改为 store 只读视图，`can/canAny` 语义不变；③ 新增「权限管理」页：角色-权限矩阵（只读）+ 用户角色分配（编辑对话框，PUT 全量替换）；两区块都以 `can('user:update')` 控制，无权限时 el-alert 诚实说明；④ 菜单项支持 `requiresAnyPermission`，侧边栏按真实权限过滤入口（隐藏只管入口观感，后端 403 兜底）；⑤ 403 仍由统一拦截器提示，不做页面级跳转（member 权限已够日常使用，403 场景收敛）。
+  - 验收标准：四门全绿（typecheck/lint/test/build）；admin 登录可见「权限管理」菜单且可改角色；member 不可见且直输 URL 得到降级提示。
+  - 测试要求：store 权限并行拉取与失败降级、composable 响应式判定、路由表演进断言；单测 72 项不回退。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

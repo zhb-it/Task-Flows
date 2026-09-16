@@ -160,6 +160,11 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
   并且**不据此隐藏任何功能**。理由：规格 §35 自己写着「隐藏按钮 ≠ 安全」，
   真正裁决权限的是后端；在没有事实的情况下凭空造一份权限表，会让开发者误以为前端已经守住了权限
   （比不做更危险）。替代方案见 §6-Q1。
+- **2026-09-16 更新（TASK-081~084）**：后端已提供 `GET /users/me/permissions`（仅需登录）与
+  `GET /permissions`（user:update）、`GET/PUT /users/{id}/roles`。前端 `usePermission` 已接
+  **真实权限集合**（auth store 并行拉取，失败归空集合），权限页升级为真实角色管理（矩阵 + 分配），
+  菜单项支持 `requiresAnyPermission` 过滤。「不据此隐藏任何功能」的原则不变：集合为空时入口隐藏
+  只影响观感，页面与操作仍由后端 403 兜底。同时注册默认绑定 `member` 角色，新用户登录即有日常能力。
 
 ### D5 · 资源级无权限表现为 404，不是 403
 
@@ -286,7 +291,7 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 
 | 编号 | 事项 | 影响 | 建议 |
 | --- | --- | --- | --- |
-| Q1 | 缺「我的权限集合」查询端点 | 前端无法按权限隐藏入口，member 会看到自己点不动的按钮（`task:transition` 最明显） | 后端加 `GET /users/me/permissions`（或让 `UserRead` 带 `permissions`） |
+| ~~Q1~~ | ~~缺「我的权限集合」查询端点~~ | **已消解（TASK-083/084，2026-09-16）**：`GET /users/me/permissions` 已上线，前端 `usePermission` 接真实数据 | — |
 | Q2 | 缺跨项目的任务统计/查询 | 首页统计与「我的任务」都无法做成全局视图 | 后端加统计端点，或放开 `project_id` 为可选 |
 | Q3 | 列表无 `total` | 分页器无法显示总条数与跳页 | 列表端点补 `total`（可选启用 `X-Total-Count` 头，注意别影响既有响应体契约） |
 | Q4 | 缺更新资料 / 改密端点 | 个人中心的两项功能无法实现 | 明确是否纳入范围，避免前端长期挂着两个禁用按钮 |

@@ -19,19 +19,21 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1011 passed
-pytest -q --cov --cov-report=term-missing   # 1011 passed，并输出下表
+pytest -q                                  # 1033 passed
+pytest -q --cov --cov-report=term-missing   # 1033 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-15）**：1011 passed / 62 个测试文件 / 924 个 `def test_*` /
-> 2376 语句 / 99.96% 行、100% 分支。
+> **当前基线（快照 2026-09-16）**：1033 passed / 63 个测试文件 / 939 个 `def test_*` /
+> 2376 语句 / 99.96% 行、100% 分支（行/分支覆盖率为 TASK-081 前口径，本轮未重测）。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1011 个用例全部通过**，0 failed / 0 error / 0 skipped（62 个测试文件，924 个
+- **1033 个用例全部通过**，0 failed / 0 error / 0 skipped（63 个测试文件，939 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m20s**。
+  （TASK-081~084 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项，
+  `tests/test_rbac_admin_api.py` 新建。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
   TASK-064 新增 2 个模块 26 项；TASK-063 新增 `tests/test_readme.py` 27 项 +
   `tests/test_docs_consistency.py` 补 2 项边界用例。）

@@ -16,10 +16,22 @@ const mocks = vi.hoisted(() => ({
   login: vi.fn(),
   fetchCurrentUser: vi.fn(),
   logout: vi.fn(),
+  fetchMyPermissions: vi.fn(),
 }))
 
+
 vi.mock('@/api/auth', () => ({
-  authApi: mocks,
+  authApi: {
+    login: mocks.login,
+    fetchCurrentUser: mocks.fetchCurrentUser,
+    logout: mocks.logout,
+  },
+}))
+
+vi.mock('@/api/permission', () => ({
+  permissionApi: {
+    fetchMyPermissions: mocks.fetchMyPermissions,
+  },
 }))
 
 import { useAuthStore } from '@/stores/auth'
@@ -50,19 +62,34 @@ describe('auth store', () => {
     expect(store.username).toBe('')
   })
 
-  it('login 成功：令牌写入 storage、登录态翻转、拉取并保存用户', async () => {
+  it('login 成功：令牌写入 storage、登录态翻转、拉取并保存用户与权限集合', async () => {
     mocks.login.mockResolvedValueOnce(PAIR)
     mocks.fetchCurrentUser.mockResolvedValueOnce(USER)
+    mocks.fetchMyPermissions.mockResolvedValueOnce({ permissions: ['task:read'] })
 
     const store = useAuthStore()
     const user = await store.login({ username: 'alice', password: 'secret' })
 
     expect(user).toEqual(USER)
     expect(store.currentUser).toEqual(USER)
+    expect(store.permissions).toEqual(['task:read'])
     expect(store.isAuthenticated).toBe(true)
     expect(store.username).toBe('alice')
     expect(store.loggingIn).toBe(false)
     expect(tokenStorage.getAccessToken()).toBe('access-1')
+  })
+
+  it('fetchCurrentUser：权限拉取失败不阻塞用户资料（归空集合，TASK-084）', async () => {
+    tokenStorage.save(PAIR)
+    mocks.fetchCurrentUser.mockResolvedValueOnce(USER)
+    mocks.fetchMyPermissions.mockRejectedValueOnce(new Error('boom'))
+
+    const store = useAuthStore()
+    const user = await store.fetchCurrentUser()
+
+    expect(user).toEqual(USER)
+    expect(store.currentUser).toEqual(USER)
+    expect(store.permissions).toEqual([])
   })
 
   it('login 失败：不留下半截状态，异常原样冒泡', async () => {
@@ -112,15 +139,17 @@ describe('auth store', () => {
     expect(store.isAuthenticated).toBe(false)
   })
 
-  it('clearSession：清令牌与用户，登录态归假', () => {
+  it('clearSession：清令牌、用户与权限集合，登录态归假', () => {
     tokenStorage.save(PAIR)
 
     const store = useAuthStore()
     store.currentUser = USER
+    store.permissions = ['task:read']
     store.clearSession()
 
     expect(tokenStorage.getAccessToken()).toBeNull()
     expect(store.currentUser).toBeNull()
+    expect(store.permissions).toEqual([])
     expect(store.isAuthenticated).toBe(false)
   })
 })

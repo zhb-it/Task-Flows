@@ -10,7 +10,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ fetchCurrentUser: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  fetchCurrentUser: vi.fn(),
+  fetchMyPermissions: vi.fn(),
+}))
 
 vi.mock('@/api/auth', () => ({
   authApi: {
@@ -19,6 +22,12 @@ vi.mock('@/api/auth', () => ({
     logout: vi.fn(),
     register: vi.fn(),
   },
+}))
+
+// 路由守卫拉用户资料时会并行拉权限集合（TASK-084）；这里固定为成功但不给
+// 权限，让守卫测试只关注路由行为本身。
+vi.mock('@/api/permission', () => ({
+  permissionApi: { fetchMyPermissions: mocks.fetchMyPermissions },
 }))
 
 import { registerGuards } from '@/router/guards'
@@ -92,6 +101,8 @@ describe('路由守卫', () => {
   beforeEach(() => {
     window.localStorage.clear()
     mocks.fetchCurrentUser.mockReset()
+    mocks.fetchMyPermissions.mockReset()
+    mocks.fetchMyPermissions.mockResolvedValue({ permissions: [] })
     setActivePinia(createPinia())
   })
 

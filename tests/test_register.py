@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.security import verify_password
+from app.crud.role import get_user_roles
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
@@ -164,6 +165,45 @@ async def test_conflict_does_not_create_second_row(client) -> None:
         ).scalars().all()
 
     assert len(rows) == 1
+
+
+# --- 默认角色（TASK-081）---------------------------------------------------
+
+
+async def test_register_grants_default_member_role(client) -> None:
+    """注册即绑定 member：零角色用户会对所有功能级守卫 403（TASK-081 根因）。"""
+    resp = await client.post("/api/v1/auth/register", json=_payload("role"))
+    assert resp.status_code == 201, resp.text
+    user_id = resp.json()["data"]["id"]
+
+    async with SessionFactory() as session:
+        roles = await get_user_roles(session, user_id)
+
+    assert [r.name for r in roles] == ["member"]
+
+
+async def test_new_member_passes_functional_permission_guard(client) -> None:
+    """注册 → 登录 → 带 token 访问挂 team:read 守卫的端点：不再 403。"""
+    await client.post("/api/v1/auth/register", json=_payload("guard"))
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"username": _username("guard"), "password": PASSWORD},
+    )
+    assert login.status_code == 200, login.text
+    token = login.json()["data"]["access_token"]
+
+    resp = await client.get(
+        "/api/v1/teams",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    # member 有 team:read（能进端点），但没有 team:create（不能建团队）。
+    create = await client.post(
+        "/api/v1/teams",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": f"reg_{RUN_TOKEN}_team", "description": None},
+    )
+    assert create.status_code == 403, create.text
 
 
 # --- 参数校验 -------------------------------------------------------------

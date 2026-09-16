@@ -15,6 +15,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import { authApi } from '@/api/auth'
+import { permissionApi } from '@/api/permission'
 import type { LoginRequest } from '@/types/auth'
 import type { User } from '@/types/user'
 import { tokenStorage } from '@/utils/storage'
@@ -22,6 +23,15 @@ import { tokenStorage } from '@/utils/storage'
 export const useAuthStore = defineStore('auth', () => {
   /** 当前登录用户；未登录或尚未拉取时为 null。 */
   const currentUser = ref<User | null>(null)
+
+  /**
+   * 当前用户的有效权限名集合（TASK-084：`GET /users/me/permissions`）。
+   *
+   * 与后端 `require_permission` 用同一数据源，`usePermission` 从这里取数做
+   * 按钮级显隐。拉取失败时归空集合而不是抛错——权限数据只影响「显示哪些
+   * 按钮」，不该阻塞登录主流程；真正的裁决永远在后端 403。
+   */
+  const permissions = ref<readonly string[]>([])
 
   /** 登录态标记：只表达「本地是否持有 Access Token」，不校验其有效性。 */
   const hasToken = ref(tokenStorage.getAccessToken() !== null)
@@ -38,7 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * 登录：换取令牌 → 记录登录态 → 拉取当前用户。
+   * 登录：换取令牌 → 记录登录态 → 拉取当前用户与权限集合。
    *
    * 为什么登录后立刻拉 `/users/me`：登录响应只有令牌，没有用户资料；而布局层
    * 需要用户名（顶栏、用户菜单），先拉一次可以让后续页面直接用
@@ -60,10 +70,26 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** 拉取当前用户资料（路由守卫在「已登录但还没有用户信息」时调用）。 */
+  /**
+   * 拉取当前用户资料与权限集合（路由守卫在「已登录但还没有用户信息」时调用）。
+   *
+   * 权限请求与用户资料并行发出；权限失败不阻塞——见 `permissions` 的注释。
+   */
   async function fetchCurrentUser(): Promise<User> {
-    const user = await authApi.fetchCurrentUser()
-    currentUser.value = user
+    const [user] = await Promise.all([
+      authApi.fetchCurrentUser().then((u) => {
+        currentUser.value = u
+        return u
+      }),
+      permissionApi
+        .fetchMyPermissions()
+        .then((res) => {
+          permissions.value = res.permissions
+        })
+        .catch(() => {
+          permissions.value = []
+        }),
+    ])
     return user
   }
 
@@ -93,10 +119,12 @@ export const useAuthStore = defineStore('auth', () => {
     tokenStorage.clear()
     hasToken.value = false
     currentUser.value = null
+    permissions.value = []
   }
 
   return {
     currentUser,
+    permissions,
     isAuthenticated,
     loggingIn,
     username,
