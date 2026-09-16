@@ -48,8 +48,8 @@ async function loadMembers(): Promise<void> {
   }
 }
 
-function onTabChange(tab: string): void {
-  if (tab === 'members') void loadMembers()
+function onTabChange(tab: string | number): void {
+  if (String(tab) === 'members') void loadMembers()
 }
 
 function goSettings(): void {

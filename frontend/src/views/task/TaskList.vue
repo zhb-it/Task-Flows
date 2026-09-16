@@ -257,7 +257,7 @@ function goCreate(): void {
       </el-table-column>
       <el-table-column label="负责人" min-width="140">
         <template #default="{ row }">
-          {{ assigneeText(row) }}
+          {{ assigneeText(row as Task) }}
         </template>
       </el-table-column>
       <el-table-column prop="due_at" label="截止时间" min-width="170">

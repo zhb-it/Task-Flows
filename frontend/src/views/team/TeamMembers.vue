@@ -26,7 +26,7 @@ const currentRole = computed<TeamRole | null>(() => {
 /** 邀请 / 移除成员需要 OWNER 或 ADMIN（后端 team:invite 权限的归属）。 */
 const canManage = computed(() => currentRole.value === 'owner' || currentRole.value === 'admin')
 
-const roleTag: Record<TeamRole, '' | 'success' | 'warning' | 'info'> = {
+const roleTag: Record<TeamRole, 'success' | 'warning' | 'info'> = {
   owner: 'warning',
   admin: 'success',
   member: 'info',
@@ -128,7 +128,7 @@ onMounted(loadMembers)
             v-if="canManage && row.role !== 'owner'"
             link
             type="danger"
-            @click="removeMember(row)"
+            @click="removeMember(row as TeamMember)"
           >
             移除
           </el-button>

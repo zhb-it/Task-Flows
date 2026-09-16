@@ -187,11 +187,11 @@ onMounted(loadLogs)
         <el-table-column label="操作" min-width="220">
           <template #default="{ row }">
             <el-tag size="small" type="info">{{ operationActionLabel(row.action) }}</el-tag>
-            <span class="log-page__payload">{{ describePayload(row) }}</span>
+            <span class="log-page__payload">{{ describePayload(row as OperationLog) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="资源" width="160">
-          <template #default="{ row }">{{ describeResource(row) }}</template>
+          <template #default="{ row }">{{ describeResource(row as OperationLog) }}</template>
         </el-table-column>
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>

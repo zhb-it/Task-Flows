@@ -126,7 +126,7 @@ onMounted(loadTeams)
     <el-table v-loading="loading" :data="filteredTeams" empty-text="还没有加入任何团队" stripe>
       <el-table-column prop="name" label="团队名称" min-width="160">
         <template #default="{ row }">
-          <el-link type="primary" @click="openDetail(row)">{{ row.name }}</el-link>
+          <el-link type="primary" @click="openDetail(row as Team)">{{ row.name }}</el-link>
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip>
@@ -137,12 +137,12 @@ onMounted(loadTeams)
       </el-table-column>
       <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+          <el-button link type="primary" @click="openDetail(row as Team)">查看</el-button>
           <el-button
-            v-if="isOwner(row)"
+            v-if="isOwner(row as Team)"
             link
             type="danger"
-            @click="removeTeam(row)"
+            @click="removeTeam(row as Team)"
           >
             删除
           </el-button>
