@@ -1,15 +1,22 @@
 <script setup lang="ts">
 /**
- * 任务详情（前端规格 §25 / §24 状态流转 / §27 编辑 / 阶段 8）。
+ * 任务详情（前端规格 §25 状态流转 / §27 编辑 / §28 评论 / 阶段 8~9）。
  *
- * 主体在阶段 8：任务字段展示 + 状态流转 + 编辑 + 负责人管理 + 删除。
- * 评论（§28）、附件（阶段 10）、操作日志（阶段 13）挂在本页下，但属于后续阶段，
- * 此处以占位区块明示「尚未实现」，不编造接口（见 docs/FRONTEND_API_MAPPING.md §7）。
+ * 阶段 8：任务字段展示 + 状态流转 + 编辑 + 负责人管理 + 删除。
+ * 阶段 9：评论区块（列表 / 发表 / 删除自己的评论，规格 §28）接真实端点
+ * `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`。
+ * 附件（阶段 10）、操作日志（阶段 13）挂在本页下，仍以占位区块明示「尚未实现」，
+ * 不编造接口（见 docs/FRONTEND_API_MAPPING.md §7）。
  *
  * 状态流转必须走 `POST /tasks/{id}/transition`（后端状态机）；普通成员可能无
  * `task:transition` 权限（§4-D11），点击后由后端 403 兜底。删除需团队 owner/admin，
  * 本页仅对「当前用户 == 项目 owner_id」显示删除钮（owner_id 是已知数据，可数据驱动
  * 隐藏；admin 角色未知，仍交给后端 403），其余操作按钮常显，越权由后端兜底。
+ *
+ * 评论删除同理：功能级 `comment:delete` 种子仅 admin 持有（§4-D11），但资源级允许
+ * 「作者本人 / 团队 OWNER/ADMIN」，规格 §28 亦要求「删除自己的评论」——本页按
+ * `comment.user_id === 当前用户` 数据驱动显示删除钮，成员越权删除由后端 403 兜底并由
+ * 请求层提示（见 DECISIONS 052），不臆测权限集提前隐藏。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -17,6 +24,7 @@ import { ElMessage } from 'element-plus'
 import { taskApi } from '@/api/task'
 import { projectApi } from '@/api/project'
 import { teamApi } from '@/api/team'
+import { commentApi } from '@/api/comment'
 import { useAuthStore } from '@/stores/auth'
 import {
   TASK_STATUS_LABELS,
@@ -29,6 +37,7 @@ import {
 } from '@/types/task'
 import type { Project } from '@/types/project'
 import type { TeamMember } from '@/types/team'
+import type { Comment } from '@/types/comment'
 
 const props = defineProps<{ taskId?: string }>()
 const router = useRouter()
@@ -44,6 +53,13 @@ const editForm = reactive<TaskUpdate>({})
 const assigning = ref(false)
 const assignUserId = ref<number | null>(null)
 const saving = ref(false)
+
+// —— 评论（阶段 9，规格 §28）——
+const comments = ref<Comment[]>([])
+const commentsLoading = ref(false)
+const newComment = ref('')
+const posting = ref(false)
+const deletingCommentId = ref<number | null>(null)
 
 const taskIdNum = computed(() => Number(props.taskId))
 
@@ -61,7 +77,10 @@ const creatorText = computed(() => {
   return m ? m.username : `#${task.value.creator_id}`
 })
 
-onMounted(loadTask)
+onMounted(() => {
+  loadTask()
+  loadComments()
+})
 
 async function loadTask(): Promise<void> {
   loading.value = true
@@ -79,6 +98,55 @@ async function loadTask(): Promise<void> {
     /* 404 等由请求层提示 */
   } finally {
     loading.value = false
+  }
+}
+
+/** 加载评论（独立于任务主体，单项失败不连累其余区块）。 */
+async function loadComments(): Promise<void> {
+  commentsLoading.value = true
+  try {
+    comments.value = await commentApi.listComments(taskIdNum.value)
+  } catch {
+    /* 403/404 由请求层提示，评论区保持空态 */
+  } finally {
+    commentsLoading.value = false
+  }
+}
+
+/** 仅「自己的评论」显示删除钮（数据驱动；成员越权由后端 403 兜底）。 */
+function canDeleteComment(c: Comment): boolean {
+  return authStore.currentUser?.id === c.user_id
+}
+
+async function doPostComment(): Promise<void> {
+  const content = newComment.value.trim()
+  if (!content) {
+    ElMessage.warning('请输入评论内容')
+    return
+  }
+  posting.value = true
+  try {
+    const created = await commentApi.createComment(taskIdNum.value, { content })
+    comments.value = [...comments.value, created]
+    newComment.value = ''
+    ElMessage.success('评论已发表')
+  } catch {
+    /* 403（无 comment:create）等由请求层提示 */
+  } finally {
+    posting.value = false
+  }
+}
+
+async function doDeleteComment(c: Comment): Promise<void> {
+  deletingCommentId.value = c.id
+  try {
+    await commentApi.deleteComment(c.id)
+    comments.value = comments.value.filter((item) => item.id !== c.id)
+    ElMessage.success('评论已删除')
+  } catch {
+    /* 功能级 comment:delete 种子仅 admin（§4-D11）→ 成员删自己的评论也会 403，请求层提示 */
+  } finally {
+    deletingCommentId.value = null
   }
 }
 
@@ -238,9 +306,62 @@ function fmt(ts: string | null): string {
             </div>
           </el-card>
 
-          <el-card class="block placeholder-block" shadow="never">
-            <template #header>评论</template>
-            <p class="muted">评论功能在阶段 9 实现（规格 §28），本区块为占位。</p>
+          <el-card class="block" shadow="never">
+            <template #header>
+              <span>评论</span>
+              <span v-if="comments.length" class="muted comment-count">（{{ comments.length }}）</span>
+            </template>
+            <div v-loading="commentsLoading" class="comment-list">
+              <el-empty
+                v-if="!commentsLoading && !comments.length"
+                description="暂无评论"
+                :image-size="60"
+              />
+              <div v-for="c in comments" :key="c.id" class="comment-item">
+                <div class="comment-head">
+                  <span class="comment-author">{{ c.username }}</span>
+                  <span class="comment-time">{{ fmt(c.created_at) }}</span>
+                  <el-popconfirm
+                    v-if="canDeleteComment(c)"
+                    title="确认删除该评论？"
+                    @confirm="doDeleteComment(c)"
+                  >
+                    <template #reference>
+                      <el-button
+                        class="comment-del"
+                        link
+                        type="danger"
+                        size="small"
+                        :loading="deletingCommentId === c.id"
+                      >
+                        删除
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+                <div class="comment-content">{{ c.content }}</div>
+              </div>
+            </div>
+            <div class="comment-form">
+              <el-input
+                v-model="newComment"
+                type="textarea"
+                :rows="3"
+                maxlength="2000"
+                show-word-limit
+                placeholder="输入评论..."
+              />
+              <div class="comment-form-actions">
+                <el-button
+                  type="primary"
+                  :loading="posting"
+                  :disabled="!newComment.trim()"
+                  @click="doPostComment"
+                >
+                  发表评论
+                </el-button>
+              </div>
+            </div>
           </el-card>
           <el-card class="block placeholder-block" shadow="never">
             <template #header>附件</template>
@@ -345,5 +466,48 @@ function fmt(ts: string | null): string {
 }
 .placeholder-block {
   background: var(--el-fill-color-light);
+}
+.comment-count {
+  font-size: 13px;
+}
+.comment-list {
+  min-height: 40px;
+}
+.comment-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.comment-item:last-child {
+  border-bottom: none;
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comment-author {
+  font-weight: 600;
+  font-size: 14px;
+}
+.comment-time {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.comment-del {
+  margin-left: auto;
+}
+.comment-content {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--el-text-color-regular);
+}
+.comment-form {
+  margin-top: 16px;
+}
+.comment-form-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

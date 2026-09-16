@@ -161,6 +161,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；任务四页面真实渲染并接后端；被后端卡住处界面明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，任务页只做结构与四门校验验证。
 
+- [x] TASK-073 评论模块（规格 §28「任务评论」）
+  - 目标：在任务详情内实现评论区块（查看 / 添加 / 删除自己的评论），全部走真实后端端点；对后端「功能级 `comment:delete` 仅 admin」的权限口径做诚实降级（不臆测权限集隐藏按钮）。
+  - 依赖：TASK-072（任务详情页 `TaskDetail.vue` 已就绪，评论原为阶段 9 占位）。
+  - 涉及文件：`src/types/comment.ts`（新建：Comment / CommentCreate / CommentListParams，对齐 `app/schemas/comment.py`）、`src/api/comment.ts`（新建：`commentApi.listComments/createComment/deleteComment`）、`src/views/task/TaskDetail.vue`（评论占位替换为真实区块）。
+  - 实现要求：① 列表 `GET /tasks/{task_id}/comments`（功能级 `task:read`），`CommentRead` 内嵌 `username` 直接渲染作者名，不额外查用户；② 发表 `POST /tasks/{task_id}/comments`（`comment:create`，种子数据成员可用），textarea 限 2000 字（对齐 `CommentCreate` 的 `max_length`）并带字数统计；③ 删除 `DELETE /comments/{comment_id}`——按规格 §28「删除自己的评论」，仅对 `comment.user_id === 当前用户` 的评论显示删除钮（数据驱动，非臆测权限集）；功能级 `comment:delete` 种子**仅 admin 持有**且先于资源级判定执行，故普通成员删自己的评论也会 403，由请求层统一提示，不提前隐藏按钮（`§4-D4`，见 DECISIONS 052）；④ 评论独立加载、独立容错（读取失败只让评论区空/报错，不连累任务主体）；⑤ 附件/操作日志仍为阶段 10/13 占位（PagePlaceholder），不编造端点。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；评论区块真实渲染并接后端；权限口径在界面/文档明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，评论区块只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
