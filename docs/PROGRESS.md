@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-079 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~079）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-080 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080）。
 
 ## Current Phase
-Phase 14：前端部署（规格 §59 阶段 15 / §56）
+Phase 15：前端优化（规格 §59 阶段 16 / §74）
 
 ## Current Task
-TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：frontend 多阶段构建镜像（node 构建 → nginx 托管 dist）+ 入口 Nginx 按 §56 分流（/ → 前端、/api/ → FastAPI），暴露面维持「只有 Nginx 对外」。
+TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §59 阶段 16 / §74）——主产物不再携带全量 Element Plus，主 chunk 1074→250 kB、CSS 353→57 kB。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -89,6 +89,7 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 - [x] TASK-077 操作日志（规格 §32/§44，阶段 13：OperationLogList.vue 占位替换为真实日志页——GET /logs 当前用户时间线（skip/limit，limit 上限 100，无 total）；操作类型/时间筛选做在当前已取回的页（后端无筛选参数，D16）；分页仅「上一页/下一页」；操作人列与 IP 列因后端不返回相应数据无法展示、页面明示；payload 按 action 收窄（三种已知 action，未知 JSON 兜底）；types/log.ts 补 action/资源类型中文标签，api/log.ts 补 listResourceLogs）
 - [x] TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71：新建 format / composables-usePermission / store-auth / store-notification 四个 spec 共 33 项，37 → 70（8 文件）；format 空值/非法降级 + 相对时间五档边界（vi.setSystemTime）+ 文件大小 1024 进制；usePermission 钉住权限集合恒为空（§4-D4）；auth store 钉住令牌唯一来源、登录失败不留半截状态、登出撤销失败不阻塞；notification store 钉住 silent 预览、未读数前端统计、已读同步；组件测试与 E2E 降级口径登记 DECISIONS 057）
 - [x] TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56：frontend 多阶段构建镜像 node:22-alpine 构建 → nginx:1.27-alpine 托管 dist；入口 Nginx 分流 / → 前端、/api/ → FastAPI；compose 增 frontend 服务不发布宿主端口；契约测试演进后 68 项全绿，本机真实构建 + 冒烟：SPA 深链回退、hash 资源单条 immutable 缓存头 + gzip、/api/v1 注册/登录/users/me/notifications 全通、暴露面仅 nginx:18081、down -v 零残留；冒烟修两坑——/assets/ root 需 server 级声明、expires 与 add_header Cache-Control 重复头合并）
+- [x] TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §59 阶段 16 / §74：unplugin-vue-components 编译期解析模板组件与 v-loading 指令，main.ts 去全量注册/全量 CSS、命令式 API 样式集中补引，locale 迁 el-config-provider，删除零引用 echarts，chunkSizeWarningLimit 回默认 500 kB；主 chunk 1074→250 kB（-77%）、CSS 353→57 kB（-84%）；四门全绿 70 passed，产物核对 el-message/el-loading 样式与 zh-cn locale 在位，45/45 el-* 标签全被 components.d.ts 解析，dev 转换产物抽检通过）
 
 ## In Progress
 - [ ]
@@ -98,7 +99,7 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 
 ## Next
 
-无——TASK-001 ~ TASK-079 全部交付（后端 TASK-001~064、前端 TASK-065~079），`docs/TASKS.md` 中已无未勾选任务。前端规格 §59 仅剩阶段 16（优化：按需引入压缩主 chunk 等工程向收尾），将在后续轮次登记 TASK-080 起；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。
+无——TASK-001 ~ TASK-080 全部交付（后端 TASK-001~064、前端 TASK-065~080），`docs/TASKS.md` 中已无未勾选任务。**前端规格 §59 全部阶段（1~16）收官**。后续如出现新组件/API 需求按 TASK-080 的按需引入口径增量维护（新命令式 API 在 main.ts 补样式）；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。
 无——TASK-001 ~ TASK-078 全部交付（后端 TASK-001~064、前端 TASK-065~078），`docs/TASKS.md` 中已无未勾选任务。前端规格 §59 仅剩阶段 15（Docker / Nginx：前端多阶段构建镜像、dist 交 nginx 托管，接入既有生产栈）与 阶段 16（优化：按需引入压缩主 chunk 等工程向收尾），将在后续轮次登记 TASK-079 起；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。无——TASK-001 ~ TASK-077 全部交付（后端 TASK-001~064、前端 TASK-065~077），`docs/TASKS.md` 中已无未勾选任务。前端业务页面规格 §59 阶段 5~13（Dashboard/团队/项目/任务/评论/附件/通知/权限/日志）至此全部完成，剩余阶段（14+：测试报告、Nginx 部署、性能优化等）属工程与部署向，按 §59 顺序在后续轮次登记 TASK-078 起；已知的降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16）均待后端补端点后自然消解。无——TASK-001 ~ TASK-076 全部交付（后端 TASK-001~064、前端 TASK-065~076），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 13~16：日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-077 起；其中阶段 13 操作日志页接 `GET /logs` 即可、无已知阻塞项。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

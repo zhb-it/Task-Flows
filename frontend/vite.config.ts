@@ -1,6 +1,8 @@
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import Components from 'unplugin-vue-components/vite'
 import { defineConfig, loadEnv } from 'vite'
 
 /**
@@ -13,12 +15,25 @@ import { defineConfig, loadEnv } from 'vite'
  * 代理不是「可选优化」而是**必需项**：后端 `app/main.py` 没有注册任何
  * `CORSMiddleware`，浏览器直连 8000 会被同源策略拦下。走代理后请求对浏览器
  * 而言是同源的，因此不需要 CORS。详见 docs/DECISIONS.md 047。
+ *
+ * Element Plus 按需引入（TASK-080，规格 §59 阶段 16 / §74「组件按需加载」）：
+ * `Components()` 在编译期把模板里的 `<el-xxx>`（含 `v-loading` 指令）替换为
+ * 按需的组件/样式 import，入口不再 `app.use(ElementPlus)` 全量注册。命令式
+ * API（ElMessage/ElMessageBox/ElNotification/ElLoading）在代码里保持显式
+ * `import { ElMessage } from 'element-plus'`，其样式在 `main.ts` 集中补引。
+ * 生成类型写在 `components.d.ts`（入库提交，`tsconfig.json` include 已纳入）。
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
 
   return {
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      Components({
+        resolvers: [ElementPlusResolver()],
+        dts: 'components.d.ts',
+      }),
+    ],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

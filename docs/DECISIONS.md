@@ -544,3 +544,17 @@
   1. `/assets/` 404：root 只写在 `location /` 里，nginx 的编译默认 root 并不指向官方镜像放文件的 `/usr/share/nginx/html` → root 必须提为 **server 级**声明；
   2. 重复 Cache-Control：`expires 1y` 会自己追加一条 Cache-Control，与 `add_header Cache-Control` 叠成两条 → 合并为单条显式 `public, max-age=31536000, immutable`。
 - Trade-off：① 入口 → frontend 多一跳反代（静态文件本地转发，本机量级开销可忽略，换来的是路由与安全语义单点化）；② 镜像内构建依赖容器网络可达 npmmirror（离线/受控环境需自建代理或私有仓库）；③ SPA 的 index.html 标 no-cache，每次进站都回源校验——换来发版即刻生效，避免旧壳引用已删除的旧 hash 资源白屏。
+
+## 059 Element Plus 改按需引入：编译期解析为主，命令式 API 显式补样式（TASK-080）
+
+- Date：2026-09-16
+- Context：前端规格 §74 要求「组件按需加载」，而 main.ts 此前全量 `app.use(ElementPlus)` + 全量 CSS——主 chunk 1074 kB、CSS 353 kB，全部压在首屏。TASK-078 之前文档把按需引入记为「已知取舍：简单性优先」，阶段 16 正是清这笔账的时候。
+- Decision：
+  1. **模板组件交给 `unplugin-vue-components` + `ElementPlusResolver`**：编译期把 `<el-*>` 换成按需 import 并配对引入组件样式，`v-loading` 指令同样由 resolver 解析为 `ElLoadingDirective`。生成类型落在 `components.d.ts` 并**入库**（`npm run build` 的 vue-tsc 先于 vite 跑，不入库则全新 checkout 首次 typecheck 失败）。
+  2. **命令式 API 保持显式 import，样式集中在 main.ts 补引**（message/message-box/notification/loading 四行）：不引入 unplugin-auto-import 去改造 21 个文件的调用点——显式 import 本就类型安全，补样式比改语义更小步。清单与代码中实际用到的命令式 API 一一对应，注释写明「新增 ElXxx 记得补一行」。
+  3. **locale 从 `app.use(ElementPlus, { locale })` 迁到根组件 `<el-config-provider :locale="zhCn">`**：按需引入后全局注册入口消失，ConfigProvider 是 Element Plus 官方指定的配置下发方式。
+  4. **删除零引用依赖 echarts**：依赖声明里从未被 import（最初为 §13「图表」预留，Dashboard 实际未用）；留着只会拖慢每次 `npm ci`（容器镜像构建也装它）。
+  5. **`chunkSizeWarningLimit` 回到默认 500 kB**：体积回到线内后保留放宽阈值就成了盲区——超线警告是防止体积悄悄回涨的哨兵，不再需要人为关掉。
+- 效果：主 chunk 1074→250 kB（-77%）、CSS 353→57 kB（-84%）；el-date-picker/el-table 等重组件随路由/组件拆 chunk 按需加载；构建零体积警告。
+- 验证口径：四门全绿 + 70 项单测不回退之外，补三道按需引入专项核对——①「模板用到的 45 个 el-* 标签 ⊆ components.d.ts 解析集」静态等价；② dist 中 el-message/el-loading 样式与 zh-cn locale 在位；③ dev server 转换产物抽检（组件 import + 样式配对 + 指令解析可见）。
+- Trade-off：① 多一个构建插件与一份生成类型文件（components.d.ts 随用随更，人工不编辑）；② 命令式 API 的样式靠人肉清单——漏补不会报错只会丢样式（已用注释与文档双通道提醒，风险面是「新弹窗没样式」而非「旧功能坏」）；③ 组件级拆 chunk 让产物文件数变多（nginx 按 hash 长缓存，浏览器并行加载，实际不劣化）。

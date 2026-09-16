@@ -221,6 +221,16 @@
   - 验收标准：配置契约测试（`test_nginx_config.py` + `test_prod_compose.py`）全绿；全量后端回归无新增失败；`taskflow-frontend:prod` 镜像在本机 Docker 真实构建成功；生产栈冒烟验证 `/` 返回 SPA 入口、`/api/v1` 链路可用、暴露面仅 nginx、`down -v` 零残留。
   - 测试要求：本 TASK 不新增应用逻辑代码，测试 = 静态契约测试 + 真实 Docker 构建/冒烟；前端四门（typecheck/lint/test/build）不因新增部署文件受影响（不跑在前端门禁内）。
 
+## Phase 15：前端优化（规格 §59 阶段 16 / §74）
+
+- [x] TASK-080 前端优化：Element Plus 按需引入与死依赖清理（规格 §59 阶段 16 / §74「前端性能要求」）
+  - 目标：落实 §74「组件按需加载」——主产物不再携带全量 Element Plus；顺手清理已声明的死依赖。
+  - 依赖：TASK-078（测试基线）、TASK-079（部署链路使用 dist，体积变化需复验）。
+  - 涉及文件：`frontend/package.json`、`package-lock.json`、`vite.config.ts`、`src/main.ts`、`src/App.vue`、`tsconfig.json`、`components.d.ts`（插件生成、入库）。
+  - 实现要求：① `vite.config.ts` 引入 `unplugin-vue-components` + `ElementPlusResolver`（模板 `el-*` 标签与 `v-loading` 指令编译期按需解析，生成类型钉在 `components.d.ts`）；② `main.ts` 移除 `app.use(ElementPlus)` 全量注册与全量 CSS，命令式 API（ElMessage/ElMessageBox/ElNotification/ElLoading）样式集中补引并写明增量口径；③ locale 改 `<el-config-provider>` 根组件下发；④ 删除零引用依赖 echarts；⑤ `chunkSizeWarningLimit` 回到默认 500 kB（超线即警告）。
+  - 验收标准：四门全绿（typecheck/lint/test/build）；主 chunk 显著缩减且构建无体积警告；静态核对「模板用到的 `el-*` 标签 ⊆ components.d.ts 解析集」；dev server 转换产物抽检确认组件/`v-loading` 指令/样式配对按需引入；`el-message`/`el-loading` 样式与 zh-cn locale 在产物中存在。
+  - 测试要求：不新增应用逻辑；既有 70 项单测不回退；验证手段 = 四门 + 产物静态核对 + dev 转换产物抽检（运行时浏览器冒烟受既定安全策略口径约束不绕过）。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
