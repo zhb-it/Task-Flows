@@ -14,13 +14,16 @@
  * 未读数由前端自行统计。
  */
 
-import { http } from '@/utils/request'
+import { http, type RequestOptions } from '@/utils/request'
 import type { PaginationParams } from '@/types/common'
 import type { Notification, NotificationMarkAllRead } from '@/types/notification'
 
 /** `GET /notifications` —— 当前用户自己的通知，最新在前。 */
-function listNotifications(params?: PaginationParams): Promise<Notification[]> {
-  return http.get<Notification[]>('/notifications', { params })
+function listNotifications(
+  params?: PaginationParams,
+  options?: RequestOptions,
+): Promise<Notification[]> {
+  return http.get<Notification[]>('/notifications', { ...options, params })
 }
 
 /** `PATCH /notifications/read-all` —— 全部标记已读，返回真正翻转的条数。 */

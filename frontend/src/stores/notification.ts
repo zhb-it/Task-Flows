@@ -35,7 +35,7 @@ export const useNotificationStore = defineStore('notification', () => {
   async function loadPreview(limit: number = NOTIFICATION_PREVIEW_LIMIT): Promise<void> {
     loading.value = true
     try {
-      items.value = await notificationApi.listNotifications({ limit })
+      items.value = await notificationApi.listNotifications({ limit }, { silent: true })
     } catch {
       items.value = []
     } finally {

@@ -177,6 +177,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；附件区块真实渲染并接后端；上传/下载/删除权限口径在界面/文档明示。**注**：前端 `build` 在 `dist/assets` 超过 50 个文件后会触发沙箱批量删除守卫，须带 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 运行（见 `frontend/README.md`）。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，附件区块只做结构与四门校验验证。
 
+- [x] TASK-075 通知模块（规格 §30/§31「通知 / 顶部消息通知」）
+  - 目标：实现通知收件箱页（查看 / 标记已读 / 全部标记已读），全部走真实后端端点；对后端「无未读筛选、无 link 字段」做诚实降级（不编造接口、不解析正文猜资源 id）。
+  - 依赖：TASK-065~068（`notificationApi`、`stores/notification.ts`、`NotificationBell.vue` 在阶段 1/2 已就绪）。
+  - 涉及文件：`src/views/notification/NotificationList.vue`（占位替换为真实收件箱）、`src/types/notification.ts`（补类型中文标签映射 `NOTIFICATION_TYPE_LABELS`/`notificationTypeLabel`）、`src/api/notification.ts`（`listNotifications` 增可选 `options` 参数）、`src/stores/notification.ts`（预览请求传 `silent: true`，使注释与行为一致）。
+  - 实现要求：① 列表 `GET /notifications`（skip/limit，最新在前），「全部 / 未读 / 已读」三页签为**客户端过滤**（后端无 `is_read` 查询参数，`§4-D9`）；② 单条 `PATCH /notifications/{id}/read` 与全部 `PATCH /notifications/read-all` **经 store 调用**，顶栏铃铛与列表共享同一份数据，避免角标滞后；③ 分页仅「上一页 / 下一页」（响应无 total，满页视为可能有下一页并如实提示）；④ 「点击通知跳转对应资源」（规格 §30）**不实现**——`NotificationRead` 无 link/resource_id 字段，资源 id 仅以文本嵌在 `content`（如「任务 #123 …」），前端不解析正文字符串猜 id（与后端文案强耦合且 `team_invited` 等类型无 id 可解析），顶部 `el-alert` 明示（`§4-D15`，见 DECISIONS 054）；⑤ 类型标签以真实契约为准：后端实际写入小写 `task_assigned`/`task_status_changed`（`app/services/task.py`），与规格 §30 的大写写法不一致，未知类型原样回退不做语义猜测。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；通知页真实渲染并接后端；降级点在界面/文档明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，通知页只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

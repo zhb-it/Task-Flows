@@ -493,5 +493,15 @@
 
 - Trade-off：① 下载文件名取自列表里的 `filename`（XHR 拿不到 `Content-Disposition`，因为不是导航请求），与后端清洗后的名字一致；② 上传进度依赖 `total`（部分环境 `total` 缺失时进度条不动，但上传仍完成）；③ 删除他人附件需团队 OWNER/ADMIN——前端无法从数据判别该角色，不显示按钮（规格未要求），越权/超范围由后端 403 兜底；④ 沙箱内 `npm run build` 在 `dist/assets` 超 50 文件时会被批量删除守卫拦截，须带 `CODEBUDDY_SAFE_DELETE_ENABLED=0`（已记入 `frontend/README.md` 与工程记忆）。均在 `docs/FRONTEND_API_MAPPING.md` §7 标注。
 
+## DECISION 054 —— 通知「点击跳转对应资源」不做：无 link 字段，也不解析正文猜 id（TASK-075）
+
+- Problem：规格 §30 要求通知支持「点击通知跳转对应资源」（例：任务分配通知 → `/tasks/123`）。但后端 `NotificationRead` 只有 `id / user_id / type / title / content / is_read / created_at`，**没有 link / resource_id 之类的结构化字段**（`notifications` 表同样没有）；目标资源 id 只作为**文本**嵌在 `content` 里（如 `{username} 将你分配到任务 #{task.id}`）。前端若要跳转，只能二选一：解析正文提取 id，或降级。
+
+- Decision：**不做跳转，诚实降级**。通知列表顶部 `el-alert` 明示「暂不可用 + 原因 + 恢复条件」，登记为 `docs/FRONTEND_API_MAPPING.md` §4-D15。**不解析正文字符串猜资源 id**——`content` 是给人看的文案而非数据契约，解析它会把前端与后端的措辞强耦合（文案一改链接就静默失效或指错资源），且 `team_invited` 等规格类型本就没有 id 可解析。同时把类型标签映射按**后端实际写入的小写值**（`task_assigned` / `task_status_changed`，见 `app/services/task.py` 的两处 `_dispatch_notification`）建立，与规格 §30 文档的大写 `TASK_ASSIGNED` 等写法不同——沿用 §57「以真实契约为准」；未知类型原样回退显示原始字符串，不做语义猜测。通知页的已读操作（单条/全部）**经 `stores/notification.ts` 调用**，顶栏铃铛与列表共享同一份数据，避免「列表点已读、铃铛角标不变」的不一致。
+
+- Reason：① 本项目反复确立的原则是「不为不存在的能力编造接口」——正文解析不是接口调用，而是一种更隐蔽的编造：它假装 `content` 的措辞是契约；② 降级是**可恢复**的：后端一旦给 `NotificationRead` 补 `link`/`resource_id` 字段，前端只需在列表项上接一个 `router.push` 即可，届时无需改动任何数据结构；③ 类型标签按小写归一（`type.toLowerCase()` 查表）而非按规格大写建表，使映射对两种写法都健壮，也为后端将来派发 `task_commented` / `team_invited` / `system` 三类时自动生效留好位置。
+
+- Trade-off：① 用户从通知无法一键到达任务，需自行去任务页查找（降级的实际代价，已在页面写明）；② 「全部 / 未读 / 已读」三页签是客户端过滤——后端无 `is_read` 查询参数（`§4-D9`），筛选只作用于当前已取回的页；③ 分页只有「上一页 / 下一页」（无 total），以「上一页是否满页」推断是否有下一页并如实提示；④ 顺带修正了 `stores/notification.ts` 的注释与代码不一致——注释声称预览请求「用 silent 关闭统一错误提示」但代码未传参，现 `listNotifications` 增加 `options` 参数并传 `silent: true`，行为与文档对齐。均在 `docs/FRONTEND_API_MAPPING.md` §7 标注。
+
 
 

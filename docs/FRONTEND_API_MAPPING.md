@@ -254,6 +254,21 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
   注意**登录端点也在限流域内**——连续输错密码会把整个 IP 的配额打满，
   因此「登录失败自动重试」这类逻辑是错的，不能加。
 
+### D15 · 通知没有 link / resource_id 字段，无法「点击跳转对应资源」
+
+- **规格 §30 说法**：通知支持「点击通知跳转对应资源」（例：任务分配通知 → `/tasks/123`）。
+- **后端事实**：`NotificationRead` 只有 `id / user_id / type / title / content / is_read / created_at`
+  （`app/schemas/notification.py`；`notifications` 表亦无 link 列）。目标资源的 id 只作为
+  **文本**出现在 `content` 里（如 `{username} 将你分配到任务 #{task.id}`，见
+  `app/services/task.py` 的 `_dispatch_notification` 两处派发）。另外后端实际写入的
+  `type` 是小写 `task_assigned` / `task_status_changed`，与规格 §30 文档的大写
+  `TASK_ASSIGNED` 等写法不一致；`task_commented` / `team_invited` / `system` 三类目前**尚未派发**。
+- **前端处理**：通知列表（TASK-075）不做跳转，顶部 `el-alert` 明示原因；**不解析正文字符串
+  猜资源 id**——那会把前端与后端通知文案强耦合（文案一改链接就静默失效），且
+  `team_invited` 等类型本就没有 id 可解析。类型标签按小写归一映射
+  （`types/notification.ts` 的 `NOTIFICATION_TYPE_LABELS`），未知类型原样回退。
+  待后端给 `NotificationRead` 补 `link` / `resource_id` 结构化字段后再接线（见 DECISIONS 054）。
+
 ---
 
 ## 5. 前端因此形成的实现约定
@@ -293,7 +308,7 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 | 我的任务 / 看板 / 详情 / 新建 | 阶段 8 | — | **已实现（TASK-072）**：列表表格+客户端搜索/优先级/状态筛选/排序/分页、看板 HTML5 拖拽走 `POST /tasks/{id}/transition`（状态机白名单仅前端提示，真实以后端为准，member 无 `task:transition` 权限时 403 由请求层提示）、详情含 transition 下拉/编辑抽屉/分配成员(`GET /teams/{team_id}/members`)/删除、创建后 `POST /tasks/{id}/assignees` 指派；跨项目「我的任务」全局视图仍受 D7/D8·Q2 阻塞，页面用「项目选择器 + assignee_id=当前用户」诚实表达并顶部提示、不编造接口 |
 | 评论（任务详情内） | 阶段 9 | — | **已实现（TASK-073）**：任务详情内评论区块接 `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`；`CommentRead` 内嵌 `username` 直接渲染作者名、textarea 限 2000 字；删除按钮按 `comment.user_id === 当前用户` 数据驱动显示（规格 §28「删除自己的评论」）；**功能级 `comment:delete` 种子仅 admin 持有且先于资源级判定执行，普通成员删自己的评论也会 403**（§4-D11），由请求层提示、前端不臆测权限集隐藏按钮（见 DECISIONS 052） |
 | 附件（任务详情内） | 阶段 10 | — | **已实现（TASK-074）**：任务详情内附件区块接 `POST/GET /tasks/{task_id}/attachments`、`GET/DELETE /attachments/{id}`；上传 `multipart` 字段名 `file` + 扩展名（后端白名单）/10 MiB 预检 + 进度条；下载走新增的 `http.getBlob`（响应是文件流非信封）+ 临时 `<a download>` 保存；删除按钮按 `uploader_id === 当前用户` 数据驱动（成员有 `attachment:upload`，可删自家附件）；前端预检仅为即时反馈，413/415 仍以后端裁决（见 D13、DECISIONS 053） |
-| 通知列表 | 阶段 11 | D9（无未读筛选） |
+| 通知列表 | 阶段 11 | — | **已实现（TASK-075）**：收件箱接 `GET /notifications`（skip/limit）+「全部/未读/已读」客户端三页签（D9 无 `is_read` 筛选参数）、单条/全部标记已读经 `stores/notification.ts` 同步顶栏铃铛、分页仅「上一页/下一页」（无 total）；「点击通知跳转对应资源」按 §4-D15 诚实降级——`NotificationRead` 无 link/resource_id 字段，不解析正文猜 id，顶部 `el-alert` 明示（见 DECISIONS 054） |
 | 操作日志 | 阶段 13 | — |
 
 已完成并接真实后端的页面：**登录、注册、个人中心（只读部分）**，以及主框架的
