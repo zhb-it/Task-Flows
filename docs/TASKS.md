@@ -338,7 +338,7 @@
 > 顺序放在可靠性之后、身份之前：Phase 18 与租户无关且能立刻降低风险；Phase 20 的认证与
 > 权限必须建立在租户模型之上，否则同样的改动要做两遍。
 
-- [ ] TASK-093 租户模型与生命周期
+- [x] TASK-093 租户模型与生命周期
   - 目标：引入 `tenants` 实体，确立「平台 → 租户 → 用户/团队/项目」的顶层边界。
   - 依赖：无。
   - 涉及文件：`app/models/tenant.py`（新建）、`migrations/versions/*_create_tenants.py`（新建）、`app/schemas/tenant.py`（新建）、`app/crud/tenant.py`（新建）、`app/services/tenant.py`（新建）、`app/api/v1/tenants.py`（新建）、`app/api/v1/__init__.py`、`tests/test_tenant_model.py`（新建）、`docs/DB_SCHEMA.md`。

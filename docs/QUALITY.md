@@ -24,13 +24,13 @@ pytest -q --cov --cov-report=term-missing   # 1095 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-092 重测）**：1104 passed / 67 个测试文件 / 1006 个 `def test_*` /
-> 2707 语句 / 99.82% 行、99.52% 分支。
+> **当前基线（快照 2026-09-16，TASK-093 重测）**：1136 passed / 68 个测试文件 / 1038 个 `def test_*` /
+> 2834 语句 / 99.82% 行、99.54% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1104 个用例全部通过**，0 failed / 0 error / 0 skipped（67 个测试文件，1006 个
+- **1136 个用例全部通过**，0 failed / 0 error / 0 skipped（68 个测试文件，1038 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
@@ -53,6 +53,10 @@ ruff check .                               # All checks passed!
   `/api/v1` 前缀与参数占位豁免、`GET|POST` 复合写法逐方法核对、nginx location
   豁免与解析、健康探针族集合的漏报/多报/一致/缺失四向；本任务未改 `app/`，
   覆盖率数字与 TASK-091 完全一致。）
+  （TASK-093 增量 32 项：`tests/test_tenant_model.py` 新建——离线模型断言 /
+  DB 约束集成（slug UNIQUE、CHECK 拒绝非法状态/slug/配额）/ 平台管理端点端到端
+  （创建/详情/列表分页/部分更新/状态机白名单/终态 409/slug 冲突 409/403/404）；
+  另同步 5 处 RBAC 种子计数用例 22 → 23（新增 `tenant:manage`）。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -66,16 +70,16 @@ ruff check .                               # All checks passed!
 
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
-| `app/api/v1`（Router） | 311 | 0 | 4 | 100% |
+| `app/api/v1`（Router） | 342 | 0 | 4 | 100% |
 | `app/core`（配置/安全/中间件/日志/指标） | 562 | 2 | 130 | 99.64% 行 / 100% 分支 |
-| `app/crud` | 347 | 0 | 28 | 100% |
+| `app/crud` | 374 | 0 | 30 | 100% |
 | `app/db`（engine / session / redis） | 46 | 0 | 8 | 100% |
-| `app/models` | 241 | 0 | 0 | 100% |
-| `app/schemas` | 102 | 0 | 0 | 100% |
-| `app/services` | 785 | 3 | 204 | 99.62% 行 / 99.51% 分支 |
+| `app/models` | 258 | 0 | 0 | 100% |
+| `app/schemas` | 119 | 0 | 0 | 100% |
+| `app/services` | 818 | 3 | 214 | 99.63% 行 / 99.53% 分支 |
 | `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
 | `app/main.py`（含健康探针族与 /metrics） | 76 | 0 | 4 | 100% |
-| **TOTAL** | **2707** | **5** | **420** | **99.82% 行 / 99.52% 分支** |
+| **TOTAL** | **2834** | **5** | **432** | **99.82% 行 / 99.54% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -89,13 +93,14 @@ ruff check .                               # All checks passed!
 > **1084**（TASK-090：`tests/test_metrics.py` 14 项）→
 > **1095**（TASK-091：`tests/test_config_production_guards.py` 11 项）→
 > **1104**（TASK-092：`tests/test_docs_consistency.py` 补 9 项——纯脚本/文档层，
-  `app/` 语句数与覆盖不变）。
+  `app/` 语句数与覆盖不变）→
+> **1136**（TASK-093：`tests/test_tenant_model.py` 32 项 + `tenants` 全链五模块
+  127 语句，全部 100% 覆盖；分支 420 → 432 来自租户模块判定）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
-> **TASK-088~091 更新（2026-09-16）**：上表为 TASK-091 重测值（`core` 541 → 562：
-> `config.py` 新增生产配置自检 22 语句（收集/校验函数与常量），仍 100% 覆盖；
-> `main.py` 75 → 76：import 顶层的自检调用点；总语句 2685 → 2707）。分支 406 → 420
-> 全部来自自检的判定分支。
+> **TASK-088~093 更新（2026-09-16）**：上表为 TASK-093 重测值（`tenants` 五模块
+> models/schemas/crud/services/api 共 127 语句，全部 100% 覆盖；总语句 2707 → 2834）。
+> 分支 420 → 432 全部来自租户模块；`core`/`db`/`tasks`/`main` 数字与 TASK-091 相同。
 
 **未覆盖行（5 处）**：
 
@@ -119,7 +124,7 @@ ruff check .                               # All checks passed!
 重测后才可见的存量/兜底缺口；第 4 项是本轮新增的兜底分支，语义已在函数层面
 等价覆盖。
 
-**双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 16 个模型
+**双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 17 个模型
 里 `__repr__` 的 **32 条语句**排除在分母外。若把它们计入，数字是
 **2717 语句 / 37 未覆盖 / 98.64% 行**。之所以排除，是因为它们无业务语义；之所以
 在此写明，是因为「99.82%」这个数字**依赖于该配置**——不披露就是误导。

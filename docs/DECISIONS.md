@@ -614,3 +614,15 @@
   4. **README 健康探针族集合断言**（不变量 #8）：声明的 `/health*` 端点集合必须与 OpenAPI **相等**——A1 的反向形态（代码有五个探针、README 只写 `GET /health`，运维按门面配监控漏掉四个）同样要拦。
   5. `app.openapi()` 惰性导入：只在检查执行时装配应用，不拖累脚本加载。
 - Consequence：README 两处真实漂移当场被抓出修正（`GET /logs/task/{id}`、Health 行漏报探针族），证明护栏有真实抓捕力；代价是豁免规则让「`GET /xxx` 形式写在 README/DEPLOYMENT 之外」的漂移不被此护栏覆盖（如 API_CONTRACT——但它有独立的契约测试与前端映射文档交叉核对），且新文档类型需人工纳入扫描范围。
+
+## 065 多租户首个实体：平台管理员先行表达与配额列定稿（TASK-093）
+
+- Date：2026-09-16
+- Context：§61.3 要求「平台管理员与租户管理员严格区分」，但身份实体的拆分属 TASK-096（RBAC 租户化）；TASK-093 就要交付「平台管理员可创建/停用租户」的验收，需要一条不抢 096 的活、又不让平台能力混入租户角色的先行路径。同时 TASKS 把配额列的具体定稿授权给 docs/DB_SCHEMA.md，slug 的可变性与 deleted 语义规格未说。
+- Decision：
+  1. **平台管理员能力面先行**：新增权限 `tenant:manage`，种子迁移只授予全局 `admin` 角色；租户端点全部挂 `require_permission("tenant:manage")`。TASK-096 落地身份拆分时，平台身份成为显式实体，`tenant:manage` 是其能力面、租户内角色永不包含它——先隔离能力，后隔离身份。
+  2. **配额列可空，NULL = 未设限**：`member_limit INTEGER CHECK (> 0)`、`storage_limit_bytes BIGINT CHECK (>= 0)`。新租户默认不限，配额的「执行」（成员数/存储量的强制点）在后续任务接入对应业务表时实现——本 TASK 只定「存什么」，不定「怎么拦」。
+  3. **slug 全局 UNIQUE、格式 CHECK、创建后不可变**：格式 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`（VARCHAR(63)，未来子域/域名基础）；更新契约里没有 slug 字段，Service 层另加显式防线。ORM 侧用显式命名 `UniqueConstraint`（而非列级 `unique=True`）保证元数据与迁移同名同源、autogenerate 不漂移——UNIQUE 约束在 PG 自带索引，不再建独立 `ix_tenants_slug`。
+  4. **deleted 是状态而非物理删除，slug 依旧占用**：deleted 租户保留行（审计/恢复语义），其 slug 不释放——复用等于让新租户继承旧租户的对外标识与历史。状态转换白名单（active↔suspended、→deleted 单向）由 Service 执行（DB CHECK 表达不了「从哪个状态来」），同状态重复请求幂等放行。
+  5. **name 不加 UNIQUE**（§61.3 未定义，与 teams.name 同口径）；租户列表分页显式 `COUNT(*) + total`（企业化已拍板口径）。
+- Consequence：本 TASK 结束时平台已能管理租户生命周期，且不需要为「平台管理员」引入新表；代价是 `admin` 角色当前同时承担平台管理员语义（单部署部署级管理员），TASK-096 必须把这一层拆干净，否则「平台管理员不自动获得租户内权限」无法成立。deleted 保留行的清理（若有）属合规/数据治理阶段的决策。

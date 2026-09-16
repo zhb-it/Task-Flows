@@ -11,16 +11,16 @@
 | 维度 | 事实 |
 | --- | --- |
 | 运行时 | Python 3.13（CI 与镜像）· FastAPI 0.141 · SQLAlchemy 2.0 async · Pydantic v2 |
-| 数据库 | PostgreSQL 16 · 15 个 Alembic 迁移 · 16 张业务表 · 20 条外键 · 8 个唯一约束 · 3 个 CHECK |
-| HTTP 接口 | 50 个操作（43 个在 `/api/v1` 下，共 29 条 `/api/v1` 路径；另有 `GET /`、5 个健康探针与 `GET /metrics`） |
+| 数据库 | PostgreSQL 16 · 16 个 Alembic 迁移 · 17 张业务表 · 20 条外键 · 9 个唯一约束 · 7 个 CHECK |
+| HTTP 接口 | 55 个操作（48 个在 `/api/v1` 下，共 32 条 `/api/v1` 路径；另有 `GET /`、5 个健康探针与 `GET /metrics`） |
 | 缓存与队列 | Redis 7：滑动窗口限流（ZSET + Lua）+ Celery Broker/Backend |
 | 认证授权 | JWT 双 Token（jti 落库 + 轮换 + 登出撤销）· Argon2id · RBAC + 资源级归属链 |
-| 测试 | 1104 passed，0 failed / 0 error / 0 skipped；覆盖率 99.82% 行、99.52% 分支 |
+| 测试 | 1136 passed，0 failed / 0 error / 0 skipped；覆盖率 99.82% 行、99.54% 分支 |
 | 部署 | Dockerfile（`python:3.13-slim`，非 root）· 开发/生产两套 Compose · Nginx + Gunicorn/Uvicorn |
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 18（生产可靠性地基），TASK-001 ~ TASK-092 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
+> 当前处于 Phase 19（多租户地基），TASK-001 ~ TASK-093 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -43,7 +43,7 @@
 - **性能问题要能解释**：N+1 不靠「记得加 eager load」，而是把关联读取写成显式
   批量 `IN` 查询，并用运行时 SQL 计数测试钉死。
 
-已实现的能力（对应 29 条 `/api/v1` 路径 / 50 个操作）：
+已实现的能力（对应 32 条 `/api/v1` 路径 / 55 个操作）：
 
 | 模块 | 能力 |
 | --- | --- |
@@ -57,6 +57,7 @@
 | Attachment | 私有附件上传 / 下载 / 删除（大小与类型限制、路径穿越防护） |
 | Notification | 站内通知（列表、已读、全部已读），创建与流转时异步产生 |
 | Logs | 操作审计日志（按资源、按用户维度查询） |
+| Tenant | 租户生命周期（创建 / 列表 / 详情 / 更新 / 状态机转换），平台管理员专属（`tenant:manage`） |
 | Health | 存活与依赖探针 |
 
 ---
@@ -128,7 +129,7 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 | `app/db` | 引擎、Session、Redis 客户端 |
 | `app/tasks` | Celery 应用与业务任务 |
 | `migrations` | Alembic 迁移（15 个，可逆性在 CI 里验证） |
-| `tests` | 67 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
+| `tests` | 68 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
 | `scripts` | 文档一致性检查（`check_docs.py`） |
 
 ---
@@ -139,23 +140,23 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 task-flow/
 ├── app/
 │   ├── main.py                  # 应用装配：中间件顺序、路由、异常处理、/health
-│   ├── api/v1/                  # Router 层（10 个模块：auth/users/permissions/teams/projects/tasks/
-│   │                            #   comments/attachments/notifications/logs）
+│   ├── api/v1/                  # Router 层（11 个模块：auth/users/permissions/teams/projects/tasks/
+│   │                            #   comments/attachments/notifications/logs/tenants）
 │   ├── core/                    # config / security / exceptions / deps /
 │   │                            #   logging_config / middleware / client_ip / redis_keys
-│   ├── crud/                    # 12 个数据访问模块
+│   ├── crud/                    # 13 个数据访问模块
 │   ├── db/                      # base / session / redis
-│   ├── models/                  # 16 个模型模块
-│   ├── schemas/                 # 11 个请求响应模型模块
-│   ├── services/                # 14 个业务服务（含 state_machine / authorization /
+│   ├── models/                  # 17 个模型模块
+│   ├── schemas/                 # 12 个请求响应模型模块
+│   ├── services/                # 15 个业务服务（含 state_machine / authorization /
 │   │                            #   rate_limit / storage / rbac）
 │   └── tasks/                   # celery_app / notification_tasks / maintenance_tasks
 ├── migrations/
 │   ├── env.py
-│   └── versions/                # 15 个迁移（含 RBAC 种子数据与 member 角色回填）
+│   └── versions/                # 16 个迁移（含 RBAC 种子数据与 member 角色回填）
 ├── nginx/nginx.conf             # 生产反代配置（只读挂载进容器）
 ├── scripts/check_docs.py        # 文档一致性检查（退出码 0/1）
-├── tests/                       # 67 个测试文件 + conftest.py
+├── tests/                       # 68 个测试文件 + conftest.py
 ├── .github/workflows/ci.yml     # 三 job：ruff / pytest / docker build
 ├── Dockerfile                   # python:3.13-slim，非 root 运行
 ├── docker-compose.yml           # 开发栈（app + worker + postgres + redis）
@@ -169,7 +170,7 @@ task-flow/
 
 ## ER 图
 
-16 张业务表、20 条外键。关系图（实体名对应 `app/models/*.py` 的 `__tablename__`）：
+17 张业务表、20 条外键。关系图（实体名对应 `app/models/*.py` 的 `__tablename__`）：
 
 ```mermaid
 erDiagram
@@ -192,6 +193,7 @@ erDiagram
     TASKS ||--o{ ATTACHMENTS : "附件"
     USERS ||--o{ ATTACHMENTS : "uploader_id"
     USERS ||--o{ NOTIFICATIONS : "站内通知"
+    TENANTS : "TASK-093 新增，暂无外键（TASK-094 落 tenant_id）"
 ```
 
 删除策略不是一刀切，按「这条数据是不是主体的从属物」分别选：
@@ -210,10 +212,12 @@ erDiagram
 - `task_assignees` 用 `(task_id, user_id)` 复合主键，不额外造 `id`：分配关系本身就是
   业务主键，加代理键只会多一个可以被误用的唯一标识。
 
-库级约束（不只是应用层校验）：8 个唯一约束（`users.username`、`users.email`、
+库级约束（不只是应用层校验）：9 个唯一约束（`users.username`、`users.email`、
 `refresh_tokens.jti`、`roles.name`、`permissions.name`、`uq_team_members_team_user`、
-`uq_user_roles_user_id_role_id`、`uq_role_permissions_role_id_permission_id`）、
-3 个 CHECK（`ck_tasks_status_values`、`ck_tasks_priority_values`、`ck_team_members_role_id`）。
+`uq_user_roles_user_id_role_id`、`uq_role_permissions_role_id_permission_id`、
+`uq_tenants_slug`）、7 个 CHECK（`ck_tasks_status_values`、`ck_tasks_priority_values`、
+`ck_team_members_role_id`，以及 TASK-093 的 `ck_tenants_status`、`ck_tenants_slug_format`、
+`ck_tenants_member_limit`、`ck_tenants_storage_limit`）。
 **数据库负责数据完整性，Service 负责业务规则**——两者不互相替代。
 
 ---
@@ -473,10 +477,11 @@ alembic revision --autogenerate -m "add xxx"
 alembic downgrade -1
 ```
 
-15 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
+16 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
 teams/team_members → projects → tasks → task_assignees → comments → attachments →
 operation_logs → operation_logs_archive → notifications → 任务搜索索引 →
-无角色用户补绑 member 角色（数据回填，downgrade 为显式 no-op）。
+无角色用户补绑 member 角色（数据回填，downgrade 为显式 no-op）→
+tenants + tenant:manage 权限种子（TASK-093）。
 
 **可逆性是被 CI 验证的**：CI 在空库上跑 `upgrade head → downgrade base → upgrade head`，
 三步共用一个 shell 且 `set -euo pipefail`——任一步失败立即中断，从而排除「downgrade
@@ -500,8 +505,8 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-16，TASK-092 重测）**：1104 passed，0 failed / 0 error / 0 skipped；
-覆盖率 2707 语句 / 5 未覆盖 / 420 分支 → 99.82% 行、99.52% 分支。
+**当前基线（快照 2026-09-16，TASK-093 重测）**：1136 passed，0 failed / 0 error / 0 skipped；
+覆盖率 2834 语句 / 5 未覆盖 / 432 分支 → 99.82% 行、99.54% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。
 

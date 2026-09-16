@@ -4,7 +4,7 @@
 PostgreSQL 16。
 
 ## 核心实体
-User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Project、Task、TaskAssignee、Comment、Attachment、OperationLog、Notification、RefreshToken。
+Tenant、User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Project、Task、TaskAssignee、Comment、Attachment、OperationLog、Notification、RefreshToken。
 
 ## 关键关系
 - User -> UserRole -> Role -> RolePermission -> Permission
@@ -17,6 +17,7 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - User -> OperationLog
 - User -> Notification
 - User -> RefreshToken
+- Tenant（TASK-093：独立顶层实体，业务表归属 tenant_id 属 TASK-094）
 
 ## refresh_tokens（TASK-018 已实现）
 字段取自开发文档 §19「JWT 双 Token」：
@@ -208,6 +209,29 @@ User、Role、Permission、UserRole、RolePermission、Team、TeamMember、Proje
 - 删除附件写 `action=attachment:delete` 审计日志。
 - 删任务/删用户级联清附件**元数据**；物理文件由 Celery 清理任务负责（§17 / TASK-050）。
 - 迁移：`migrations/versions/e9b4c2d6f8a1_create_attachments.py`。
+
+
+## tenants（TASK-093 已实现）
+
+平台 → 租户 → 用户/团队/项目 的顶层边界实体（§61.3 多租户）。列定稿为本 TASK
+拍板（决策全文 docs/DECISIONS.md 065）：
+
+| 列 | 类型 | 约束 |
+|---|---|---|
+| id | BIGINT | PRIMARY KEY，自增 |
+| name | VARCHAR(150) | NOT NULL（不加 UNIQUE，与 teams.name 同口径） |
+| slug | VARCHAR(63) | NOT NULL，UNIQUE（`uq_tenants_slug`），CHECK 格式 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`；对外标识，创建后不可变 |
+| status | VARCHAR(16) | NOT NULL，DEFAULT 'active'，CHECK IN ('active','suspended','deleted')；转换白名单（active↔suspended、→deleted 单向）由 Service 执行 |
+| member_limit | INTEGER | 可空，NULL = 未设限，CHECK (> 0) |
+| storage_limit_bytes | BIGINT | 可空，NULL = 未设限，CHECK (>= 0) |
+| created_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+| updated_at | TIMESTAMPTZ | NOT NULL，DEFAULT now() |
+
+- `deleted` 是**状态而非物理删除**：行保留，其 slug 依旧占用（复用等于让新租户继承旧租户的对外标识与历史）。
+- 配额的「执行」（成员数/存储量强制点）在后续任务接入对应业务表时实现；本表只定存储。
+- 本 TASK 不接业务表（无被引用外键，级联行为集合为空）；TASK-094 落 `tenant_id` 后由其迁移与测试补级联断言。
+- 配套种子：权限 `tenant:manage`（平台管理员能力面，只授予全局 `admin` 角色）。
+- 迁移：`migrations/versions/c7d1e8f4a2b6_create_tenants.py`。
 
 ## 已明确约束
 - User.username UNIQUE

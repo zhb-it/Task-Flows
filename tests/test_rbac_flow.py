@@ -390,5 +390,5 @@ async def test_seed_roles_unaffected_by_test_data():
             .select_from(Role)
             .where(Role.name.notlike(f"rbacflow_{RUN_TOKEN}%"))
         )
-    assert seed_count == 22
+    assert seed_count == 23  # §6 22 项 + TASK-093 tenant:manage
     assert role_count == 2

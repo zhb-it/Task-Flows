@@ -163,7 +163,7 @@ async def test_permission_matrix_for_admin(client) -> None:
     assert resp.status_code == 200, resp.text
     matrix = {r["name"]: r for r in resp.json()["data"]}
     assert set(matrix) == {"admin", "member"}
-    assert len(matrix["admin"]["permissions"]) == 22  # 种子全量
+    assert len(matrix["admin"]["permissions"]) == 23  # 种子全量（§6 22 项 + TASK-093 tenant:manage）
     assert matrix["member"]["permissions"] == MEMBER_PERMISSIONS
 
 

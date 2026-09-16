@@ -128,7 +128,8 @@ async def test_seed_roles_exist(session):
 async def test_seed_permissions_complete(session):
     perms = await get_permissions(session, skip=0, limit=100)
     names = {p.name for p in perms}
-    assert len(names) == 22
+    # §6 的 22 项 + TASK-093 平台管理员权限 tenant:manage
+    assert len(names) == 23
     # §6 每个资源域都有代表性权限；格式严格为 resource:action
     for expected in (
         "user:read",
@@ -148,7 +149,7 @@ async def test_seed_permissions_complete(session):
 async def test_seed_admin_has_all_permissions(session):
     admin = await get_role_by_name(session, "admin")
     perms = await get_role_permissions(session, admin.id)
-    assert len(perms) == 22
+    assert len(perms) == 23  # 含 TASK-093 的 tenant:manage
 
 
 async def test_seed_member_has_exactly_decided_set(session):
@@ -325,7 +326,7 @@ async def test_user_permissions_multi_role_dedup(session):
     await assign_role_to_user(session, user_id=user.id, role_id=admin.id)
     await assign_role_to_user(session, user_id=user.id, role_id=member.id)
     perms = await get_user_permissions(session, user.id)
-    assert len(perms) == 22  # distinct，同一权限不因双角色重复出现
+    assert len(perms) == 23  # distinct，同一权限不因双角色重复出现（含 tenant:manage）
     assert set(perms) >= MEMBER_EXPECTED
 
 

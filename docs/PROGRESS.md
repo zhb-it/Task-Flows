@@ -1,15 +1,15 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~092（全部 5 项）。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~092（全部 5 项）；Phase 19 已交付 TASK-093。
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
 ## Current Phase
-Phase 18：生产可靠性地基（TASK-088~092）
+Phase 19：多租户地基（TASK-093~100）
 
 ## Current Task
-TASK-092 文档语义护栏：端点声明 ↔ OpenAPI——`scripts/check_docs.py` 新增不变量 #7/#8：README 与 DEPLOYMENT 中形如 `METHOD /path` 的端点声明必须存在于 `app.openapi()` 或 nginx 配置（豁免 `/api/v1` 前缀省写、参数占位名、`GET|POST` 复合写法逐方法核对）；README 声明的健康检查端点集合必须与代码一致。顺带修正 README 两处真实漂移（`GET /logs/task/{id}`、Health 行漏报探针族）。
+TASK-093 租户模型与生命周期——`tenants` 表（slug 全局 UNIQUE + 格式 CHECK、status 值域 CHECK、配额列可空）+ `tenant:manage` 平台管理员权限种子（授予全局 admin，租户内角色永不持有）；CRUD/Service/API 骨架（创建/列表/详情/更新/状态机转换，slug 冲突 409、非法转换 409、deleted 终态）；不接业务表（tenant_id 归属属 TASK-094）。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -104,6 +104,7 @@ TASK-092 文档语义护栏：端点声明 ↔ OpenAPI——`scripts/check_docs.
 - [x] TASK-090 指标端点与 5xx 统一信封（`app/core/metrics.py` + `MetricsErrorMiddleware` + `/metrics` 端点 + Redis 埋点客户端 + 维护时间戳/任务计数跨进程中转 + `deploy/prometheus/`；真实实例冒烟通过；`tests/test_metrics.py` 14 项，基线 1084 passed / 覆盖率重测 99.81% 行、99.75% 分支）
 - [x] TASK-091 生产配置自检（`app/core/config.py` 新增 `collect_production_config_problems`/`validate_production_config` + `main.py` import 顶层接入；四类错配逐项点名、收集全部一次报出，最小密钥长度 32 登记为 DECISIONS 063；`tests/test_config_production_guards.py` 11 项含两条真实子进程端到端——错配 import 即非零退出、合法配置正常启动，基线 1095 passed / 覆盖率重测 99.82% 行、99.52% 分支）
 - [x] TASK-092 文档语义护栏：端点声明 ↔ OpenAPI（`check_docs.py` 不变量 #7/#8 + nginx location 事实源 + `GET|POST` 复合写法逐方法核对；`tests/test_docs_consistency.py` 补 9 项合成反向用例；端到端实证：往 DEPLOYMENT.md 注入幽灵端点后 check_docs 立即非零退出并点名，还原后 exit 0；顺带修正 README 两处真实漂移；DECISIONS 064）
+- [x] TASK-093 租户模型与生命周期（`app/models/tenant.py` + 迁移 c7d1e8f4a2b6（建表 + tenant:manage 种子）+ schemas/crud/services/api 骨架；状态机白名单 active↔suspended、→deleted 单向；slug 冲突 409、deleted 终态 409；`tests/test_tenant_model.py` 31 项（离线模型 + DB 约束集成 + 平台管理端点端到端）；探针库全链路 16 down / 16 up 往返无损；DECISIONS 065）
 
 ## In Progress
 - [ ]
@@ -113,9 +114,9 @@ TASK-092 文档语义护栏：端点声明 ↔ OpenAPI——`scripts/check_docs.
 
 ## Next
 
-TASK-093 租户模型与生命周期（Phase 19 首个任务，企业化唯一结构性改造开始）
+TASK-094 业务表租户化与存量回填（Phase 19 第二个任务，结构性改造主体开始）
 
-TASK-001~092 已全部交付（Phase 18 收官）；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-093（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
+TASK-001~093 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-094（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

@@ -12,6 +12,7 @@ from app.api.v1 import (
     projects,
     tasks,
     teams,
+    tenants,
     users,
 )
 
@@ -26,3 +27,4 @@ api_router.include_router(comments.router)
 api_router.include_router(attachments.router)
 api_router.include_router(logs.router)
 api_router.include_router(notifications.router)
+api_router.include_router(tenants.router)

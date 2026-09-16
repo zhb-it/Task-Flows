@@ -15,6 +15,7 @@ from app.models.task import Task
 from app.models.task_assignee import TaskAssignee
 from app.models.team import Team
 from app.models.team_member import TeamMember
+from app.models.tenant import Tenant
 from app.models.comment import Comment
 from app.models.notification import Notification
 from app.models.operation_log import OperationLog
@@ -33,6 +34,7 @@ __all__ = [
     "TaskAssignee",
     "Team",
     "TeamMember",
+    "Tenant",
     "Comment",
     "Notification",
     "OperationLog",
