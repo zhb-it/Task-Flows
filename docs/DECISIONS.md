@@ -602,3 +602,15 @@
   3. **收集全部问题再一次报出**：`collect_production_config_problems` 返回完整清单，`validate_production_config` 汇总成单条 RuntimeError（每项一行、点名配置项与环境变量名），运维一轮改完。
   4. **校验点在 `main.py` import 顶层**：uvicorn 拉起进程的第一步就是 import 应用模块，错配在进程拉起前就失败，而不是等第一个请求；开发/测试环境（`app_env != production`）完全跳过，保住「零配置可用」。
 - Consequence：生产错配从「部署后静默带病运行」变为「拉起即失败且逐项点名」；代价是 32 字符为拍板值（登记于此，可经修改常量调整），且 `DATABASE_URL` 口令判定只防字面默认值，不评估口令熵——更强的口令策略属 Phase 20 身份硬化范畴。
+
+## 064 端点声明护栏的扫描范围与豁免规则（TASK-092）
+
+- Date：2026-09-16
+- Context：C8 的教训是「文档里声明的端点必须真实存在」没有护栏，A1（§32 列三个 /health 端点、代码只有一个）能存活多个 Phase。但全仓库文档的 `METHOD /path` 引用里有大量**记号差异**（省写 `/api/v1` 前缀、`{id}` 泛指参数、`GET|POST` 复合写法）与**规划性引用**（TASKS.md 的未勾选任务、FRONTEND_API_MAPPING 的相对路径简写）——照单全收会产出一片假阳性，护栏会被迫放宽直至失效。
+- Decision：
+  1. **扫描范围收窄到两份运维门面文档**：`README.md` 与 `docs/DEPLOYMENT.md`——A1 正是死在 DEPLOYMENT 的健康检查清单上，这两处是「运维照着配监控/探针」的契约；TASKS（规划）、DECISIONS（历史叙事）、FRONTEND_API_MAPPING（前端视角简写）不含运维契约语义，不扫。
+  2. **三类记号豁免**：`/api/v1` 前缀可省；参数段名归一为 `{}`（段结构才是语义）；`GET|POST /path` 复合写法**逐方法**核对（正则只匹配管道后最后一个方法是真实漏洞，第一版实现即修正）。
+  3. **nginx location 作为第二事实源**：`/nginx-health` 由 nginx 自身提供、不在 OpenAPI 里，但同样是运维依赖的真实路由——从 `nginx/nginx.conf` 解析 `location`（`= /x` 与前缀 `/y` 两种形态）加入放行集合。
+  4. **README 健康探针族集合断言**（不变量 #8）：声明的 `/health*` 端点集合必须与 OpenAPI **相等**——A1 的反向形态（代码有五个探针、README 只写 `GET /health`，运维按门面配监控漏掉四个）同样要拦。
+  5. `app.openapi()` 惰性导入：只在检查执行时装配应用，不拖累脚本加载。
+- Consequence：README 两处真实漂移当场被抓出修正（`GET /logs/task/{id}`、Health 行漏报探针族），证明护栏有真实抓捕力；代价是豁免规则让「`GET /xxx` 形式写在 README/DEPLOYMENT 之外」的漂移不被此护栏覆盖（如 API_CONTRACT——但它有独立的契约测试与前端映射文档交叉核对），且新文档类型需人工纳入扫描范围。

@@ -22,7 +22,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_docs import PROJECT_ROOT, check_text
+from scripts.check_docs import (
+    PROJECT_ROOT,
+    check_endpoint_declarations,
+    check_readme_health_set,
+    check_text,
+    collect_nginx_locations,
+)
 
 REPO_TASKS = PROJECT_ROOT / "docs" / "TASKS.md"
 REPO_PROGRESS = PROJECT_ROOT / "docs" / "PROGRESS.md"
@@ -302,3 +308,116 @@ def test_frontier_hole_without_an_entry_is_detected() -> None:
     assert len(problems) == 1, f"应只报第 6 条不变量，实际：{problems}"
     assert "缺口：[2]" in problems[0]
     assert "漏登记" in problems[0]
+
+
+# --- 4. 端点声明 ↔ 真实路由（TASK-092，不变量 #7 / #8） --------------------------
+#
+# A1 事故的教训：§32 声明了三个 /health 端点而代码只有一个，这个漂移存活了
+# 多个 Phase 才被企业化审计的正则扫描抓到。下面用**合成路由表**证明检查器
+# 真的会报每一种矛盾——「永远返回空列表的检查器」也能让真实仓库的正向断言通过。
+
+#: 一张**合成**路由表：够小、能精确控制「存在什么」，与真实 app 解耦。
+SYNTH_OPENAPI_ENDPOINTS = {
+    ("POST", "/auth/login"),
+    ("PATCH", "/tasks/{}/transition"),
+    ("POST", "/tasks/{}/comments"),
+}
+SYNTH_OPENAPI_PATHS = {
+    "/health",
+    "/health/live",
+    "/health/ready",
+    "/health/db",
+    "/health/redis",
+    "/tasks/{}/transition",
+}
+SYNTH_NGINX_LOCATIONS = {"/nginx-health"}
+
+
+def _endpoint_problems(readme: str = "", deployment: str = "") -> list[str]:
+    return check_endpoint_declarations(
+        {"README.md": readme, "docs/DEPLOYMENT.md": deployment},
+        SYNTH_OPENAPI_ENDPOINTS,
+        SYNTH_NGINX_LOCATIONS,
+    )
+
+
+def test_endpoint_declaration_drift_is_detected() -> None:
+    """文档声明一个谁都没实现的端点，必须报出来并点名文档与端点。"""
+    problems = _endpoint_problems(readme="访问 `GET /api/v1/ghost-endpoint` 查看。")
+
+    assert len(problems) == 1, problems
+    assert "README.md" in problems[0]
+    assert "GET /api/v1/ghost-endpoint" in problems[0]
+    assert "不存在" in problems[0]
+
+
+def test_api_v1_prefix_and_param_placeholder_are_forgiven() -> None:
+    """全仓库文档一律省略 /api/v1 前缀、参数名随手写——记号差异不是漂移。"""
+    problems = _endpoint_problems(
+        readme="登录 `POST /auth/login`；流转 `PATCH /tasks/{id}/transition`。"
+    )
+
+    assert problems == [], problems
+
+
+def test_method_alternation_declarations_check_every_method() -> None:
+    """`GET|POST /path` 复合写法的**每个**方法都要核对，不能只查管道后那个。"""
+    # 合成路由表里只有 POST /tasks/{}/comments：GET 这一半是漂移。
+    problems = _endpoint_problems(readme="评论：`GET|POST /tasks/{id}/comments`。")
+
+    assert len(problems) == 1, problems
+    assert "GET /tasks/{id}/comments" in problems[0]
+
+
+def test_nginx_served_endpoint_is_accepted() -> None:
+    """/nginx-health 由 nginx 自己提供、不经 OpenAPI——豁免；幽灵路径仍要报。"""
+    ok = _endpoint_problems(deployment="入口探针 `GET /nginx-health`。")
+    drift = _endpoint_problems(deployment="入口探针 `GET /nginx-ghost`。")
+
+    assert ok == [], ok
+    assert len(drift) == 1 and "docs/DEPLOYMENT.md" in drift[0]
+
+
+def test_collect_nginx_locations_parses_exact_and_prefix_forms() -> None:
+    """`location = /x` 与 `location /y` 两种形态都要解析出来。"""
+    conf = "location = /nginx-health { return 200; }\nlocation /api/ { proxy_pass ...; }"
+
+    assert collect_nginx_locations(conf) == {"/nginx-health", "/api"}
+
+
+def test_readme_health_set_missing_probes_is_detected() -> None:
+    """A1 的反向形态：代码有探针族、README 只写 /health——监控会漏配四个探针。"""
+    readme = "| Health | `GET /health` | 探针 |"
+
+    problems = check_readme_health_set(readme, SYNTH_OPENAPI_PATHS)
+
+    assert len(problems) == 1, problems
+    assert "漏报" in problems[0]
+    for path in ("/health/live", "/health/ready", "/health/db", "/health/redis"):
+        assert path in problems[0], problems
+
+
+def test_readme_health_set_extra_endpoint_is_detected() -> None:
+    problems = check_readme_health_set(
+        "| Health | `GET /health`、`GET /health/live`、`GET /health/ready`、"
+        "`GET /health/db`、`GET /health/redis`、`GET /health/ghost` | 探针 |",
+        SYNTH_OPENAPI_PATHS,
+    )
+
+    assert len(problems) == 1, problems
+    assert "不存在" in problems[0] and "/health/ghost" in problems[0]
+
+
+def test_readme_health_set_match_passes() -> None:
+    readme = (
+        "| Health | `GET /health`、`GET /health/live`、`GET /health/ready`、"
+        "`GET /health/db`、`GET /health/redis` | 探针 |"
+    )
+
+    assert check_readme_health_set(readme, SYNTH_OPENAPI_PATHS) == []
+
+
+def test_readme_without_health_declarations_is_detected() -> None:
+    problems = check_readme_health_set("| Health | 探针见 DEPLOYMENT |", SYNTH_OPENAPI_PATHS)
+
+    assert len(problems) == 1 and "没有" in problems[0]

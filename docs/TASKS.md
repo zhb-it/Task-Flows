@@ -324,7 +324,7 @@
   - 验收标准：四种错配各自拒绝启动且报错点名；合法配置正常启动；`APP_ENV=development` 不受影响。
   - 测试要求：四条错配各 1 项拒绝用例 + 1 条合法放行 + 1 条「开发环境不检查」。
 
-- [ ] TASK-092 文档语义护栏：端点声明 ↔ OpenAPI
+- [x] TASK-092 文档语义护栏：端点声明 ↔ OpenAPI
   - 目标：关闭 **C8**——护栏不含「文档里声明的端点必须真实存在」，所以 A1 那类漂移能长期存活。
   - 依赖：TASK-088（否则护栏会立刻抓到 A1 的漂移——这正是它该有的行为）。
   - 涉及文件：`scripts/check_docs.py`、`tests/test_docs_consistency.py`、`docs/DEPLOYMENT.md`。

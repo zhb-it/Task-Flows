@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 """文档一致性检查（TASK-064 建立，TASK-063 扩展到 README / 面试文档）。
 
-检查三组不变量：
+检查四组不变量：
 
 1. `docs/PROGRESS.md` ↔ `docs/TASKS.md`（进度摘要与任务事实源）
 2. `README.md` ↔ 规格 / 进度 / 质量基线（README 是仓库门面，最容易悄悄说谎）
 3. `docs/INTERVIEW.md` ↔ 开发文档 §56（35 个必答问题一个都不能少）
+4. 端点声明 ↔ 真实路由（TASK-092）：README / DEPLOYMENT 里形如 `` `GET /xxx` ``
+   的端点声明必须存在于 `app.openapi()` 或 nginx 配置中；README 声明的健康
+   检查端点集合必须与代码一致——A1 那类「文档声明的端点根本不存在」的漂移
+   （§32 列了三个 /health 端点而代码只有一个，存活了多个 Phase）不能再靠人
+   肉复盘发现。
 
 ---
 
@@ -61,8 +66,12 @@ PROGRESS_PATH = PROJECT_ROOT / "docs" / "PROGRESS.md"
 README_PATH = PROJECT_ROOT / "README.md"
 INTERVIEW_PATH = PROJECT_ROOT / "docs" / "INTERVIEW.md"
 QUALITY_PATH = PROJECT_ROOT / "docs" / "QUALITY.md"
+DEPLOYMENT_PATH = PROJECT_ROOT / "docs" / "DEPLOYMENT.md"
 #: 原始开发文档（规格事实来源）。
 SPEC_PATH = PROJECT_ROOT / "团队任务协作系统_项目开发文档.md"
+#: 端点声明的第二个事实源：nginx 自己提供的端点（如 /nginx-health）不在
+#: OpenAPI 里，但同样是「运维依赖的真实路由」。
+NGINX_CONF_PATH = PROJECT_ROOT / "nginx" / "nginx.conf"
 
 _PHASE_RE = re.compile(r"^##\s+(Phase\s+.*)$")
 _TASKS_ITEM_RE = re.compile(r"^-\s+\[(?P<mark>[ xX])\]\s+TASK-(?P<num>\d+)")
@@ -104,6 +113,132 @@ _FRONTIER_RE = re.compile(r"TASK-\d+\s*~\s*TASK-(?P<hi>\d+)\s*全部交付")
 #: 在 README 里仍能匹配到，否则改写措辞就能让数量检查静默失效。
 MIGRATION_COUNT_RE = re.compile(r"(?P<num>\d+)\s*个\s*(?:Alembic\s*)?迁移")
 TEST_FILE_COUNT_RE = re.compile(r"(?P<num>\d+)\s*个\s*测试文件(?!的)")
+
+# --- 端点声明 ↔ 真实路由（TASK-092，不变量 #7 / #8） ------------------------
+#
+#: 文档里的端点声明：行内代码形式的 `` `METHOD /path` ``，支持 README 端点表的
+#: 复合写法 `` `GET|POST /path` ``（管道分隔的每个方法都要逐一核对，不能只查
+#: 管道后的最后一个）。路径字符集刻意收紧（字母数字与 {}-._/$），不含空格与
+#: query 串——「`GET /xxx`（尚未实现）」这类**描述性引用**也会被命中，这正是
+#: 任务要求。
+_INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+_METHOD_PATH_RE = re.compile(
+    r"^(?P<methods>(?:GET|POST|PUT|PATCH|DELETE)(?:\s*\|\s*(?:GET|POST|PUT|PATCH|DELETE))*)"
+    r"\s+(?P<path>/[A-Za-z0-9_\-{}./]*)$"
+)
+#: nginx.conf 里的 location 声明（`location = /x` 与 `location /y` 两种）。
+_NGINX_LOCATION_RE = re.compile(r"location\s+(?:=\s*)?(?P<path>/[^\s{;]*)")
+
+
+def _normalize_endpoint_path(path: str) -> str:
+    """归一化路径：参数占位段泛化为 ``{}``，去掉首尾多余斜杠。
+
+    文档写 ``/tasks/{id}``、代码路由是 ``/api/v1/tasks/{task_id}``——参数名
+    是作者的记号选择，不该成为假阳性；段结构才是语义。
+    """
+    segments = [
+        "{}" if seg.startswith("{") and seg.endswith("}") else seg
+        for seg in path.split("/")
+        if seg != ""
+    ]
+    return "/" + "/".join(segments)
+
+
+def _iter_endpoint_declarations(text: str):
+    for code_match in _INLINE_CODE_RE.finditer(text):
+        decl_match = _METHOD_PATH_RE.match(code_match.group(1).strip())
+        if not decl_match:
+            continue
+        for method in decl_match.group("methods").split("|"):
+            yield method.strip().upper(), decl_match.group("path")
+
+
+def collect_openapi_endpoints() -> tuple[set[tuple[str, str]], set[str]]:
+    """从 ``app.openapi()`` 取 (方法, 归一化路径) 集合与归一化路径全集。
+
+    惰性导入：装配 app 会连带配置日志、读 .env，只有本检查真正需要时才发生。
+    """
+    import sys as _sys
+
+    if str(PROJECT_ROOT) not in _sys.path:
+        _sys.path.insert(0, str(PROJECT_ROOT))
+    from app.main import app  # noqa: PLC0415 —— 见上，刻意惰性
+
+    schema = app.openapi()
+    endpoints: set[tuple[str, str]] = set()
+    for path, methods in schema.get("paths", {}).items():
+        normalized = _normalize_endpoint_path(path)
+        for method in methods:
+            endpoints.add((method.upper(), normalized))
+    all_paths = {_normalize_endpoint_path(p) for p in schema.get("paths", {})}
+    return endpoints, all_paths
+
+
+def collect_nginx_locations(conf_text: str) -> set[str]:
+    """nginx.conf 里全部 location 路径（归一化）。这些端点由 nginx 自己提供。"""
+    return {
+        _normalize_endpoint_path(match.group("path"))
+        for match in _NGINX_LOCATION_RE.finditer(conf_text)
+    }
+
+
+def check_endpoint_declarations(
+    doc_texts: dict[str, str],
+    openapi_endpoints: set[tuple[str, str]],
+    nginx_locations: set[str],
+) -> list[str]:
+    """文档声明的端点必须真实存在（OpenAPI 或 nginx）。纯函数，便于合成验证。
+
+    两条豁免（都是「写的确实是同一个东西」的记号差异，不是漂移）：
+    * ``/api/v1`` 前缀可省——全仓库文档一律用 ``POST /auth/login`` 的简写；
+    * 参数段名可任意——``{id}`` 与 ``{task_id}`` 指同一段。
+    """
+    problems: list[str] = []
+    for doc_name, text in doc_texts.items():
+        for method, raw_path in _iter_endpoint_declarations(text):
+            candidates = {
+                _normalize_endpoint_path(raw_path),
+                _normalize_endpoint_path(f"/api/v1{raw_path}"),
+            }
+            if any((method, candidate) in openapi_endpoints for candidate in candidates):
+                continue
+            if _normalize_endpoint_path(raw_path) in nginx_locations:
+                continue
+            problems.append(
+                f"{doc_name} 声明 `{method} {raw_path}`，但该端点在 app.openapi()"
+                "与 nginx 配置中都不存在——文档声明了一个未实现的端点"
+                "（A1 类漂移；若属规划中端点，请改写措辞避免 `METHOD /path` 形式）"
+            )
+    return problems
+
+
+def check_readme_health_set(readme_text: str, openapi_paths: set[str]) -> list[str]:
+    """README 声明的健康检查端点集合必须与代码一致（§32 / TASK-088）。
+
+    A1 的形态是「文档声明了不存在的端点」；反向形态（代码有探针族而 README
+    只写 ``GET /health``）同样危险——运维按门面文档配监控，会把四个探针漏掉。
+    """
+    declared = {
+        _normalize_endpoint_path(path)
+        for _, path in _iter_endpoint_declarations(readme_text)
+        if path.startswith("/health")
+    }
+    actual = {path for path in openapi_paths if path.startswith("/health")}
+    if not declared:
+        return [
+            "README.md 没有以 `METHOD /health…` 形式声明健康检查端点——"
+            "探针族是运维配监控/探针的依据，门面必须如实、完整地声明"
+        ]
+    problems: list[str] = []
+    missing = sorted(actual - declared)
+    extra = sorted(declared - actual)
+    if missing:
+        problems.append(
+            f"README.md 漏报健康检查端点：{missing}——代码里存在但门面未声明"
+        )
+    if extra:
+        problems.append(f"README.md 声明了不存在的健康检查端点：{extra}")
+    return problems
 
 
 class Task(NamedTuple):
@@ -516,17 +651,26 @@ def check(
     tasks_path: Path = TASKS_PATH, progress_path: Path = PROGRESS_PATH
 ) -> list[str]:
     """读取真实文件并检查（路径可覆盖，便于测试）。"""
-    required = (tasks_path, progress_path, README_PATH, INTERVIEW_PATH, SPEC_PATH, QUALITY_PATH)
+    required = (
+        tasks_path,
+        progress_path,
+        README_PATH,
+        INTERVIEW_PATH,
+        SPEC_PATH,
+        QUALITY_PATH,
+        DEPLOYMENT_PATH,
+    )
     for path in required:
         if not path.exists():
             return [f"缺少文件：{path}"]
 
+    readme_text = README_PATH.read_text(encoding="utf-8")
     problems = check_text(
         tasks_path.read_text(encoding="utf-8"),
         progress_path.read_text(encoding="utf-8"),
     )
     problems += check_readme_text(
-        README_PATH.read_text(encoding="utf-8"),
+        readme_text,
         SPEC_PATH.read_text(encoding="utf-8"),
         tasks_path.read_text(encoding="utf-8"),
         progress_path.read_text(encoding="utf-8"),
@@ -536,7 +680,24 @@ def check(
         INTERVIEW_PATH.read_text(encoding="utf-8"),
         SPEC_PATH.read_text(encoding="utf-8"),
     )
-    problems += check_repo_facts(README_PATH.read_text(encoding="utf-8"))
+    problems += check_repo_facts(readme_text)
+
+    # 端点声明 ↔ 真实路由（TASK-092 / 不变量 #7、#8）
+    openapi_endpoints, openapi_paths = collect_openapi_endpoints()
+    nginx_locations = (
+        collect_nginx_locations(NGINX_CONF_PATH.read_text(encoding="utf-8"))
+        if NGINX_CONF_PATH.exists()
+        else set()
+    )
+    problems += check_endpoint_declarations(
+        {
+            "README.md": readme_text,
+            "docs/DEPLOYMENT.md": DEPLOYMENT_PATH.read_text(encoding="utf-8"),
+        },
+        openapi_endpoints,
+        nginx_locations,
+    )
+    problems += check_readme_health_set(readme_text, openapi_paths)
     return problems
 
 
@@ -545,7 +706,8 @@ def main() -> int:
     if not problems:
         print(
             "文档一致：docs/PROGRESS.md ↔ docs/TASKS.md、README.md ↔ "
-            "规格/进度/质量基线、docs/INTERVIEW.md ↔ 规格 §56，数量声明 ↔ 文件系统。"
+            "规格/进度/质量基线、docs/INTERVIEW.md ↔ 规格 §56、端点声明 ↔ "
+            "OpenAPI/nginx、数量声明 ↔ 文件系统。"
         )
         return 0
     print("文档之间出现了矛盾：\n")

@@ -24,13 +24,13 @@ pytest -q --cov --cov-report=term-missing   # 1095 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-091 重测）**：1095 passed / 67 个测试文件 / 997 个 `def test_*` /
+> **当前基线（快照 2026-09-16，TASK-092 重测）**：1104 passed / 67 个测试文件 / 1006 个 `def test_*` /
 > 2707 语句 / 99.82% 行、99.52% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1095 个用例全部通过**，0 failed / 0 error / 0 skipped（67 个测试文件，997 个
+- **1104 个用例全部通过**，0 failed / 0 error / 0 skipped（67 个测试文件，1006 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
@@ -49,6 +49,10 @@ ruff check .                               # All checks passed!
   各一条拒绝用例（报错点名配置项）、合法生产配置放行、开发环境不检查、收集式
   全量点名、两条真实子进程端到端（错配 `import app.main` 即非零退出 / 合法配置
   正常启动）。）
+  （TASK-092 增量 9 项：`tests/test_docs_consistency.py` 扩充——端点声明漂移检测、
+  `/api/v1` 前缀与参数占位豁免、`GET|POST` 复合写法逐方法核对、nginx location
+  豁免与解析、健康探针族集合的漏报/多报/一致/缺失四向；本任务未改 `app/`，
+  覆盖率数字与 TASK-091 完全一致。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -83,7 +87,9 @@ ruff check .                               # All checks passed!
 > 1037（TASK-088 登记增量 2 项护栏反向用例）→ 1053（TASK-088 实现增量 16 项）→
 > 1070（TASK-089：beat 契约 11 + 终态清理 3 + compose 契约 3）→
 > **1084**（TASK-090：`tests/test_metrics.py` 14 项）→
-> **1095**（TASK-091：`tests/test_config_production_guards.py` 11 项）。
+> **1095**（TASK-091：`tests/test_config_production_guards.py` 11 项）→
+> **1104**（TASK-092：`tests/test_docs_consistency.py` 补 9 项——纯脚本/文档层，
+  `app/` 语句数与覆盖不变）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
 > **TASK-088~091 更新（2026-09-16）**：上表为 TASK-091 重测值（`core` 541 → 562：
@@ -201,7 +207,7 @@ OpenAPI schema / 文件系统对齐） / `.env.example`。
 
 | Phase 14 要求 | 结论 |
 | --- | --- |
-| `pytest` 可运行、覆盖核心业务 | ✅ 1095 passed（TASK-091 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.51% 分支 |
+| `pytest` 可运行、覆盖核心业务 | ✅ 1104 passed（TASK-092 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.51% 分支 |
 | 「核心 Service + API 有较高测试覆盖率」 | ✅ Service 724 语句 / 1 未覆盖；API 274 语句 / 0 未覆盖 |
 | 「不要为了追求数字而测试没有业务价值的代码」 | ✅ 显式执行：未覆盖的那 1 行（协议声明式方法）**刻意不测**，见 1.2 与第 7 节 |
 

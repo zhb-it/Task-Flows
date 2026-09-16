@@ -1,7 +1,7 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~091。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~092（全部 5 项）。
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
@@ -9,7 +9,7 @@ Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TAS
 Phase 18：生产可靠性地基（TASK-088~092）
 
 ## Current Task
-TASK-091 生产配置自检——`APP_ENV=production` 时 import 即执行启动自检并拒绝四类错配：`DEBUG=true`；`JWT_SECRET_KEY` 为默认值 `change-me` 或长度不足 32 字符；`DATABASE_URL` 含默认口令（`:postgres@`）；开了 `TRUST_PROXY_HEADERS` 但 `TRUSTED_PROXY_IPS` 为空。报错逐项点名具体配置项、收集全部问题一次报出；开发/测试环境完全跳过（保住「零配置可用」）。
+TASK-092 文档语义护栏：端点声明 ↔ OpenAPI——`scripts/check_docs.py` 新增不变量 #7/#8：README 与 DEPLOYMENT 中形如 `METHOD /path` 的端点声明必须存在于 `app.openapi()` 或 nginx 配置（豁免 `/api/v1` 前缀省写、参数占位名、`GET|POST` 复合写法逐方法核对）；README 声明的健康检查端点集合必须与代码一致。顺带修正 README 两处真实漂移（`GET /logs/task/{id}`、Health 行漏报探针族）。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -103,6 +103,7 @@ TASK-091 生产配置自检——`APP_ENV=production` 时 import 即执行启动
 - [x] TASK-089 Celery Beat 周期调度与归档终态保留（beat_schedule 两任务 + celery_beat 单实例服务双 compose + 归档表终态清理；真实栈实证 beat 09:41:00 UTC 自动投递、两任务执行成功；`tests/test_beat_schedule.py` 11 项 + 终态清理 3 项 + beat compose 契约 3 项）
 - [x] TASK-090 指标端点与 5xx 统一信封（`app/core/metrics.py` + `MetricsErrorMiddleware` + `/metrics` 端点 + Redis 埋点客户端 + 维护时间戳/任务计数跨进程中转 + `deploy/prometheus/`；真实实例冒烟通过；`tests/test_metrics.py` 14 项，基线 1084 passed / 覆盖率重测 99.81% 行、99.75% 分支）
 - [x] TASK-091 生产配置自检（`app/core/config.py` 新增 `collect_production_config_problems`/`validate_production_config` + `main.py` import 顶层接入；四类错配逐项点名、收集全部一次报出，最小密钥长度 32 登记为 DECISIONS 063；`tests/test_config_production_guards.py` 11 项含两条真实子进程端到端——错配 import 即非零退出、合法配置正常启动，基线 1095 passed / 覆盖率重测 99.82% 行、99.52% 分支）
+- [x] TASK-092 文档语义护栏：端点声明 ↔ OpenAPI（`check_docs.py` 不变量 #7/#8 + nginx location 事实源 + `GET|POST` 复合写法逐方法核对；`tests/test_docs_consistency.py` 补 9 项合成反向用例；端到端实证：往 DEPLOYMENT.md 注入幽灵端点后 check_docs 立即非零退出并点名，还原后 exit 0；顺带修正 README 两处真实漂移；DECISIONS 064）
 
 ## In Progress
 - [ ]
@@ -112,9 +113,9 @@ TASK-091 生产配置自检——`APP_ENV=production` 时 import 即执行启动
 
 ## Next
 
-TASK-092 文档语义护栏：端点声明 ↔ OpenAPI（Phase 18 第五个任务）
+TASK-093 租户模型与生命周期（Phase 19 首个任务，企业化唯一结构性改造开始）
 
-TASK-001~091 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-092（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
+TASK-001~092 已全部交付（Phase 18 收官）；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-093（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
