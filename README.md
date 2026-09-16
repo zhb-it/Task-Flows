@@ -20,7 +20,7 @@
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 16（RBAC 权限闭环），TASK-001 ~ TASK-084 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线）。
+> 当前处于 Phase 17（找人体验），TASK-001 ~ TASK-086 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验 TASK-085~086；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线）。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -312,7 +312,7 @@ FastAPI（业务事务已提交）
 | --- | --- | --- |
 | Auth | `POST /auth/register`、`POST /auth/login`、`POST /auth/refresh`、`POST /auth/logout` | 注册（自动绑 member 角色）/ 登录 / 刷新（轮换）/ 登出（撤销） |
 | User | `GET /users/me` | 当前用户 |
-| User（RBAC） | `GET /users`、`GET /users/me/permissions`、`GET|PUT /users/{user_id}/roles` | 用户列表 / 我的有效权限 / 角色管理（PUT 仅 admin） |
+| User（RBAC） | `GET /users`（支持 `q` 按用户名/邮箱搜索）、`GET /users/me/permissions`、`GET|PUT /users/{user_id}/roles` | 用户列表（搜索找人）/ 我的有效权限 / 角色管理（PUT 仅 admin） |
 | Permissions | `GET /permissions` | 角色-权限矩阵（仅 admin） |
 | Team | `GET|POST /teams`、`GET|PATCH|DELETE /teams/{team_id}` | 团队 CRUD |
 | Team Members | `GET|POST /teams/{team_id}/members`、`DELETE /teams/{team_id}/members/{user_id}` | 成员管理 |
@@ -500,7 +500,7 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-16）**：1033 passed，0 failed / 0 error / 0 skipped；
+**当前基线（快照 2026-09-16）**：1035 passed，0 failed / 0 error / 0 skipped；
 覆盖率 2376 语句 / 1 未覆盖 / 358 分支 → 99.96% 行、100% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。

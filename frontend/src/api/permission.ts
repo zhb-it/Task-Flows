@@ -29,9 +29,13 @@ function fetchMatrix(): Promise<PermissionMatrixRole[]> {
   return http.get<PermissionMatrixRole[]>('/permissions')
 }
 
-/** `GET /users` —— 用户列表（含角色名），skip/limit 分页与后端一致。 */
-function listUsers(skip = 0, limit = 100): Promise<UserWithRoles[]> {
-  return http.get<UserWithRoles[]>('/users', { params: { skip, limit } })
+/** `GET /users` —— 用户列表（含角色名），skip/limit 分页与后端一致。
+ *
+ * `q` 可选：按用户名/邮箱子串搜索（后端 ILIKE，大小写不敏感，TASK-085），
+ * 邀请成员/角色分配的选择器靠它「按名字找人」，避免管理员面对裸自增 id。
+ */
+function listUsers(skip = 0, limit = 100, q?: string): Promise<UserWithRoles[]> {
+  return http.get<UserWithRoles[]>('/users', { params: { skip, limit, q } })
 }
 
 /** `GET /users/{user_id}/roles` —— 指定用户的角色名列表。 */

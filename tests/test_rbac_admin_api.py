@@ -1,4 +1,4 @@
-"""TASK-082/083：RBAC 管理端点集成测试（/users 列表、用户角色、权限矩阵）。
+"""TASK-082/083/085：RBAC 管理端点集成测试（/users 列表+搜索、用户角色、权限矩阵）。
 
 沿用本项目集成测试惯例：宿主 PG 5433 + 本次运行唯一前缀 + teardown 精确删除
 （users 行级联带走 user_roles）。注册即 member（TASK-081），管理员由
@@ -259,3 +259,58 @@ async def test_admin_cannot_modify_own_roles(client) -> None:
     )
     assert resp.status_code == 403, resp.text
     assert "own roles" in resp.json()["detail"]
+
+
+# --- GET /users?q= 搜索（TASK-085，邀请/找人选择器的数据源）----------------
+
+
+async def test_list_users_search_by_username(client) -> None:
+    """q 按用户名/邮箱子串（大小写不敏感）过滤；空白 q 视同不过滤。"""
+    tag = "seekable"
+    await _register(client, tag)
+    token = await _login(client, tag)
+
+    # 完整子串命中（RUN_TOKEN 保证只匹配本运行创建的用户）
+    resp = await client.get(
+        "/api/v1/users",
+        headers=_auth(token),
+        params={"q": f"rbacadm_{RUN_TOKEN}_{tag}"},
+    )
+    assert resp.status_code == 200, resp.text
+    names = [i["username"] for i in resp.json()["data"]]
+    assert names == [_username(tag)]
+
+    # 大写查询同样命中（ILIKE 大小写不敏感）
+    resp = await client.get(
+        "/api/v1/users",
+        headers=_auth(token),
+        params={"q": f"RBACADM_{RUN_TOKEN}_{tag}".upper()},
+    )
+    assert resp.status_code == 200, resp.text
+    names = [i["username"] for i in resp.json()["data"]]
+    assert names == [_username(tag)]
+
+    # 邮箱子串也能命中（邀请场景按邮箱找人）
+    resp = await client.get(
+        "/api/v1/users", headers=_auth(token), params={"q": _email(tag)}
+    )
+    names = [i["username"] for i in resp.json()["data"]]
+    assert names == [_username(tag)]
+
+    # 无命中 → 空列表（不是 404）
+    resp = await client.get(
+        "/api/v1/users", headers=_auth(token), params={"q": "no_such_user_zzz"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"] == []
+
+    # q 为空白串视同不过滤（仍能列出用户）
+    resp = await client.get("/api/v1/users", headers=_auth(token), params={"q": "   "})
+    assert resp.status_code == 200, resp.text
+    assert any(i["username"] == _username(tag) for i in resp.json()["data"])
+
+
+async def test_list_users_search_requires_auth(client) -> None:
+    """搜索与列表同权（user:read）；未认证 401 语义不变。"""
+    resp = await client.get("/api/v1/users", params={"q": "anything"})
+    assert resp.status_code == 401

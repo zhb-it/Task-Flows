@@ -33,6 +33,10 @@ const users = ref<UserWithRoles[]>([])
 const matrixError = ref<string | null>(null)
 const usersError = ref<string | null>(null)
 
+/** 用户列表搜索关键词（回车/按钮触发；后端 /users?q= 子串匹配，TASK-085/086）。 */
+const userKeyword = ref('')
+const userSearching = ref(false)
+
 /** 角色中文名（后端 description 是英文种子文案，界面用固定映射更好读）。 */
 const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
@@ -98,10 +102,13 @@ async function loadMatrix(): Promise<void> {
 
 async function loadUsers(): Promise<void> {
   usersError.value = null
+  userSearching.value = true
   try {
-    users.value = await permissionApi.listUsers()
+    users.value = await permissionApi.listUsers(0, 100, userKeyword.value.trim() || undefined)
   } catch (error) {
     usersError.value = describeError(error)
+  } finally {
+    userSearching.value = false
   }
 }
 
@@ -171,7 +178,20 @@ onMounted(loadAll)
         <template #header>
           <div class="tf-perm__card-header">
             <span>用户角色</span>
-            <el-button text type="primary" @click="loadUsers">刷新</el-button>
+            <div class="tf-perm__search">
+              <el-input
+                v-model="userKeyword"
+                clearable
+                placeholder="按用户名 / 邮箱搜索"
+                style="width: 220px"
+                @keyup.enter="loadUsers"
+                @clear="loadUsers"
+              />
+              <el-button type="primary" plain :loading="userSearching" @click="loadUsers">
+                搜索
+              </el-button>
+              <el-button text type="primary" @click="loadUsers">刷新</el-button>
+            </div>
           </div>
         </template>
         <el-alert
@@ -261,6 +281,12 @@ onMounted(loadAll)
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.tf-perm__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tf-perm__tag {

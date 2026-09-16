@@ -181,6 +181,10 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
   `role` 只接受 `admin` / `member`（`"owner"` → 422）；目标用户不存在 → 404。
   成员列表返回的 `role` 是小写名 `owner|admin|member`。
 - **前端处理**：邀请表单按 `user_id` 设计；`role` 用下拉（两项），不做「输入邮箱邀请」。
+- **2026-09-16 更新（TASK-085~086）**：邀请对话框改为 el-select 远程搜索选择器——
+  后端 `GET /users` 新增可选 `q`（用户名/邮箱子串、大小写不敏感），选项展示
+  `用户名（#id · 邮箱）`，选中值即 user_id。管理员不再需要知道裸数字 id；
+  权限页用户列表同样支持按用户名/邮箱搜索。
 
 ### D7 · `GET /tasks` 的 `project_id` 必填
 

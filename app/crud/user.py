@@ -5,7 +5,7 @@ is the responsibility of the security module / Service layer (TASK-014/015),
 keeping this layer free of auth concerns.
 """
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -36,8 +36,18 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def get_users(db: AsyncSession, *, skip: int = 0, limit: int = 100) -> list[User]:
-    result = await db.execute(
-        select(User).order_by(User.id).offset(skip).limit(limit)
-    )
+async def get_users(
+    db: AsyncSession, *, skip: int = 0, limit: int = 100, q: str | None = None
+) -> list[User]:
+    """分页列出用户；``q`` 非空时按用户名/邮箱做大小写不敏感的子串过滤。
+
+    邀请成员（前端选择器）与权限页找人都要「按名字找人再拿 id」，纯自增
+    id 列表无法定位目标（TASK-085）。`ILIKE '%q%'` 与任务搜索同款实现
+    （pg_trgm/ILIKE 口径，见 DECISIONS 036）；结果仍按 id 升序，分页语义不变。
+    """
+    stmt = select(User).order_by(User.id).offset(skip).limit(limit)
+    if q:
+        pattern = f"%{q}%"
+        stmt = stmt.where(or_(User.username.ilike(pattern), User.email.ilike(pattern)))
+    result = await db.execute(stmt)
     return list(result.scalars().all())

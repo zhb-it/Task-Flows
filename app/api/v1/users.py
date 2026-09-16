@@ -85,9 +85,17 @@ async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    q: Annotated[str | None, Query(max_length=64)] = None,
 ) -> SuccessResponse[list[UserWithRolesRead]]:
-    """分页列出用户（含角色名）。member 持有 user:read（找同事/看负责人）。"""
-    pairs = await user_service.list_users_with_roles(db, skip=skip, limit=limit)
+    """分页列出用户（含角色名）。member 持有 user:read（找同事/看负责人）。
+
+    ``q`` 可选：按用户名/邮箱做大小写不敏感的子串过滤（TASK-085），
+    供前端邀请成员/角色分配的选择器「按名字找人」；空串视同不过滤。
+    """
+    keyword = q.strip() if q else None
+    pairs = await user_service.list_users_with_roles(
+        db, skip=skip, limit=limit, q=keyword or None
+    )
     data = [
         UserWithRolesRead(**UserRead.model_validate(u).model_dump(), roles=roles)
         for u, roles in pairs

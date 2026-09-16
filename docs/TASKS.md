@@ -262,6 +262,23 @@
   - 验收标准：四门全绿（typecheck/lint/test/build）；admin 登录可见「权限管理」菜单且可改角色；member 不可见且直输 URL 得到降级提示。
   - 测试要求：store 权限并行拉取与失败降级、composable 响应式判定、路由表演进断言；单测 72 项不回退。
 
+## Phase 17：找人体验（TASK-085~086）
+
+- [x] TASK-085 `GET /users` 增加 `q` 搜索参数
+  - 目标：邀请成员/分配角色场景的「按名字找人」——裸自增 id 列表无法定位用户，管理员无从判断某个 id 对应哪个成员（用户反馈）。
+  - 依赖：TASK-082（GET /users）。
+  - 涉及文件：`app/crud/user.py`、`app/services/user.py`、`app/api/v1/users.py`、`tests/test_rbac_admin_api.py`。
+  - 实现要求：① `q` 为可选 Query（max_length=64），按用户名/邮箱做子串、大小写不敏感匹配（与任务搜索同款 `ILIKE '%q%'` 口径）；② 空串/纯空白视同不过滤；③ 与列表同权（user:read），不新增权限项；④ 结果仍按 id 升序，分页语义不变。
+  - 验收标准：q 按用户名命中（含大写查询）与邮箱子串命中；无命中 → 空列表（不是 404）；空白 q 列出全量。
+  - 测试要求：`test_rbac_admin_api.py` 增 2 项（搜索语义 + 未认证 401）。
+- [x] TASK-086 前端邀请成员改为用户选择器
+  - 目标：消灭「手填数字 ID」交互——选择器直接展示用户名、邮箱与 id，选中值即 user_id。
+  - 依赖：TASK-085（q 参数）。
+  - 涉及文件：`frontend/src/api/permission.ts`（listUsers 加 q）、`frontend/src/views/team/TeamMembers.vue`、`frontend/src/views/permission/PermissionManage.vue`。
+  - 实现要求：① 邀请对话框改 el-select 远程搜索（filterable+remote）：打开预载前 50 个用户，输入关键词搜用户名/邮箱，选项展示 `用户名（#id · 邮箱）`；② 权限页用户列表加「按用户名/邮箱搜索」（回车/按钮触发）；③ 搜索失败清空候选不阻塞对话框，错误由请求层统一提示；④ 同步更新 TeamMembers「已知限制」文案。
+  - 验收标准：四门全绿；admin 在邀请对话框可按名字/邮箱选中目标用户完成邀请。
+  - 测试要求：既有 72 项单测不回退（选择器数据行为由后端契约 12 项覆盖；组件测试口径见 DECISIONS 057）。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

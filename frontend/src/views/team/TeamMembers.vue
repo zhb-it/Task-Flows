@@ -5,8 +5,10 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
+import { permissionApi } from '@/api/permission'
 import { teamApi } from '@/api/team'
 import type { TeamMember, TeamMemberInvite, TeamRole } from '@/types/team'
+import type { UserWithRoles } from '@/types/permission'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 
@@ -44,13 +46,29 @@ async function loadMembers(): Promise<void> {
   }
 }
 
-// --- 邀请成员（按 user_id，非邮箱，见 FRONTEND_API_MAPPING §4-D6） -----------------
+// --- 邀请成员（按 user_id 邀请；选择器解决「不知道 id 对应谁」，TASK-086） --------
 const inviteVisible = ref(false)
 const inviting = ref(false)
 const formRef = ref<FormInstance>()
 const form = reactive<TeamMemberInvite>({ user_id: undefined as unknown as number, role: 'member' })
 const rules: FormRules<TeamMemberInvite> = {
-  user_id: [{ required: true, message: '请输入要邀请的用户 ID', trigger: 'blur' }],
+  user_id: [{ required: true, message: '请选择要邀请的用户', trigger: 'change' }],
+}
+
+/** 候选用户：对话框打开时预载前 50 个，输入关键词后远程搜索（后端 /users?q=）。 */
+const userOptions = ref<UserWithRoles[]>([])
+const searchingUsers = ref(false)
+
+async function searchUsers(query: string): Promise<void> {
+  searchingUsers.value = true
+  try {
+    userOptions.value = await permissionApi.listUsers(0, 50, query.trim() || undefined)
+  } catch {
+    // 加载失败清空候选即可：请求层已统一提示，选择器保持可用。
+    userOptions.value = []
+  } finally {
+    searchingUsers.value = false
+  }
 }
 
 function openInvite(): void {
@@ -58,6 +76,8 @@ function openInvite(): void {
   form.role = 'member'
   formRef.value?.clearValidate()
   inviteVisible.value = true
+  // 打开即预载候选，管理员不必先猜关键词。
+  void searchUsers('')
 }
 
 async function submitInvite(): Promise<void> {
@@ -142,14 +162,35 @@ onMounted(loadMembers)
       :closable="false"
       show-icon
       title="已知限制"
-      description="① 后端成员接口不返回邮箱，故列表仅显示用户名；② 后端没有「修改成员角色」的端点，角色调整需走「移除后重新邀请」；③ 邀请按 user_id（非邮箱），owner 不可被邀请或移除。"
+      description="① 后端成员接口不返回邮箱，故列表仅显示用户名；② 后端没有「修改成员角色」的端点，角色调整需走「移除后重新邀请」；③ 邀请按 user_id（非邮箱）——邀请对话框支持按用户名/邮箱搜索后选定，owner 不可被邀请或移除。"
       style="margin-top: 16px"
     />
 
     <el-dialog v-model="inviteVisible" title="邀请成员" width="440px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="用户 ID" prop="user_id">
-          <el-input v-model.number="form.user_id" type="number" placeholder="被邀请用户的数字 ID" />
+        <el-form-item label="用户" prop="user_id">
+          <el-select
+            v-model="form.user_id"
+            filterable
+            remote
+            clearable
+            :remote-method="searchUsers"
+            :loading="searchingUsers"
+            placeholder="输入用户名或邮箱搜索"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="u in userOptions"
+              :key="u.id"
+              :label="`${u.username}（${u.email}）`"
+              :value="u.id"
+            >
+              <span class="invite-option">
+                <span class="invite-option__name">{{ u.username }}</span>
+                <span class="invite-option__meta">#{{ u.id }} · {{ u.email }}</span>
+              </span>
+            </el-option>
+          </el-select>
         </el-form-item>
         <el-form-item label="角色">
           <el-select v-model="form.role" style="width: 100%">
@@ -184,5 +225,16 @@ onMounted(loadMembers)
 .muted {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+.invite-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.invite-option__meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-084 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-086 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验 TASK-085~086）。
 
 ## Current Phase
-Phase 16：RBAC 权限闭环（TASK-081~084）
+Phase 17：找人体验（TASK-085~086）
 
 ## Current Task
-TASK-084 前端权限闭环：权限页升级为真实角色管理 + usePermission 接入 `/users/me/permissions` 真实数据 + 菜单按权限过滤（TASK-081~083 后端端点：注册默认绑 member、me/permissions、/permissions 矩阵、GET/PUT /users/{id}/roles）。
+TASK-086 前端邀请成员改为用户选择器（远程搜索用户名/邮箱，选项展示 #id·邮箱），配套 TASK-085 `GET /users?q=` 搜索参数与权限页用户搜索——解决「邀请成员时管理员无法确定 id 对应哪个用户」。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -94,6 +94,8 @@ TASK-084 前端权限闭环：权限页升级为真实角色管理 + usePermissi
 - [x] TASK-083 我的权限集合与权限矩阵端点（GET /users/me/permissions、GET /permissions）
 - [x] TASK-082 用户-角色管理端点（GET /users、GET/PUT /users/{user_id}/roles，仅 admin 写）
 - [x] TASK-084 前端权限闭环：权限页 + usePermission 真实数据 + 菜单权限过滤
+- [x] TASK-085 `GET /users` 增加 `q` 搜索参数（用户名/邮箱子串、大小写不敏感）
+- [x] TASK-086 前端邀请成员改为用户选择器 + 权限页用户搜索
 
 ## In Progress
 - [ ]
@@ -542,4 +544,4 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
 
-无——TASK-001 ~ TASK-084 全部交付（后端 TASK-001~064、前端 TASK-065~080、RBAC 权限闭环 TASK-081~084）。注册默认绑定 member 角色后「登录即 403」已消解；D4/Q1（权限集合端点与前端权限页）已随 TASK-081~084 关闭。剩余降级项：跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、更新资料/改密 Q4、组件测试/E2E 口径 DECISIONS 057，待后端补端点或环境解除限制后自然消解。
+无——TASK-001 ~ TASK-086 全部交付（后端 TASK-001~064、前端 TASK-065~080、RBAC 权限闭环 TASK-081~084、找人体验 TASK-085~086）。注册默认绑定 member 角色后「登录即 403」已消解；D4/Q1（权限集合端点与前端权限页）已随 TASK-081~084 关闭；邀请「不知道 id 对应谁」已随 TASK-085~086（`/users?q=` 搜索 + 选择器）消解。剩余降级项：跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、更新资料/改密 Q4、组件测试/E2E 口径 DECISIONS 057，待后端补端点或环境解除限制后自然消解。

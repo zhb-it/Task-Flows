@@ -63,10 +63,10 @@ async def _load_roles_map(
 
 
 async def list_users_with_roles(
-    db: AsyncSession, *, skip: int = 0, limit: int = 100
+    db: AsyncSession, *, skip: int = 0, limit: int = 100, q: str | None = None
 ) -> list[tuple[User, list[str]]]:
-    """分页列出用户并附带各自角色名（GET /users，TASK-082）。"""
-    users = await get_users(db, skip=skip, limit=limit)
+    """分页列出用户并附带各自角色名（GET /users，TASK-082/085）。"""
+    users = await get_users(db, skip=skip, limit=limit, q=q)
     roles_map = await _load_roles_map(db, [u.id for u in users])
     return [(u, roles_map.get(u.id, [])) for u in users]
 
