@@ -7,7 +7,8 @@ import { projectApi } from '@/api/project'
 import type { Project } from '@/types/project'
 import type { TeamMember } from '@/types/team'
 import { formatDateTime } from '@/utils/format'
-import PagePlaceholder from '@/components/common/PagePlaceholder.vue'
+import TaskList from '@/views/task/TaskList.vue'
+import TaskBoard from '@/views/task/TaskBoard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,21 +80,11 @@ onMounted(loadProject)
     </div>
 
     <el-tabs v-model="activeTab" @tab-change="onTabChange">
-      <el-tab-pane label="任务列表" name="tasks">
-        <PagePlaceholder
-          title="任务列表"
-          phase="阶段 8（任务模块，待实现）"
-          :api="['GET /api/v1/tasks?project_id=必填']"
-          note="后端 GET /tasks 把 project_id 列为必填查询参数，任务列表必须在「项目上下文」内工作。任务模块将在阶段 8 实现，这里先占位。"
-        />
+      <el-tab-pane label="任务列表" name="tasks" lazy>
+        <TaskList :initial-project-id="projectId" embedded />
       </el-tab-pane>
-      <el-tab-pane label="任务看板" name="board">
-        <PagePlaceholder
-          title="任务看板"
-          phase="阶段 8（任务模块，待实现）"
-          :api="['GET /api/v1/tasks?project_id=必填']"
-          note="看板形态（按状态分列）依赖任务列表数据，随阶段 8 一并实现。"
-        />
+      <el-tab-pane label="任务看板" name="board" lazy>
+        <TaskBoard :initial-project-id="projectId" embedded />
       </el-tab-pane>
       <el-tab-pane label="项目成员" name="members">
         <div v-loading="membersLoading">

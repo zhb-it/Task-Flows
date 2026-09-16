@@ -32,6 +32,14 @@ import type { TeamMember } from '@/types/team'
 const router = useRouter()
 const authStore = useAuthStore()
 
+/**
+ * 可选 props（TASK-087）：
+ * - `initialProjectId`：嵌入场景（项目详情 Tab）预选的项目；不存在于
+ *   可见列表时回落第一个项目。缺省行为与原版一致（选第一个）。
+ * - `embedded`：隐藏页内大标题，避免与外层 Tab 标签重复。
+ */
+const props = defineProps<{ initialProjectId?: number; embedded?: boolean }>()
+
 const projects = ref<Project[]>([])
 const members = ref<TeamMember[]>([])
 const tasks = ref<Task[]>([])
@@ -89,7 +97,11 @@ async function loadProjects(): Promise<void> {
   try {
     projects.value = await projectApi.listProjects()
     if (projects.value.length) {
-      selectedProjectId.value = projects.value[0].id
+      const wanted = props.initialProjectId
+      selectedProjectId.value =
+        wanted != null && projects.value.some((p) => p.id === wanted)
+          ? wanted
+          : projects.value[0].id
       await onProjectChange()
     }
   } catch {
@@ -174,7 +186,7 @@ function goCreate(): void {
 <template>
   <div class="task-list">
     <div class="page-header">
-      <h2 class="page-title">我的任务</h2>
+      <h2 v-if="!embedded" class="page-title">我的任务</h2>
       <el-button type="primary" @click="goCreate">新建任务</el-button>
     </div>
 

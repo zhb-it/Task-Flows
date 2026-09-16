@@ -262,7 +262,7 @@
   - 验收标准：四门全绿（typecheck/lint/test/build）；admin 登录可见「权限管理」菜单且可改角色；member 不可见且直输 URL 得到降级提示。
   - 测试要求：store 权限并行拉取与失败降级、composable 响应式判定、路由表演进断言；单测 72 项不回退。
 
-## Phase 17：找人体验（TASK-085~086）
+## Phase 17：找人体验与占位清理（TASK-085~087）
 
 - [x] TASK-085 `GET /users` 增加 `q` 搜索参数
   - 目标：邀请成员/分配角色场景的「按名字找人」——裸自增 id 列表无法定位用户，管理员无从判断某个 id 对应哪个成员（用户反馈）。
@@ -278,6 +278,13 @@
   - 实现要求：① 邀请对话框改 el-select 远程搜索（filterable+remote）：打开预载前 50 个用户，输入关键词搜用户名/邮箱，选项展示 `用户名（#id · 邮箱）`；② 权限页用户列表加「按用户名/邮箱搜索」（回车/按钮触发）；③ 搜索失败清空候选不阻塞对话框，错误由请求层统一提示；④ 同步更新 TeamMembers「已知限制」文案。
   - 验收标准：四门全绿；admin 在邀请对话框可按名字/邮箱选中目标用户完成邀请。
   - 测试要求：既有 72 项单测不回退（选择器数据行为由后端契约 12 项覆盖；组件测试口径见 DECISIONS 057）。
+- [x] TASK-087 项目详情页任务/看板 Tab 接真实组件（清除阶段 8 遗留占位）
+  - 目标：任务模块（TASK-072）早已实现，但项目详情页「任务列表/任务看板」两个 Tab 仍渲染阶段 8 时期的 PagePlaceholder——用户在项目内看不到任务，只见「待实现」占位（用户反馈截图）。
+  - 依赖：TASK-072（TaskList/TaskBoard）。
+  - 涉及文件：`frontend/src/views/task/TaskList.vue`、`frontend/src/views/task/TaskBoard.vue`（加可选 props）、`frontend/src/views/project/ProjectDetail.vue`。
+  - 实现要求：① 两个任务组件新增可选 `initialProjectId`（存在且在可见列表中时预选该项目，否则回落第一个项目）与 `embedded`（隐藏页内大标题，避免与外层 Tab 标签重复）；② ProjectDetail 两个 Tab 改为 `lazy` 内嵌真实组件并传入当前项目 id；③ 移除 ProjectDetail 对 PagePlaceholder 的引用；④ 不改路由与「我的任务」独立页行为（props 均可选，缺省路径与原版一致）。
+  - 验收标准：四门全绿；项目详情 → 任务列表/看板 Tab 直接展示该项目的任务与看板。
+  - 测试要求：既有 72 项单测不回退（props 可选、缺省行为不变）；生产冒烟确认产物不再含「阶段 8（任务模块，待实现）」文案。
 
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。

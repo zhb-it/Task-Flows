@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-086 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验 TASK-085~086）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-087 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）。
 
 ## Current Phase
-Phase 17：找人体验（TASK-085~086）
+Phase 17：找人体验与占位清理（TASK-085~087）
 
 ## Current Task
-TASK-086 前端邀请成员改为用户选择器（远程搜索用户名/邮箱，选项展示 #id·邮箱），配套 TASK-085 `GET /users?q=` 搜索参数与权限页用户搜索——解决「邀请成员时管理员无法确定 id 对应哪个用户」。
+TASK-087 项目详情页「任务列表/任务看板」Tab 从阶段 8 时期的 PagePlaceholder 换成内嵌真实 TaskList/TaskBoard（新增可选 initialProjectId/embedded props）——清除用户可见的「待实现」占位。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -96,6 +96,7 @@ TASK-086 前端邀请成员改为用户选择器（远程搜索用户名/邮箱�
 - [x] TASK-084 前端权限闭环：权限页 + usePermission 真实数据 + 菜单权限过滤
 - [x] TASK-085 `GET /users` 增加 `q` 搜索参数（用户名/邮箱子串、大小写不敏感）
 - [x] TASK-086 前端邀请成员改为用户选择器 + 权限页用户搜索
+- [x] TASK-087 项目详情页任务/看板 Tab 接真实组件（清除阶段 8 遗留占位）
 
 ## In Progress
 - [ ]
@@ -544,4 +545,4 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 ## 规则
 只有真实完成并验证后才能勾选 Completed。
 
-无——TASK-001 ~ TASK-086 全部交付（后端 TASK-001~064、前端 TASK-065~080、RBAC 权限闭环 TASK-081~084、找人体验 TASK-085~086）。注册默认绑定 member 角色后「登录即 403」已消解；D4/Q1（权限集合端点与前端权限页）已随 TASK-081~084 关闭；邀请「不知道 id 对应谁」已随 TASK-085~086（`/users?q=` 搜索 + 选择器）消解。剩余降级项：跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、更新资料/改密 Q4、组件测试/E2E 口径 DECISIONS 057，待后端补端点或环境解除限制后自然消解。
+无——TASK-001 ~ TASK-087 全部交付（后端 TASK-001~064、前端 TASK-065~080、RBAC 权限闭环 TASK-081~084、找人体验与占位清理 TASK-085~087）。注册默认绑定 member 角色后「登录即 403」已消解；D4/Q1（权限集合端点与前端权限页）已随 TASK-081~084 关闭；邀请「不知道 id 对应谁」已随 TASK-085~086（`/users?q=` 搜索 + 选择器）消解；项目详情任务 Tab 占位已随 TASK-087 清除。剩余降级项：跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、更新资料/改密 Q4、组件测试/E2E 口径 DECISIONS 057，待后端补端点或环境解除限制后自然消解。

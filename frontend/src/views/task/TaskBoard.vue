@@ -26,6 +26,12 @@ import {
 } from '@/types/task'
 import type { Project } from '@/types/project'
 
+/**
+ * 可选 props（TASK-087）：嵌入项目详情 Tab 时预选项目并隐藏页内大标题。
+ * 缺省行为与原版一致（选第一个项目）。
+ */
+const props = defineProps<{ initialProjectId?: number; embedded?: boolean }>()
+
 const projects = ref<Project[]>([])
 const tasks = ref<Task[]>([])
 const loading = ref(false)
@@ -48,7 +54,11 @@ async function loadProjects(): Promise<void> {
   try {
     projects.value = await projectApi.listProjects()
     if (projects.value.length) {
-      selectedProjectId.value = projects.value[0].id
+      const wanted = props.initialProjectId
+      selectedProjectId.value =
+        wanted != null && projects.value.some((p) => p.id === wanted)
+          ? wanted
+          : projects.value[0].id
       await onProjectChange()
     }
   } catch {
@@ -124,7 +134,7 @@ async function onDrop(event: DragEvent, target: TaskStatus): Promise<void> {
 <template>
   <div class="task-board">
     <div class="page-header">
-      <h2 class="page-title">任务看板</h2>
+      <h2 v-if="!embedded" class="page-title">任务看板</h2>
       <el-select
         v-model="selectedProjectId"
         placeholder="选择项目"

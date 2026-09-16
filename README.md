@@ -20,7 +20,7 @@
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 17（找人体验），TASK-001 ~ TASK-086 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验 TASK-085~086；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线）。
+> 当前处于 Phase 17（找人体验与占位清理），TASK-001 ~ TASK-087 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
