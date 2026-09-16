@@ -11,16 +11,16 @@
 | 维度 | 事实 |
 | --- | --- |
 | 运行时 | Python 3.13（CI 与镜像）· FastAPI 0.141 · SQLAlchemy 2.0 async · Pydantic v2 |
-| 数据库 | PostgreSQL 16 · 18 个 Alembic 迁移 · 17 张业务表 · 32 条外键 · 9 个唯一约束 · 7 个 CHECK |
+| 数据库 | PostgreSQL 16 · 19 个 Alembic 迁移 · 17 张业务表 · 32 条外键 · 9 个唯一约束 · 7 个 CHECK |
 | HTTP 接口 | 55 个操作（48 个在 `/api/v1` 下，共 32 条 `/api/v1` 路径；另有 `GET /`、5 个健康探针与 `GET /metrics`） |
 | 缓存与队列 | Redis 7：滑动窗口限流（ZSET + Lua）+ Celery Broker/Backend |
 | 认证授权 | JWT 双 Token（jti 落库 + 轮换 + 登出撤销）· Argon2id · RBAC + 资源级归属链 |
-| 测试 | 1175 passed，0 failed / 0 error / 0 skipped；覆盖率 99.83% 行、99.55% 分支 |
+| 测试 | 1207 passed，0 failed / 0 error / 0 skipped；覆盖率 99.76% 行、99.34% 分支 |
 | 部署 | Dockerfile（`python:3.13-slim`，非 root）· 开发/生产两套 Compose · Nginx + Gunicorn/Uvicorn |
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 19（多租户地基），TASK-001 ~ TASK-094 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
+> 当前处于 Phase 19（多租户地基），TASK-001 ~ TASK-095 全部交付（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087；注册默认绑定 member 角色，权限页/角色管理/我的权限端点已上线，用户搜索与邀请选择器已上线，项目详情任务/看板 Tab 已接真实组件）。**TASK-088 起为已确认的企业化规划（Phase 18~23 / TASK-088~127）**：生产可靠性地基 → 多租户地基 → 身份与安全硬化 → 合规与数据治理 → 产品补齐 → 工程化与双底座交付；缺口证据、实测快照与排序理由见 [`docs/ENTERPRISE_READINESS.md`](docs/ENTERPRISE_READINESS.md)，任务定义见 [`docs/TASKS.md`](docs/TASKS.md)。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 
@@ -129,7 +129,7 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 | `app/db` | 引擎、Session、Redis 客户端 |
 | `app/tasks` | Celery 应用与业务任务 |
 | `migrations` | Alembic 迁移（15 个，可逆性在 CI 里验证） |
-| `tests` | 69 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
+| `tests` | 70 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
 | `scripts` | 文档一致性检查（`check_docs.py`） |
 
 ---
@@ -153,10 +153,10 @@ task-flow/
 │   └── tasks/                   # celery_app / notification_tasks / maintenance_tasks
 ├── migrations/
 │   ├── env.py
-│   └── versions/                # 18 个迁移（含 RBAC 种子数据、member 角色回填与租户化）
+│   └── versions/                # 19 个迁移（含 RBAC 种子数据、member 角色回填、租户化与 RLS）
 ├── nginx/nginx.conf             # 生产反代配置（只读挂载进容器）
 ├── scripts/check_docs.py        # 文档一致性检查（退出码 0/1）
-├── tests/                       # 69 个测试文件 + conftest.py
+├── tests/                       # 70 个测试文件 + conftest.py
 ├── .github/workflows/ci.yml     # 三 job：ruff / pytest / docker build
 ├── Dockerfile                   # python:3.13-slim，非 root 运行
 ├── docker-compose.yml           # 开发栈（app + worker + postgres + redis）
@@ -477,13 +477,14 @@ alembic revision --autogenerate -m "add xxx"
 alembic downgrade -1
 ```
 
-18 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
+19 个迁移按依赖顺序：users → refresh_tokens → RBAC 四表 → RBAC 种子数据 →
 teams/team_members → projects → tasks → task_assignees → comments → attachments →
 operation_logs → operation_logs_archive → notifications → 任务搜索索引 →
 无角色用户补绑 member 角色（数据回填，downgrade 为显式 no-op）→
 tenants + tenant:manage 权限种子（TASK-093）→
 12 张表加 tenant_id 列 + FK + 索引（TASK-094）→
-默认租户回填 + users 唯一约束租户化 + 置 NOT NULL + 写入桥接默认值（TASK-094）。
+默认租户回填 + users 唯一约束租户化 + 置 NOT NULL + 写入桥接默认值（TASK-094）→
+RLS 策略 + app 函数 + 运行时角色 taskflow_app（TASK-095）。
 
 **可逆性是被 CI 验证的**：CI 在空库上跑 `upgrade head → downgrade base → upgrade head`，
 三步共用一个 shell 且 `set -euo pipefail`——任一步失败立即中断，从而排除「downgrade
@@ -507,8 +508,8 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-16，TASK-094 重测）**：1175 passed，0 failed / 0 error / 0 skipped；
-覆盖率 2879 语句 / 5 未覆盖 / 444 分支 → 99.83% 行、99.55% 分支。
+**当前基线（快照 2026-09-16，TASK-095 重测）**：1207 passed，0 failed / 0 error / 0 skipped；
+覆盖率 2948 语句 / 7 未覆盖 / 458 分支 → 99.76% 行、99.34% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。
 

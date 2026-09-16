@@ -19,19 +19,19 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1095 passed
-pytest -q --cov --cov-report=term-missing   # 1095 passed，并输出下表
+pytest -q                                  # 1207 passed
+pytest -q --cov --cov-report=term-missing   # 1207 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-094 重测）**：1175 passed / 69 个测试文件 / 1055 个 `def test_*` /
-> 2879 语句 / 99.83% 行、99.55% 分支。
+> **当前基线（快照 2026-09-16，TASK-095 重测）**：1207 passed / 70 个测试文件 / 1087 个 `def test_*` /
+> 2948 语句 / 99.76% 行、99.34% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1175 个用例全部通过**，0 failed / 0 error / 0 skipped（69 个测试文件，1055 个
-  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **5m**。
+- **1207 个用例全部通过**，0 failed / 0 error / 0 skipped（70 个测试文件，1087 个
+  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **6~10m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
   （TASK-088 实现增量：`tests/test_health.py` 新建 16 项——四端点正常路径、
@@ -76,15 +76,15 @@ ruff check .                               # All checks passed!
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
 | `app/api/v1`（Router） | 343 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志/指标/租户上下文） | 589 | 2 | 138 | 99.66% 行 / 100% 分支 |
+| `app/core`（配置/安全/中间件/日志/指标/租户上下文） | 646 | 4 | 152 | 99.38% 行 / 99.34% 分支 |
 | `app/crud` | 374 | 0 | 30 | 100% |
 | `app/db`（engine / session / redis） | 47 | 0 | 8 | 100% |
-| `app/models` | 272 | 0 | 0 | 100% |
+| `app/models` | 284 | 0 | 0 | 100% |
 | `app/schemas` | 119 | 0 | 0 | 100% |
-| `app/services` | 822 | 3 | 218 | 99.63% 行 / 99.54% 分支 |
+| `app/services` | 822 | 3 | 218 | 99.63% 行 / 99.08% 分支 |
 | `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
 | `app/main.py`（含健康探针族与 /metrics） | 76 | 0 | 4 | 100% |
-| **TOTAL** | **2879** | **5** | **444** | **99.83% 行 / 99.55% 分支** |
+| **TOTAL** | **2948** | **7** | **458** | **99.76% 行 / 99.34% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -103,15 +103,26 @@ ruff check .                               # All checks passed!
   127 语句，全部 100% 覆盖；分支 420 → 432 来自租户模块判定）→
 > **1175**（TASK-094：`tests/test_tenant_columns.py` 39 项 + 12 个业务模型加
   `tenant_id` 声明 + `tenant_context.py` 27 语句（100% 覆盖）+ `storage.build_key`
-  租户段；语句 2834 → 2879，分支 432 → 444 全部来自租户列与 build_key 判定）。
+  租户段；语句 2834 → 2879，分支 432 → 444 全部来自租户列与 build_key 判定）→
+> **1207**（TASK-095：`tests/test_tenant_isolation.py` 32 项——离线接线 / 作用域 / GUC /
+  ContextVar 并发 / RLS SET ROLE 实证 / API 越权矩阵；`tenant_context.py` 27 → 73 语句、
+  `core/deps.py` 认证依赖 yield 化 + 租户注入；12 个业务模型挂 `TenantScoped`，models
+  272 → 284 纯声明；语句 2879 → 2948，分支 444 → 458）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
 > **TASK-088~094 更新（2026-09-16）**：上表为 TASK-094 重测值（12 个业务模型各加
 > `tenant_id` 声明、`core` 增 `tenant_context.py`、`db.session` 挂接事件注册、
 > `storage.build_key` 租户段与 `attachment` 调用点；总语句 2834 → 2879）。分支
 > 432 → 444 全部来自租户列与 build_key 判定；`tenant_context.py` 27 语句 100% 覆盖。
+>
+> **TASK-095 更新（2026-09-16）**：上表为 TASK-095 重测值。`tenant_context.py`
+> 27 → 73 语句（do_orm_execute 作用域 + after_begin GUC + bypass 出口），1 个分支
+> 半覆盖（`criteria_options` 为空的 false 支——真实注册表下 12 个租户 mapper 恒在，
+> 该分支仅在空注册表启动边缘可达）；`deps.py` yield 化注入租户（LookupError 兜底
+> 分支 2 语句未覆盖，见下）；12 个业务模型挂 mixin，models 272 → 284（纯声明，
+> 100%）；总语句 2879 → 2948，分支 444 → 458（RLS 判定 + GUC 路径）。
 
-**未覆盖行（5 处）**：
+**未覆盖行（7 处）**：
 
 1. `app/services/attachment.py:179`——`_UploadReader.readable()` 返回 `True`。这是
    starlette `UploadFile` 协议要求的**纯声明式**方法（无分支、无业务语义），属于
@@ -128,6 +139,11 @@ ruff check .                               # All checks passed!
    下该导入不可能失败，测试中也无法在不伪造模块系统的情况下触发；分支语义由
    `test_collector_survives_missing_engine` 在函数层面等价覆盖（monkeypatch
    `_get_engine` 返回 `None`，验证采集照常产出）。
+5. `app/core/deps.py:94-98`——认证依赖的 ContextVar 还原兜底：FastAPI 的 yield
+   依赖退出码运行在与进入时**不同的 anyio task** 时，`ContextVar.reset(token)`
+   抛 `LookupError`，这里退化为直接置回进入前的值。该跨 task 撤销场景依赖
+   FastAPI 内部的 task 调度方式，测试套件内无法确定性触发；正常路径（同 task
+   还原）与 `finally` 语义已由全部认证用例覆盖。
 
 后三行**不是** TASK-090 引入的回归（本轮没有改动这三个函数），而是覆盖率快照
 重测后才可见的存量/兜底缺口；第 4 项是本轮新增的兜底分支，语义已在函数层面

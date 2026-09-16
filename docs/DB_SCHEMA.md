@@ -255,6 +255,29 @@ Tenant、User、Role、Permission、UserRole、RolePermission、Team、TeamMembe
 - **附件存储**：新上传 key 为 `tenants/{tenant_id}/tasks/{task_id}/{random}`；存量
   旧 key（`tasks/...`）读取不受影响。
 
+## 行级安全（RLS）兜底与运行时角色（TASK-095 已实现）
+
+§61.3「应用层统一作用域 + PostgreSQL RLS 兜底」的落库形态（决策全文
+docs/DECISIONS.md 067）：
+
+- **app schema 两个 STABLE 函数**：`app.current_tenant_id()` 读事务级 GUC
+  `app.tenant_id`（未设返回 NULL）；`app.rls_bypass()` 读
+  `app.tenant_bypass = 'on'`。应用在每个事务开始经 `SET LOCAL` 写入
+  （`after_begin` 事件：有租户上下文写 tenant，无上下文/显式出口写 bypass）。
+- **12 张业务表 ENABLE + FORCE ROW LEVEL SECURITY + 策略 `tenant_isolation`**：
+  USING/WITH CHECK 均为 `tenant_id = app.current_tenant_id() OR app.rls_bypass()`。
+  租户内请求 fail-closed（应用层漏加条件时 RLS 仍拦）；登录前/Celery/系统
+  任务走 bypass 分支不受影响。迁移 `b8d4f2a6c9e1_row_level_security.py`，
+  downgrade 全量回退（策略 → RLS 开关 → app schema → 角色；角色在集群其他
+  库仍有授权时保留并 NOTICE）。
+- **运行时角色 `taskflow_app`**：超级用户（postgres）按语义绕过 RLS，运行时
+  应用连接必须使用本角色（LOGIN；compose 三个服务已切换）。角色获得
+  public schema 的表/序列操作授权 + 未来新表的默认权限；迁移与测试夹具
+  保持超管。生产须轮换密码（`ALTER ROLE taskflow_app WITH PASSWORD ...` +
+  compose `TASKFLOW_APP_DB_PASSWORD`）。
+- **作用域标记**：12 个业务模型继承 `TenantScoped` mixin
+  （`app/core/tenant_context.py`）；RBAC 表与 tenants 不参与租户作用域。
+
 ## 已明确约束
 - User.username UNIQUE
 - User.email UNIQUE

@@ -3,6 +3,13 @@
 认证依赖是 Router 与 Service 之间的桥：它只做「HTTP 凭证 → 已认证用户」的翻译，
 把「取不到凭证 / 凭证不合法」统一表达为 401，真正的账号状态规则交给 Service。
 
+**租户上下文注入（TASK-095）**：``get_current_user`` 加载用户成功后，把
+``user.tenant_id`` 写入请求级 ContextVar（``app.core.tenant_context``）并翻转
+当前事务的 RLS GUC，请求结束在 ``finally`` 内还原。此后查询作用域
+（``do_orm_execute`` 自动过滤）、写入注入（``before_flush``）与 RLS 兜底
+（``after_begin`` GUC）三道防线即对整个请求生效——依赖链上的其他依赖
+（如 ``require_permission``）复用同一份 FastAPI 缓存结果，注入恰好一次。
+
 权限依赖（TASK-023）`require_permission` 在认证之后判定授权：沿
 User → UserRole → Role → RolePermission → Permission 模型链解析用户的有效
 权限集合，不满足即 403。它只回答「这个用户能不能进这个端点」；资源归属等
@@ -10,6 +17,7 @@ User → UserRole → Role → RolePermission → Permission 模型链解析用�
 `ResourceNotFoundError`）。
 """
 
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends
@@ -18,6 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import decode_access_token
+from app.core.tenant_context import (
+    enforce_tenant_guc,
+    get_current_tenant_id,
+    reset_current_tenant_id,
+    set_current_tenant_id,
+)
 from app.crud.permission import get_user_permissions
 from app.db.session import get_db
 from app.models.user import User
@@ -39,8 +53,14 @@ async def get_current_user(
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
+) -> AsyncIterator[User]:
     """从 `Authorization: Bearer <token>` 解析并返回当前登录用户。
+
+    本依赖是 yield 形式：加载成功后先完成租户上下文注入（ContextVar +
+    事务级 RLS GUC，见 TASK-095），再 ``yield`` 用户；请求结束时 ``finally``
+    还原 ContextVar。注入恰好发生在「认证查询之后、业务查询之前」——
+    认证自身的查询处于无租户事务（bypass GUC），业务查询全程被作用域与
+    RLS 约束。
 
     Raises:
         UnauthorizedError: 凭证缺失、方案不是 Bearer、签名/过期/类别不合法，
@@ -58,7 +78,24 @@ async def get_current_user(
         # 签名有效但 subject 非法的 Token（例如换密钥前的旧 Token）不应导致 500。
         raise UnauthorizedError("Invalid or expired token") from exc
 
-    return await load_current_user(db, user_id)
+    user = await load_current_user(db, user_id)
+
+    # —— TASK-095：请求级租户上下文（认证依赖注入 / finally 还原） ——
+    prev_tenant = get_current_tenant_id()
+    token = set_current_tenant_id(user.tenant_id)
+    # 认证查询所在事务已带 bypass GUC；这里把同一事务翻转为「tenant 过滤 +
+    # bypass 关」，保证端点首条查询即受 RLS 约束（而非等下一个事务）。
+    await enforce_tenant_guc(db)
+    try:
+        yield user
+    finally:
+        try:
+            reset_current_tenant_id(token)
+        except LookupError:
+            # FastAPI 的 yield 依赖退出码可能运行在与进入时不同的 task 中，
+            # 跨 context 还原 Token 会抛 LookupError；退化为直接置回进入前的
+            # 值（每个请求持有独立 context 副本，不会污染兄弟请求）。
+            set_current_tenant_id(prev_tenant)
 
 
 #: 路由签名中直接使用：`current_user: CurrentUser`

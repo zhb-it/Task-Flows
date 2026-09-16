@@ -36,6 +36,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
@@ -47,7 +48,7 @@ class TeamRole(enum.IntEnum):
     MEMBER = 3
 
 
-class TeamMember(Base):
+class TeamMember(TenantScoped, Base):
     __tablename__ = "team_members"
     __table_args__ = (
         CheckConstraint(

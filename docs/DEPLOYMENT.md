@@ -18,8 +18,12 @@ Client -> Nginx -> Gunicorn + Uvicorn Worker -> FastAPI
 无法靠覆盖文件摘掉开发版发布的宿主端口，理由见 DECISIONS 039）：
 
 ```bash
-# 1) 首次部署：执行迁移（容器不会自动迁移）
-docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
+# 1) 首次部署：执行迁移（容器不会自动迁移）。
+#    TASK-095 起运行时连接是非超管角色 taskflow_app（受 RLS 约束），而迁移
+#    需要建角色/策略/表——必须显式以 POSTGRES_USER 超管身份执行迁移：
+docker compose -f docker-compose.prod.yml run --rm \
+  -e "DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-taskflow}" \
+  app alembic upgrade head
 
 # 2) 启动
 docker compose -f docker-compose.prod.yml --env-file .env up -d --build
@@ -48,6 +52,27 @@ docker compose -f docker-compose.prod.yml down -v
   `stop_grace_period: 30s`（与 Gunicorn `--graceful-timeout=30` 对齐）。
 - **不注入宿主 `.env`**：容器内地址由 compose 用服务名拼装；注入宿主 `.env`
   （`DATABASE_URL` 指向 `127.0.0.1:5433`）会让容器连不上任何东西。
+
+### 数据库运行时角色（TASK-095，RLS 兜底生效的前提）
+
+PostgreSQL RLS 对超级用户**始终绕过**——应用继续用 `postgres` 连接，兜底就
+形同虚设。迁移 `b8d4f2a6c9e1` 创建运行时角色 `taskflow_app`（LOGIN、非超管、
+受全部 12 张业务表的 `tenant_isolation` RLS 策略约束），dev/prod compose 的
+app / celery_worker / celery_beat 三服务 `DATABASE_URL` 已切换到它：
+
+- **迁移/测试继续走超管**（迁移要建角色、策略、表；测试 teardown 清理不能被
+  fail-closed 拦截）——所以上面的迁移命令显式覆盖 `DATABASE_URL`。
+- **角色由迁移创建**：先迁移、后启动（本就是既有前提）；角色不存在时运行时
+  连接会明确失败（`role "taskflow_app" does not exist`），不会静默裸奔。
+- **密码轮换**：开发缺省 `taskflow_app`（`TASKFLOW_APP_DB_PASSWORD` 可覆盖）。
+  生产流程：`ALTER ROLE taskflow_app WITH PASSWORD '...'`（超管执行）→ 在
+  env 文件设 `TASKFLOW_APP_DB_PASSWORD` → 重启运行时服务。
+- **应用层语义**：租户上下文（认证注入的 ContextVar）决定每个事务的
+  `SET LOCAL app.tenant_id`；无租户上下文的路径（登录前认证查询、Celery
+  维护任务）以 `app.tenant_bypass='on'` 放行——RLS 拦的是「租户内请求漏加
+  条件」，不是系统任务。绕过作用域的跨租户查询只有
+  `bypass_tenant_scope()`（`app/core/tenant_context.py`）一个显式出口，
+  进入即记审计日志。
 
 ### 维护任务调度（TASK-089，§61）
 

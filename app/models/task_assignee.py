@@ -27,10 +27,11 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, func, Index, text
 
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class TaskAssignee(Base):
+class TaskAssignee(TenantScoped, Base):
     __tablename__ = "task_assignees"
     __table_args__ = (
         Index("ix_task_assignees_user_id", "user_id"),

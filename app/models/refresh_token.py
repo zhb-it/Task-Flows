@@ -22,10 +22,11 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class RefreshToken(Base):
+class RefreshToken(TenantScoped, Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

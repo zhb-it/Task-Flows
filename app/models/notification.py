@@ -38,10 +38,11 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, func, Index, S
 
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class Notification(Base):
+class Notification(TenantScoped, Base):
     __tablename__ = "notifications"
     __table_args__ = (
         Index("ix_notifications_user_id_created_at", "user_id", "created_at"),

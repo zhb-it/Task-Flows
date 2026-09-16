@@ -27,10 +27,11 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, func, String, text
 
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class Project(Base):
+class Project(TenantScoped, Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(

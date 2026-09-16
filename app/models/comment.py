@@ -31,10 +31,11 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, func, Index, Text, text
 
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class Comment(Base):
+class Comment(TenantScoped, Base):
     __tablename__ = "comments"
     __table_args__ = (
         Index("ix_comments_task_id_created_at", "task_id", "created_at"),

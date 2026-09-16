@@ -46,7 +46,9 @@ x-app-environment: &app-environment
   # 生产不允许暴露调试信息（SQL echo / FastAPI debug）。
   DEBUG: "false"
   # 容器内用 compose 服务名访问，而不是宿主的 127.0.0.1:5433。
-  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the env file}@postgres:5432/${POSTGRES_DB:-taskflow}
+  # TASK-095：运行时非超管角色（RLS 兜底生效的前提）。角色由迁移创建，
+  # 密码开发缺省 taskflow_app，生产须轮换（DEPLOYMENT.md）。
+  DATABASE_URL: postgresql+asyncpg://taskflow_app:${TASKFLOW_APP_DB_PASSWORD:-taskflow_app}@postgres:5432/${POSTGRES_DB:-taskflow}
   REDIS_URL: redis://redis:6379/0
   # 必填且无默认值：生产沿用开发默认密钥（change-me）等于把 Token 签发权公开。
   JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in the env file - do not reuse the development default}

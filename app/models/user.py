@@ -32,10 +32,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class User(Base):
+class User(TenantScoped, Base):
     __table_args__ = (
         # 唯一性租户化（§5 修订 / TASK-094）：username 与 email 在租户内唯一，
         # 不同租户可存在同名用户——全局 UNIQUE 已在迁移 a9b7c5d3e1f0 删除。

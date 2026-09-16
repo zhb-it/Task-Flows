@@ -639,3 +639,15 @@
   5. **回填迁移幂等可重放**：默认租户 `ON CONFLICT DO NOTHING`、UPDATE 只补 NULL 行、约束切换全部 IF EXISTS/IF NOT EXISTS——本迁移的 downgrade 不恢复旧全局约束（恢复与多租户语义冲突），因此降级过的库重放 upgrade 必须安全。**数据回填不还原**（downgrade 只回滚 DEFAULT/函数）：存量行的归属是事实初始化，不存在可还原状态。
   6. **附件 key 租户分目录**：`tenants/{tenant_id}/tasks/{task_id}/{random}`；存量旧 key 不迁移（下载按 DB 记录定位），新上传一律走新格式。
 - Consequence：094 交付后单租户时代的一切行为不变（全部写入落默认租户），测试全绿；代价是 095 必须把 ContextVar 注入源从「无人写入」换成认证租户、把查询作用域与 RLS 补上，且 096 租户化 RBAC 时要处理「种子按租户复制」与本 TASK 无关的既有全局种子语义。`current_default_tenant_id()` 依赖 default 租户行存在——删掉它会让一切隐式写入失败（这是想要的失败方式）。
+
+## 067 租户作用域的三道防线与 RLS 运行时角色（TASK-095）
+
+- Date：2026-09-16
+- Context：§61.3 要求「数据访问必须有租户作用域强制：应用层统一作用域 + PostgreSQL RLS 兜底；跨租户访问与不存在不可区分」，TASKS-095 要求①请求级 ContextVar、②CRUD 统一作用域「不依赖各 router 自觉」、③RLS 兜底、④绕过作用域的唯一显式出口。未定稿的事：应用层作用域收口在哪一层；RLS 在「应用以 postgres 超管连接」的现状下如何真正生效；无租户上下文的路径（登录前/Celery/系统任务）如何不被 fail-closed 拦死。
+- Decision：
+  1. **应用层作用域收口在 ORM 事件层，不改 14 个 CRUD 文件**：`do_orm_execute` 事件对全部 ORM SELECT（排除 column/relationship 内部加载）按注册表中带 `tenant_id` 的具体 mapper 逐类挂 `with_loader_criteria`——比逐个 CRUD 手写 WHERE 更接近「忘记带条件在结构上不可能」，且天然覆盖未来新增的 CRUD。实现注记：`with_loader_criteria` 的主体在本机 SQLAlchemy 版本对纯 mixin 会把 mixin 自身传入 lambda（无 `tenant_id` 属性而报错），故不用 `TenantScoped` mixin 作主体，改为遍历 `Base.registry.mappers`；mixin 仅作模型侧的参与标记（12 个业务模型挂、RBAC/tenants 不挂）。
+  2. **写入注入维持 TASK-094 的 `before_flush`**：显式赋值优先（归档拷贝语义），无上下文时交 DB 列 DEFAULT 归默认租户。
+  3. **RLS 策略带显式 bypass 分支，无上下文 fail-open 给系统路径**：策略为 `tenant_id = app.current_tenant_id() OR app.rls_bypass()`（USING/WITH CHECK 同式）。`after_begin` 事件在每个事务开始写事务级 GUC：有租户上下文 → `SET LOCAL app.tenant_id`；无上下文（登录前认证查询、Celery、系统任务）或处于显式出口 → `SET LOCAL app.tenant_bypass='on'`。租户内请求全程 fail-closed（应用层漏加条件时 RLS 仍拦），系统路径不误伤；`SET LOCAL` 随事务边界自动还原，连接池不泄漏。`enforce_tenant_guc` 供认证依赖在已开启的 bypass 事务内翻转 GUC，保证端点首条查询即受 RLS 约束。
+  4. **运行时数据库角色 taskflow_app（RLS 生效的前提）**：超级用户按语义始终绕过 RLS，应用继续以 postgres 连接则兜底形同虚设。迁移创建 `taskflow_app`（LOGIN，密码开发缺省 `taskflow_app`，生产轮换）+ schema/表/序列授权 + 默认权限；compose 三个运行时服务（app/celery_worker/celery_beat）的 `DATABASE_URL` 切到该角色。迁移与测试夹具保持超管（迁移要建角色/策略；1170+ 用例的 teardown 清理不能被 fail-closed 拦截）——RLS 的真实拦截由专项用例 `SET ROLE taskflow_app` 实证（fail closed / WITH CHECK 拒插 / 越租户 UPDATE 零行 / bypass 放行）。角色是集群级对象：downgrade 在同服务器其他库仍持其授权时保留角色（NOTICE 点名），仅回收当前库授权。
+  5. **绕过作用域的唯一显式出口 = `bypass_tenant_scope()`**：集中定义于 `app/core/tenant_context.py`，进入即记 WARNING 审计日志（含调用点），离开即恢复；它同时关闭应用层过滤与 RLS bypass GUC。本 TASK 无生产消费方（tenants 平台管理端点操作的 tenants 表本就不参与租户作用域）；首个消费者是 TASK-096 的平台管理员语义——届时跨租户查询必须经由它，不允许在查询里手写跨租户条件。
+- Consequence：租户内请求的应用层查询、写入与 RLS 三层同源（同一 ContextVar），「CRUD 零改动」使 1170+ 既有用例零语义漂移（全绿）；代价是每事务多一条 `SET LOCAL` 往返、yield 依赖的 ContextVar 还原需处理跨 task 的 `LookupError`、以及部署面新增「运行时角色必须先由迁移创建」的顺序依赖（先迁移后启动，本来就是既有前提）。TASK-097 令牌绑定租户后，认证租户来源将从 `user.tenant_id` 换成令牌声明，本模块接口不变。

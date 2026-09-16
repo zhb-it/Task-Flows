@@ -51,6 +51,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
@@ -89,7 +90,7 @@ SEARCH_VECTOR_SQL = (
 )
 
 
-class Task(Base):
+class Task(TenantScoped, Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(

@@ -45,10 +45,11 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, func, Index, String, te
 
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class Attachment(Base):
+class Attachment(TenantScoped, Base):
     __tablename__ = "attachments"
     __table_args__ = (
         Index("ix_attachments_task_id_created_at", "task_id", "created_at"),

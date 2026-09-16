@@ -354,7 +354,7 @@
   - 验收标准：真实库中每张业务表都有 NOT NULL 的 `tenant_id` 且带 FK；复合 UNIQUE 生效（两个租户可存在同名 username、同租户内冲突）；回填后零孤儿行；迁移往返无损。
   - 测试要求：列集与约束断言；「同名跨租户可共存、同租户内冲突」的正反用例；回填脚本的幂等性与零孤儿断言。
 
-- [ ] TASK-095 租户上下文与数据访问作用域
+- [x] TASK-095 租户上下文与数据访问作用域
   - 目标：让「忘记带 `tenant_id` 条件」在结构上不可能——这是多租户最核心的隔离保证。
   - 依赖：TASK-094。
   - 涉及文件：`app/core/tenant_context.py`（新建）、`app/core/deps.py`、`app/crud/*.py`、`migrations/versions/*_row_level_security.py`（新建）、`tests/test_tenant_isolation.py`（新建）。

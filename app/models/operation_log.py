@@ -32,10 +32,11 @@ from sqlalchemy import BigInteger, DateTime, Index, String, func, text, ForeignK
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenant_context import TenantScoped
 from app.db.base import Base
 
 
-class OperationLog(Base):
+class OperationLog(TenantScoped, Base):
     __tablename__ = "operation_logs"
     __table_args__ = (
         Index(

@@ -14,7 +14,10 @@ services:
     # not localhost (which would mean the app container itself).
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-taskflow}
+      # TASK-095：运行时以非超管角色连接——受 RLS 约束（迁移 b8d4f2a6c9e1
+      # 创建角色并授权；迁移/测试继续走 POSTGRES_USER 超管）。密码轮换见
+      # DEPLOYMENT.md「数据库运行时角色」。
+      DATABASE_URL: postgresql+asyncpg://taskflow_app:${TASKFLOW_APP_DB_PASSWORD:-taskflow_app}@postgres:5432/${POSTGRES_DB:-taskflow}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -61,7 +64,10 @@ services:
       ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-taskflow}
+      # TASK-095：运行时以非超管角色连接——受 RLS 约束（迁移 b8d4f2a6c9e1
+      # 创建角色并授权；迁移/测试继续走 POSTGRES_USER 超管）。密码轮换见
+      # DEPLOYMENT.md「数据库运行时角色」。
+      DATABASE_URL: postgresql+asyncpg://taskflow_app:${TASKFLOW_APP_DB_PASSWORD:-taskflow_app}@postgres:5432/${POSTGRES_DB:-taskflow}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
       # 通知/清理类任务（TASK-049/050）同样需要读库与附件目录。
@@ -100,7 +106,10 @@ services:
     command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=info"]
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-taskflow}
+      # TASK-095：运行时以非超管角色连接——受 RLS 约束（迁移 b8d4f2a6c9e1
+      # 创建角色并授权；迁移/测试继续走 POSTGRES_USER 超管）。密码轮换见
+      # DEPLOYMENT.md「数据库运行时角色」。
+      DATABASE_URL: postgresql+asyncpg://taskflow_app:${TASKFLOW_APP_DB_PASSWORD:-taskflow_app}@postgres:5432/${POSTGRES_DB:-taskflow}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
       ARCHIVE_SCHEDULE_HOUR: ${ARCHIVE_SCHEDULE_HOUR:-19}
