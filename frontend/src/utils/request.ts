@@ -31,7 +31,10 @@ import type { ApiEnvelope, ErrorDetail, ValidationErrorItem } from '@/types/comm
 import type { TokenPair } from '@/types/auth'
 import { tokenStorage } from '@/utils/storage'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL
+// 兜底 `/api/v1`：若构建时 VITE_API_BASE_URL 意外缺失（如 .env.production
+// 未进构建上下文），undefined 会让 axios 把相对 url 拼到当前页面路径上，
+// POST 落进 Nginx 静态 location 返回 405（TASK-080 生产冒烟的真实回归）。
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 /** 401 时不需要（也不能）走刷新流程的端点。 */
 const AUTH_FREE_PATHS = ['/auth/login', '/auth/register', '/auth/refresh']

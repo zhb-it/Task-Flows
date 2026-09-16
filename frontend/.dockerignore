@@ -8,9 +8,14 @@ coverage
 tests
 *.log
 .npm-cache
+# 只排除可能含密钥的本地 env 文件。`.env.development` / `.env.production`
+# 只有 VITE_APP_TITLE / VITE_API_BASE_URL（无密钥，见文件头注释），**必须**
+# 进构建上下文：TASK-080 冒烟暴露的 405 回归正是因为 `.env.*` 被整组排除，
+# 容器内构建拿不到 VITE_API_BASE_URL，axios 基地址退化为页面相对路径，
+# POST /auth/register 被入口 Nginx 当静态流量转给前端容器 → 405 Not Allowed。
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 .vscode
 .idea
 Dockerfile
