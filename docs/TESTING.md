@@ -395,8 +395,8 @@ TASK-060 的交付物一半是**配置**（nginx.conf / compose 接线），一�
 - `pytest-cov==7.1.0` 进 `requirements-dev.txt`（**不进** `requirements.txt`：那是 Dockerfile 装进生产镜像的文件）。与 ruff 同样的问题——本机 PyPI 清华镜像没有它，安装需指定官方源 + 代理。
 - 配置在 `pyproject.toml`：`[tool.coverage.run]`（`source = ["app"]`、`branch = true`）+ `[tool.coverage.report]`（`show_missing = true`、`exclude_also = ["def __repr__"]`）。**CI 不传 `--cov`、不设 `fail_under`**——本轮测量的目的是「找出值得补的分支」，而不是维持一条数字线；设阈值会催生为达标而写的空测试（Phase 14 明确告诫）。
 - 命令：`pytest -q --cov --cov-report=term-missing`。
-- **基线（2026-09-16）**：**1037 passed**（TASK-081~085 增量 14 项：注册默认角色 2 项、RBAC 管理端点 10 项、用户搜索 2 项；TASK-088 登记增量 2 项：前沿连续性护栏反向用例），全量 2376 语句 / **1 未覆盖** / 358 分支 / 0 分支半覆盖 → **99.96% 行、100% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2408 / 33 / **98.63%**。（演进：TASK-062 完成当时为 956 passed / 2373 语句；TASK-064 新增两个模块共 26 项、`models` 层 +3 语句来自 `search_vector` 列与 `SEARCH_VECTOR_SQL`；TASK-063 新增 `tests/test_readme.py` 27 项并补 2 项文档边界用例——**TASK-063 未改 `app/`，故语句数/未覆盖/分支数与 TASK-064 后完全一致**。）
-- 唯一未覆盖行是 `app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法），属**刻意不测**（为数字而测无业务价值的代码被 Phase 14 明令禁止）。
+- **基线（2026-09-16，TASK-088 重测）**：**1053 passed**（TASK-081~085 增量 14 项：注册默认角色 2 项、RBAC 管理端点 10 项、用户搜索 2 项；TASK-088 登记增量 2 项：前沿连续性护栏反向用例；TASK-088 实现增量 16 项：`tests/test_health.py` 新建——健康探针族四端点正常路径 + 三种依赖降级 + `/health` 兼容不变量 + 免认证），全量 2510 语句 / **3 未覆盖** / 386 分支 / 2 分支半覆盖 → **99.88% 行、99.48% 分支**。双口径披露：把被排除的 16 个 `__repr__`（32 条语句）计入后是 2542 / 35 / **98.62%**。未覆盖行明细见 `docs/QUALITY.md` §1.2（`auth.py:80` / `user.py:78` 为重测新暴露的存量缺口，非本轮回归）。（演进：TASK-062 完成当时为 956 passed / 2373 语句；TASK-064 新增两个模块共 26 项、`models` 层 +3 语句来自 `search_vector` 列与 `SEARCH_VECTOR_SQL`；TASK-063 新增 `tests/test_readme.py` 27 项并补 2 项文档边界用例——**TASK-063 未改 `app/`，故语句数/未覆盖/分支数与 TASK-064 后完全一致**。）
+- 三处未覆盖行：`app/services/attachment.py:179`（`_UploadReader.readable()`，starlette 协议要求的纯声明式方法，属**刻意不测**——为数字而测无业务价值的代码被 Phase 14 明令禁止）；`app/services/auth.py:80` 与 `app/services/user.py:78` 为 TASK-088 重测新暴露的存量缺口（防御分支 / 缺失的 404 用例），登记待后续 TASK 补齐。
 
 ### 新增测试模块（4 个，80 个用例）
 

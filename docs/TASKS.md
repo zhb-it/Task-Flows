@@ -292,7 +292,7 @@
 > 这一 Phase 与租户形态无关，先做能立刻降低上线风险，也为 Phase 19 的结构性改造
 > 提供可观测性（改造期间最需要的就是指标与健康检查）。
 
-- [ ] TASK-088 健康检查补齐与存活/就绪分离
+- [x] TASK-088 健康检查补齐与存活/就绪分离
   - 目标：关闭规格 §32 欠债——补齐 `/health/db`、`/health/redis`，并新增 `/health/live` 与 `/health/ready`，把「进程活着」与「依赖可用」两种语义分开。
   - 依赖：无。
   - 涉及文件：`app/main.py`、`app/core/config.py`（如需探针超时配置）、`tests/test_health.py`（新建）、`docker-compose.yml`、`docker-compose.prod.yml`、`docs/DEPLOYMENT.md`。

@@ -1,15 +1,15 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088。
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
 ## Current Phase
-Phase 17：找人体验与占位清理（TASK-085~087）
+Phase 18：生产可靠性地基（TASK-088~092）
 
 ## Current Task
-TASK-087 项目详情页「任务列表/任务看板」Tab 从阶段 8 时期的 PagePlaceholder 换成内嵌真实 TaskList/TaskBoard（新增可选 initialProjectId/embedded props）——清除用户可见的「待实现」占位。
+TASK-088 健康检查补齐与存活/就绪分离——补齐 `/health/db`、`/health/redis`，新增 `/health/live`（恒 200，不探测依赖）与 `/health/ready`（依赖不可用 503 + 各项明细），`/health` 行为不变；compose app healthcheck 切到 `/health/ready`，订正 DEPLOYMENT.md 探针漂移。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -99,6 +99,7 @@ TASK-087 项目详情页「任务列表/任务看板」Tab 从阶段 8 时期的
 - [x] TASK-085 `GET /users` 增加 `q` 搜索参数（用户名/邮箱子串、大小写不敏感）
 - [x] TASK-086 前端邀请成员改为用户选择器 + 权限页用户搜索
 - [x] TASK-087 项目详情页任务/看板 Tab 接真实组件（清除阶段 8 遗留占位）
+- [x] TASK-088 健康检查补齐与存活/就绪分离（探针族四端点 + compose healthcheck 切 readiness + DEPLOYMENT/API_CONTRACT 订正；`tests/test_health.py` 16 项，基线 1053 passed / 覆盖率重测 99.88% 行、99.48% 分支）
 
 ## In Progress
 - [ ]
@@ -108,9 +109,9 @@ TASK-087 项目详情页「任务列表/任务看板」Tab 从阶段 8 时期的
 
 ## Next
 
-TASK-088 健康检查补齐与存活/就绪分离（Phase 18 首个任务）
+TASK-089 Celery Beat 周期调度与归档终态保留（Phase 18 第二个任务）
 
-TASK-001~087 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-088（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
+TASK-001~088 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-089（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

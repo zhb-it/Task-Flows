@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/taskflow"
     redis_url: str = "redis://redis:6379/0"
 
+    # 健康探针（TASK-088）：单次依赖探测的延迟上界（秒）。
+    # 探针必须快速失败——编排器靠它判断实例生死，一个挂起的探测比失败的探测更有害。
+    health_probe_timeout: float = 2.0
+
     # Celery（§23 / TASK-048）
     # broker / backend 留空时回落到 redis_url（DECISIONS 026）：
     # §21 规定 Redis 同时充当 Celery Broker 与 Backend，与限流共用同一实例即可，

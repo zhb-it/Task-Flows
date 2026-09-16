@@ -122,7 +122,9 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      # 探 /health/ready（TASK-088）：依赖不可用时 503 → 容器标记 unhealthy。
+      # 依赖抖动期间实例应被摘除而不是继续接流量，readiness 才是这个决策的正确依据。
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/ready').status==200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 10

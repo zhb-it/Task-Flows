@@ -93,10 +93,19 @@ TCP 对端落在 `TRUSTED_PROXY_IPS` 网段内、该头恰好是一个合法 IP�
 环境变量放 `.env`；仓库只提交 `.env.example`。
 
 ## 健康检查
-应用：
-- `/health`
-- `/health/db`
-- `/health/redis`
+应用（TASK-088，规格 §32）——「进程活着」与「依赖可用」是两种语义，探针各司其职：
+
+| 端点 | 语义 | 正常 | 依赖不可用 |
+|---|---|---|---|
+| `/health/live` | liveness：进程活着即成功，**不探测任何依赖**。重启决策依据 | 200 | 恒 200 |
+| `/health/ready` | readiness：依赖全部可用才放行流量。摘除流量（而非重启）的依据 | 200 | **503**，body 含 `database`/`redis` 各项明细 |
+| `/health/db` | PostgreSQL 单依赖明细，定位「谁挂了」 | 200 | **503** |
+| `/health/redis` | Redis 单依赖明细，同上 | 200 | **503** |
+| `/health` | 兼容端点：恒 200，body 报 `database`/`redis` up/down。既有监控依赖此行为，不变 | 200 | 200（`status: degraded`） |
+
+- compose 的 app healthcheck 探 `/health/ready`（依赖抖动时容器标记 unhealthy）；
+- 入口 nginx 探自有的 `/nginx-health`，**刻意不探上游**（见下文 nginx 小节）；
+- 全部探针端点免认证、不限流；单次探测超时由 `HEALTH_PROBE_TIMEOUT` 控制（默认 2 秒）。
 
 代理：
 - `/nginx-health`（nginx 本地，不依赖上游）

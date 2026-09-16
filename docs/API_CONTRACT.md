@@ -332,9 +332,12 @@ Request：
 - 埋点：TASK-038 `POST /tasks/{task_id}/transition` 成功时，在同一事务内写入 `action=task:transition`、`payload={old_status, new_status}` 的日志（§15 示例字段）。
 
 ## Health
-- GET `/health`
-- GET `/health/db`
-- GET `/health/redis`
+- GET `/health` —— 兼容端点：恒 200，body 报 `database`/`redis` up/down 与 `status`（ok/degraded）。
+- GET `/health/live`（TASK-088）—— liveness：进程活着即 200，不探测任何依赖。
+- GET `/health/ready`（TASK-088）—— readiness：依赖全部可用 200；任一不可用 **503**，body 含各项明细。
+- GET `/health/db`（TASK-088）—— PostgreSQL 单依赖明细：可用 200，不可用 **503**。
+- GET `/health/redis`（TASK-088）—— Redis 单依赖明细：可用 200，不可用 **503**。
+- 全部探针端点免认证、不限流（限流只作用于 `/api/v1` 前缀）。
 
 ## 响应
 
