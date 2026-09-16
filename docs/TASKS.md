@@ -145,6 +145,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；团队三个页面真实渲染并接后端；被后端卡住处界面明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，团队页只做结构与四门校验验证。
 
+- [x] TASK-071 项目模块（规格 §16/§17/§18/§19「项目列表 / 创建 / 详情 / 设置」）
+  - 目标：实现项目模块三个页面，全部走真实后端端点；对后端没有的字段（status、成员数、任务数、进度）与能力（搜索/状态筛选/分页总数）做诚实降级（不编造接口）。
+  - 依赖：TASK-065~070（框架、请求层、类型与 API 模块约定；`projectApi`/`teamApi` 已就绪）。
+  - 涉及文件：`src/types/project.ts`（扩展 Project/ProjectCreate/ProjectUpdate）、`src/api/project.ts`（扩展 createProject/getProject/updateProject/deleteProject）、`src/views/project/ProjectList.vue`（卡片列表+客户端搜索+团队筛选+创建）、`src/views/project/ProjectDetail.vue`（四标签：任务列表/看板占位、项目成员=复用团队成员接口、项目设置=跳转）、`src/views/project/ProjectSettings.vue`（PATCH/DELETE+二次确认）。
+  - 实现要求：① 列表 `GET /projects`（limit:100 全量，客户端搜索/团队筛选，因后端无搜索与 total）、创建 `POST /projects`（team_id 取自有 `GET /teams`，必填）、删除 `DELETE /projects/{id}`（后端 OWNER/ADMIN 校验，前端按钮常显）；② 详情 `GET /projects/{id}`+标签栏，任务列表/看板标签为阶段 8 占位（PagePlaceholder），「项目成员」标签用 `GET /teams/{team_id}/members`（`team_id` 来自项目，项目无独立成员端点），「项目设置」标签跳转设置页；③ 设置页 `PATCH /projects/{id}`（name 必填、description 显式 null 清空）+ `DELETE /projects/{id}`（ElMessageBox 二次确认）；④ ProjectRead 无 `status`、无成员数/任务数/进度字段，规格 §16.1 卡片的「成员：N / 任务：N / 78%」与「状态筛选」无法展示，列表页顶部 `el-alert` 明示诚实降级、不伪造统计端点。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；项目三页面真实渲染并接后端；被后端卡住处界面明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，项目页只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

@@ -453,5 +453,15 @@
 
 - Trade-off：① 普通 member 登录后仍会看到「创建团队」按钮（全局操作，前端无从预知自己是否有 `team:create`，按 §4-D4 不隐藏），点击命中 403——提示已由请求层给出；② 成员列表不显示邮箱（后端不返回，不伪造）；③ 角色调整只能走「移除后重新邀请」。这些都接受，并在 `docs/FRONTEND_API_MAPPING.md` §7 标注团队页为「已实现（部分降级）」。
 
+## Decision 050：项目模块按真实端点实现，ProjectRead 缺字段处诚实降级（TASK-071）
+
+- Problem：规格 §16~§19 要求项目列表（卡片含成员数/任务数/进度条、状态筛选）、创建项目、项目详情（任务列表/看板/成员/设置四标签）、项目设置。但 `app/schemas/project.py::ProjectRead` 只有 `{id, name, description, team_id, owner_id, created_at, updated_at}`——**没有 `status` 字段，也没有成员数/任务数/进度字段**；`GET /projects`（`app/api/v1/projects.py`）只有 `skip/limit`、无搜索参数、响应是裸数组无 `total`（§4-D3）。规格 §16.1 卡片的「成员：12 / 任务：56 / 78%」与「状态筛选」后端完全不提供，直接做要么编造统计端点、要么伪造 status。
+
+- Decision：三页面全部接真实端点（`projectApi` 封装 `listProjects / getProject / createProject / updateProject / deleteProject`）。**项目成员复用团队接口** `GET /teams/{team_id}/members`（`team_id` 来自 `ProjectRead`，项目无独立成员端点）。列表页 `GET /projects` 取 `limit:100` 全量，搜索/团队筛选在客户端做；创建按 `team_id`（下拉来自 `GET /teams`）；设置页 `PATCH`（name 必填、description 显式 null 清空）+ `DELETE`（ElMessageBox 二次确认）。规格 §16.1 卡片的「成员：N / 任务：N / 78%」与「状态筛选」不实现，列表页顶部 `el-alert` 写明「ProjectRead 无 status 与计数/进度字段，需后端补跨项目统计端点与 project.status 后才有」，并把项目页记回 §7 为「已实现（部分降级）」。详情页「任务列表/看板」标签为阶段 8 占位（PagePlaceholder），「项目设置」标签跳转设置页。
+
+- Reason：① 同 DECISIONS 047/048/049——诚实优于伪造，凭空造 `/stats` 或 `project.status` 会让前端依赖不存在的契约；② 列表端点无 total（§4-D3），分页「总数」与「搜索/筛选」后端均无，客户端降级是当下唯一不自造接口的做法；③ 项目成员关系挂在团队上（TASK-026/029 归属链「任务→项目→团队→team_members」），复用团队成员接口是正确的事实来源，而非发明 `GET /projects/{id}/members`；④ 删除/编辑按钮常显、由后端 OWNER/ADMIN 校验（`ProjectRead` 不含调用者角色，前端无法像团队那样用成员表 role 数据驱动，故不隐藏——越权仍由后端 404 兜底，延续 §4-D4 立场）。
+
+- Trade-off：① 项目卡片暂时看不到成员数/任务数/进度，也看不到状态；待后端补「跨项目任务统计 / project.status」后补；② 普通 member 仍会看到「删除项目」按钮（点击命中 403，提示由请求层给出）；③ 项目不可改所属团队（schema 无 team_id 变更端点），设置页 team_id 只读展示。均在 §7 标注。
+
 
 

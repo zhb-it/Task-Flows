@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-070 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~070）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-071 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~071）。
 
 ## Current Phase
 Phase 12：前端业务页面
 
 ## Current Task
-TASK-070 团队模块（规格 §12/§13/§14/§15「团队列表/详情/成员管理」：团队列表+创建+删除、团队详情（基本信息/项目/编辑设置）、成员管理（邀请按 user_id + 移除）；成员角色从成员列表读取驱动按钮显隐（不猜权限集合）；「任务统计」受 §4-D8/Q2 阻塞，页面顶部提示条明示、不编造接口）
+TASK-071 项目模块（规格 §16/§17/§18/§19「项目列表/创建/详情/设置」：项目列表卡片+客户端搜索/团队筛选、创建按 team_id（GET /teams 选团队）、详情四标签（任务列表/看板=占位待阶段8、项目成员=复用团队成员接口、项目设置=跳转）、设置页 PATCH/DELETE；ProjectRead 无 status 与成员/任务/进度字段，「成员：N/任务：N/78%/状态筛选」诚实降级顶部提示、不编造接口）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -80,6 +80,7 @@ TASK-070 团队模块（规格 §12/§13/§14/§15「团队列表/详情/成员�
 - [x] TASK-068 前端工程验证与文档（typecheck / lint / test / build 四项全绿 + `frontend/README.md` 新建 + `docs/FRONTEND_API_MAPPING.md` 新建（25 条 `/api/v1` 路径 / 38 个操作逐条映射 + 14 条契约差异 + 4 项需后端配合的未决项 + 占位页清单））
 - [x] TASK-069 首页 Dashboard（规格 §63「第四阶段：Dashboard」：四张统计卡片用 /teams·/projects·/notifications·/logs 真实端点，最近通知 + 最近项目两个列表；任务统计与全局最近任务受 docs/FRONTEND_API_MAPPING.md §4-D7/D8·§6-Q2 阻塞，页面顶部提示条明示、不编造接口）
 - [x] TASK-070 团队模块（规格 §12/§13/§14/§15：团队列表/详情/成员管理接入真实后端；邀请按 user_id、角色从成员列表读取驱动按钮；任务统计受 §4-D8·§6-Q2 阻塞明示不编造接口）
+- [x] TASK-071 项目模块（规格 §16/§17/§18/§19：项目列表卡片+客户端搜索/团队筛选、创建按 team_id、详情四标签（任务列表/看板=占位待阶段8、项目成员=复用团队成员接口、项目设置跳转）、设置页 PATCH/DELETE；ProjectRead 无 status 与成员/任务/进度字段，卡片统计与状态筛选诚实降级顶部提示、不编造接口）
 
 ## In Progress
 - [ ]
@@ -88,8 +89,8 @@ TASK-070 团队模块（规格 §12/§13/§14/§15「团队列表/详情/成员�
 - None
 
 ## Next
-无——TASK-001 ~ TASK-070 全部交付（后端 TASK-001~064、前端 TASK-065~070），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 7~16：项目 / 任务 / 评论 / 附件 / 通知 / 权限 / 日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-071 起；其中「我的任务」与任务统计仍受 `docs/FRONTEND_API_MAPPING.md` §6 的 Q1/Q2 阻塞，需后端补端点或按现状降级。
 
+无——TASK-001 ~ TASK-071 全部交付（后端 TASK-001~064、前端 TASK-065~071），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 8~16：任务 / 评论 / 附件 / 通知 / 权限 / 日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-072 起；其中「我的任务」与任务统计仍受 `docs/FRONTEND_API_MAPPING.md` §6 的 Q1/Q2 阻塞，需后端补端点或按现状降级。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。**（TASK-060 更新：上面「app 绑回环端口」已被取代——反代接入后 app 不再发布任何宿主端口，对外只有 nginx；同一套冒烟验证与零残留结论见 TASK-060 条目。）**
