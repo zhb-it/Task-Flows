@@ -295,8 +295,10 @@ async def test_transition_atomic_rollback_when_log_write_fails(
     # 必须 patch 该模块内引用（patch operation_log 模块的同名符号不会生效）。
     monkeypatch.setattr(task_service, "write_operation_log", _boom)
 
-    with pytest.raises(RuntimeError, match="simulated audit write failure"):
-        await _transition(client, owner, task_id, "IN_PROGRESS")
+    # TASK-090 起：未捕获异常被 MetricsErrorMiddleware 转换为 500 统一信封，
+    # 不再向 ASGI 栈外冒泡。原子性由下面的库态断言证明。
+    status = await _transition(client, owner, task_id, "IN_PROGRESS")
+    assert status == 500  # 未捕获异常被转换为 500（§26 信封，不再冒泡）
 
     # 事务未提交：状态与日志都无残留
     assert await _db_task_status(task_id) == "TODO"

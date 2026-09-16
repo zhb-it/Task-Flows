@@ -1,7 +1,7 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~089。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~090。
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
@@ -9,7 +9,7 @@ Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TAS
 Phase 18：生产可靠性地基（TASK-088~092）
 
 ## Current Task
-TASK-089 Celery Beat 周期调度与归档终态保留——`beat_schedule` 登记两项维护任务（间隔 .env 可配、默认错峰），dev/prod compose 补 celery_beat 单实例服务，归档任务补归档表终态清理（archived_at 超保留期删除，N 可配）。
+TASK-090 指标端点与 5xx 统一信封——`/metrics`（Prometheus 文本格式，`METRICS_ENABLED` 默认关闭、不经 nginx 暴露、不占限流配额）暴露请求计数/延迟（路由模板标签）、DB 连接池、Redis 延迟、Celery 队列深度与任务计数、维护任务最后成功时间戳；未捕获异常统一渲染 §26 信封并记带 request_id 的 error 日志；`deploy/prometheus/` 附抓取配置与告警规则草案。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -100,7 +100,8 @@ TASK-089 Celery Beat 周期调度与归档终态保留——`beat_schedule` 登�
 - [x] TASK-086 前端邀请成员改为用户选择器 + 权限页用户搜索
 - [x] TASK-087 项目详情页任务/看板 Tab 接真实组件（清除阶段 8 遗留占位）
 - [x] TASK-088 健康检查补齐与存活/就绪分离（探针族四端点 + compose healthcheck 切 readiness + DEPLOYMENT/API_CONTRACT 订正；`tests/test_health.py` 16 项）
-- [x] TASK-089 Celery Beat 周期调度与归档终态保留（beat_schedule 两任务 + celery_beat 单实例服务双 compose + 归档表终态清理；真实栈实证 beat 09:41:00 UTC 自动投递、两任务执行成功；`tests/test_beat_schedule.py` 11 项 + 终态清理 3 项 + beat compose 契约 3 项，基线 1070 passed / 覆盖率重测 99.88% 行、99.49% 分支）
+- [x] TASK-089 Celery Beat 周期调度与归档终态保留（beat_schedule 两任务 + celery_beat 单实例服务双 compose + 归档表终态清理；真实栈实证 beat 09:41:00 UTC 自动投递、两任务执行成功；`tests/test_beat_schedule.py` 11 项 + 终态清理 3 项 + beat compose 契约 3 项）
+- [x] TASK-090 指标端点与 5xx 统一信封（`app/core/metrics.py` + `MetricsErrorMiddleware` + `/metrics` 端点 + Redis 埋点客户端 + 维护时间戳/任务计数跨进程中转 + `deploy/prometheus/`；真实实例冒烟通过；`tests/test_metrics.py` 14 项，基线 1084 passed / 覆盖率重测 99.81% 行、99.75% 分支）
 
 ## In Progress
 - [ ]
@@ -110,9 +111,9 @@ TASK-089 Celery Beat 周期调度与归档终态保留——`beat_schedule` 登�
 
 ## Next
 
-TASK-090 指标端点与 5xx 统一信封（Phase 18 第三个任务）
+TASK-091 生产配置自检（Phase 18 第四个任务）
 
-TASK-001~089 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-090（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
+TASK-001~090 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-091（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

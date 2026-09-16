@@ -19,18 +19,18 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1070 passed
-pytest -q --cov --cov-report=term-missing   # 1070 passed，并输出下表
+pytest -q                                  # 1084 passed
+pytest -q --cov --cov-report=term-missing   # 1084 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-089 重测）**：1070 passed / 65 个测试文件 / 972 个 `def test_*` /
-> 2542 语句 / 99.88% 行、99.49% 分支。
+> **当前基线（快照 2026-09-16，TASK-090 重测）**：1084 passed / 66 个测试文件 / 986 个 `def test_*` /
+> 2685 语句 / 99.81% 行、99.75% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1070 个用例全部通过**，0 failed / 0 error / 0 skipped（65 个测试文件，972 个
+- **1084 个用例全部通过**，0 failed / 0 error / 0 skipped（66 个测试文件，986 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
@@ -40,6 +40,11 @@ ruff check .                               # All checks passed!
   时刻语义 / 错峰 / 配置可注入 / 无未注册条目；`test_maintenance_tasks.py` 补归档表
   终态清理 3 项；`test_prod_compose.py` 补 beat 契约 3 项——beat 命令 / 不可扩展 /
   调度环境变量可配。）
+  （TASK-090 增量 14 项：`tests/test_metrics.py` 新建——指标端点契约（内容类型 /
+  关键指标名 / 默认 404 / 依赖故障降级）、路由模板标签基数、500 统一信封与
+  request_id 日志关联、采集器健壮性（幂等注册 / engine 缺失 / Redis 中转读取）、
+  维护时间戳与任务计数的写入侧；另随新契约更新 3 处既有原子性用例——未捕获
+  异常改为断言 500 信封，不再断言异常冒泡。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -54,15 +59,15 @@ ruff check .                               # All checks passed!
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
 | `app/api/v1`（Router） | 311 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志） | 446 | 0 | 108 | 100% |
+| `app/core`（配置/安全/中间件/日志/指标） | 541 | 2 | 116 | 99.63% 行 / 100% 分支 |
 | `app/crud` | 347 | 0 | 28 | 100% |
-| `app/db`（engine / session / redis） | 38 | 0 | 8 | 100% |
+| `app/db`（engine / session / redis） | 46 | 0 | 8 | 100% |
 | `app/models` | 241 | 0 | 0 | 100% |
 | `app/schemas` | 102 | 0 | 0 | 100% |
-| `app/services` | 785 | 3 | 204 | 99.62% 行 / 99.02% 分支 |
-| `app/tasks`（Celery，含 beat_schedule） | 205 | 0 | 38 | 100% |
-| `app/main.py`（含健康探针族） | 67 | 0 | 2 | 100% |
-| **TOTAL** | **2542** | **3** | **392** | **99.88% 行 / 99.49% 分支** |
+| `app/services` | 785 | 3 | 204 | 99.62% 行 / 99.51% 分支 |
+| `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
+| `app/main.py`（含健康探针族与 /metrics） | 75 | 0 | 4 | 100% |
+| **TOTAL** | **2685** | **5** | **406** | **99.81% 行 / 99.75% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -72,14 +77,16 @@ ruff check .                               # All checks passed!
 > 用例总数演进：956（TASK-062）→ 982（TASK-064 新增 2 模块 26 项）→ 1011
 > （TASK-063 新增 `tests/test_readme.py` 27 项 + `tests/test_docs_consistency.py` 补 2 项）→
 > 1037（TASK-088 登记增量 2 项护栏反向用例）→ 1053（TASK-088 实现增量 16 项）→
-> **1070**（TASK-089：beat 契约 11 + 终态清理 3 + compose 契约 3）。
+> 1070（TASK-089：beat 契约 11 + 终态清理 3 + compose 契约 3）→
+> **1084**（TASK-090：`tests/test_metrics.py` 14 项）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
-> **TASK-088/089 更新（2026-09-16）**：上表为 TASK-089 重测值（`tasks` 层 177 → 205
-> 语句：beat_schedule 登记 + 归档表终态清理；`app/core` +4 语句来自调度配置；总语句
-> 2510 → 2542）。`tasks` 层保持 100% 覆盖。
+> **TASK-088~090 更新（2026-09-16）**：上表为 TASK-090 重测值（`core` 446 → 541：
+> 新增 `metrics.py` 67 语句 + `MetricsErrorMiddleware` + Redis 埋点客户端；`tasks`
+> 205 → 237：Celery 信号计数 + 维护时间戳写入；总语句 2542 → 2685）。`tasks` 层
+> 保持 100% 覆盖。
 
-**未覆盖行（3 处）**：
+**未覆盖行（5 处）**：
 
 1. `app/services/attachment.py:179`——`_UploadReader.readable()` 返回 `True`。这是
    starlette `UploadFile` 协议要求的**纯声明式**方法（无分支、无业务语义），属于
@@ -89,15 +96,22 @@ ruff check .                               # All checks passed!
    TASK-088 重测新暴露的既有缺口：防御分支的触发前提是「种子迁移未跑到 head」，
    正常测试环境永远满足不了；为它构造残缺库超出了本轮范围，登记待后续。
 3. `app/services/user.py:78`——`get_user_role_names` 用户不存在 → 404。
-   同为本轮重测新暴露：`GET /users/{id}/roles` 对不存在用户的用例缺失，登记待补。
+   同为 TASK-088 重测新暴露：`GET /users/{id}/roles` 对不存在用户的用例缺失，
+   登记待补。
+4. `app/core/metrics.py:171-172`——`_get_engine()` 捕获「`app.db.session` 导入
+   失败」的兜底分支（`import` 失败 → 返回 `None`，采集降级而非炸掉）。正常环境
+   下该导入不可能失败，测试中也无法在不伪造模块系统的情况下触发；分支语义由
+   `test_collector_survives_missing_engine` 在函数层面等价覆盖（monkeypatch
+   `_get_engine` 返回 `None`，验证采集照常产出）。
 
-后两行**不是** TASK-088 引入的回归（本轮没有改动这两个函数），而是上一份覆盖率
-快照停留在 TASK-081 前口径、重测后才可见的存量缺口。
+后三行**不是** TASK-090 引入的回归（本轮没有改动这三个函数），而是覆盖率快照
+重测后才可见的存量/兜底缺口；第 4 项是本轮新增的兜底分支，语义已在函数层面
+等价覆盖。
 
 **双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 16 个模型
 里 `__repr__` 的 **32 条语句**排除在分母外。若把它们计入，数字是
-**2574 语句 / 35 未覆盖 / 98.64% 行**。之所以排除，是因为它们无业务语义；之所以
-在此写明，是因为「99.88%」这个数字**依赖于该配置**——不披露就是误导。
+**2717 语句 / 37 未覆盖 / 98.64% 行**。之所以排除，是因为它们无业务语义；之所以
+在此写明，是因为「99.81%」这个数字**依赖于该配置**——不披露就是误导。
 
 ---
 
@@ -182,7 +196,7 @@ OpenAPI schema / 文件系统对齐） / `.env.example`。
 
 | Phase 14 要求 | 结论 |
 | --- | --- |
-| `pytest` 可运行、覆盖核心业务 | ✅ 1070 passed（TASK-089 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.02% 分支 |
+| `pytest` 可运行、覆盖核心业务 | ✅ 1084 passed（TASK-090 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.51% 分支 |
 | 「核心 Service + API 有较高测试覆盖率」 | ✅ Service 724 语句 / 1 未覆盖；API 274 语句 / 0 未覆盖 |
 | 「不要为了追求数字而测试没有业务价值的代码」 | ✅ 显式执行：未覆盖的那 1 行（协议声明式方法）**刻意不测**，见 1.2 与第 7 节 |
 

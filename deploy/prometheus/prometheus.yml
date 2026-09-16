@@ -1,0 +1,25 @@
+# Prometheus 抓取配置（TASK-090，§1「日志与指标」）
+#
+# 用法（compose 内网抓取，/metrics 不经 nginx、不对公网暴露）：
+#   docker run -d --name prometheus --network taskflow_default \
+#     -v $(pwd)/deploy/prometheus:/etc/prometheus \
+#     prom/prometheus --config.file=/etc/prometheus/prometheus.yml
+#
+# 抓取目标写容器名/服务名（api 的 compose 服务名是 `app`），MetricPath 是
+# /metrics；应用侧需 METRICS_ENABLED=true，否则该端点返回 404、up=0。
+#
+# 告警规则见同目录 alerts.yml（草案，阈值按实际负载调优后再启用）。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: taskflow-app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]
+
+  - job_name: prometheus-self
+    static_configs:
+      - targets: ["localhost:9090"]

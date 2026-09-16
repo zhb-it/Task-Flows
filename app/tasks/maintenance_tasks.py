@@ -21,6 +21,12 @@ TASK-089（§61）：两项任务由 celery_app 的 ``beat_schedule`` 周期投�
 **终态清理**（``archived_at`` 超过 ``archive_final_retention_days`` 的行
 删除，存储期限最小化）。任务名常量收敛到 ``celery_app`` 声明，
 本模块从那里引用，调度侧与注册侧共用同一份名字。
+
+TASK-090（§1）：任务成功结束时把 Unix 时间戳写入 Redis
+（``redis_keys.maintenance_last_success_key`` 的 Hash），由 API 进程的
+``/metrics`` 暴露为 ``taskflow_maintenance_last_success_timestamp{task}``
+——监控据此告警「维护任务超过预期周期没跑成」。写入是尽力而为：
+观测失败只记 warning，绝不把已成功的任务拖成失败。
 """
 
 import asyncio
@@ -50,6 +56,35 @@ from app.tasks.celery_app import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _record_success(task) -> None:
+    """记录维护任务最后成功时间戳（TASK-090）：HSET 进共享 Hash。
+
+    :param task: 任务实例（用 ``task.name`` 做字段名）。eager 模式（测试直接
+        调用任务体）跳过——eager 调用不构成真实的周期执行，且测试环境未必有
+        Redis；与 ``celery_app._bump_task_stat`` 的口径一致。
+
+    worker 进程写、API 进程读——跨进程状态只能走共享存储（Redis），与
+    ``celery_app`` 的任务计数同一通道。尽力而为：Redis 抖动只记 warning，
+    不影响任务本身的成功。
+    """
+    request = getattr(task, "request", None)
+    if request is not None and getattr(request, "is_eager", False):
+        return
+    try:
+        from app.core.redis_keys import maintenance_last_success_key
+        from app.db.redis import get_sync_redis_client
+
+        get_sync_redis_client().hset(
+            maintenance_last_success_key(), task.name, time.time()
+        )
+    except Exception:  # noqa: BLE001 — 观测失败不能把成功任务拖成失败
+        logger.warning(
+            "failed to record maintenance success timestamp for %s",
+            task.name,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +260,7 @@ def archive_operation_logs(
         purged,
         purge_cutoff,
     )
+    _record_success(archive_operation_logs)
     return {"archived": total, "purged": purged}
 
 
@@ -336,6 +372,7 @@ def cleanup_expired_attachments(min_age_seconds: int | None = None) -> dict:
         skipped_referenced,
         errors,
     )
+    _record_success(cleanup_expired_attachments)
     return {
         "scanned": len(physical),
         "deleted": deleted,

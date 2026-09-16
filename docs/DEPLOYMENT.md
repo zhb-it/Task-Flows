@@ -131,6 +131,18 @@ TCP 对端落在 `TRUSTED_PROXY_IPS` 网段内、该头恰好是一个合法 IP�
 代理：
 - `/nginx-health`（nginx 本地，不依赖上游）
 
+## 指标与监控（TASK-090，§1「日志与指标」）
+
+`GET /metrics` 输出 Prometheus 文本格式（`prometheus_client`，不自造格式），由 `METRICS_ENABLED` （默认 **false**）控制——暴露内部结构与流量画像，运维先评估暴露面再打开。三条暴露面纪律：
+
+- **不经 nginx 暴露**：生产唯一入口只代理 `/` 与 `/api/`，app 容器不发布宿主端口——即使开关打开，外网也够不到；
+- **不占限流配额**：限流只作用于 `/api/v1` 前缀，15s 间隔的抓取探针不消耗业务额度；
+- **依赖故障不连坐**：Redis/DB 不可达时采集按 0/缺失降级，`/metrics` 自身不 500。
+
+指标集（前缀 `taskflow_`）：HTTP 请求计数/延迟直方图（标签为 **路由模板**，非原始路径——UUID 不进标签，404 统一 `unmatched`）、进行中请求数、Redis 命令延迟、DB 连接池占用、Celery 队列深度与任务成功/失败/重试计数（worker 经 Redis 中转）、维护任务最后成功时间戳（`taskflow_maintenance_last_success_timestamp{task=...}`）。
+
+抓取配置与告警规则草案见 `deploy/prometheus/`（`prometheus.yml` + `alerts.yml`：应用下线、5xx 率、连接池耗尽、Redis 慢、队列积压、维护任务停摆）。告警阈值是保守起点，上线后按真实负载调优。
+
 ## CI
 
 `.github/workflows/ci.yml`（GitHub Actions，TASK-061）三个 job，对应 §44 的四步：

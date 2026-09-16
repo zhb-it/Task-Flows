@@ -757,8 +757,12 @@ async def test_comment_delete_audit_is_atomic(client, storage_root, monkeypatch)
     monkeypatch.setattr(comment_service, "write_operation_log", _boom)
 
     H = _bearer(create_access_token(owner.id))
-    with pytest.raises(RuntimeError):
-        await client.delete(f"/api/v1/comments/{cid}", headers=H)
+    # TASK-090 起：未捕获异常被 MetricsErrorMiddleware 转换为 500 统一信封，
+    # 不再向 ASGI 栈外冒泡（对外契约见 API_CONTRACT.md「未处理异常」）。
+    # 原子性本身由下面的库态断言证明：写日志失败 → 删除一并回滚。
+    resp = await client.delete(f"/api/v1/comments/{cid}", headers=H)
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "Internal server error"}
 
     # 评论仍在（回滚），且无日志
     assert await _count(Comment, Comment.id, [cid]) == 1
@@ -786,8 +790,10 @@ async def test_attachment_delete_audit_is_atomic(client, storage_root, monkeypat
     monkeypatch.setattr(attachment_service, "write_operation_log", _boom)
 
     H = _bearer(create_access_token(owner.id))
-    with pytest.raises(RuntimeError):
-        await client.delete(f"/api/v1/attachments/{aid}", headers=H)
+    # TASK-090 起：未捕获异常被转换为 500 统一信封（同上，不再冒泡）。
+    resp = await client.delete(f"/api/v1/attachments/{aid}", headers=H)
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "Internal server error"}
 
     # DB 记录回滚保留
     assert await _count(Attachment, Attachment.id, [aid]) == 1

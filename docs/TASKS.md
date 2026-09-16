@@ -308,7 +308,7 @@
   - 验收标准：真实 compose 栈上两个任务被 beat **自动**触发并落库/删文件；`celery -A app.tasks.celery_app inspect scheduled` 能看到下一次执行时间；归档表超出保留期的行被清理。
   - 测试要求：`beat_schedule` 契约测试（两项都在、间隔合法、callable 可解析且与任务函数名一致）；沿用既有幂等用例；新增「归档表终态清理」用例。
 
-- [ ] TASK-090 指标端点与 5xx 统一信封
+- [x] TASK-090 指标端点与 5xx 统一信封
   - 目标：关闭 **A3**（规格 §1 的交付清单写着「日志与指标」，指标 0 实现）与 **B9**（5xx 不走统一信封、不进结构化日志）。
   - 依赖：TASK-088（复用健康探针）、TASK-089（维护任务时间戳）。
   - 涉及文件：`app/main.py`、`app/core/metrics.py`（新建）、`app/core/middleware.py`、`app/core/exceptions.py`、`app/core/config.py`、`requirements.txt`、`deploy/prometheus/`（新建：抓取配置 + 告警规则草案）、`tests/test_metrics.py`（新建）。

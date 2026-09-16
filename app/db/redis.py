@@ -21,6 +21,7 @@ Celery Backend、后续缓存。本模块提供**唯一的连接入口**：所�
 """
 
 from collections.abc import AsyncGenerator
+import time
 
 from redis import Redis as SyncRedis
 from redis.asyncio import Redis
@@ -49,6 +50,32 @@ _sync_client: SyncRedis | None = None
 REDIS_SOCKET_TIMEOUT_SECONDS = 1.0
 
 
+class _InstrumentedAsyncRedis(Redis):
+    """把每条命令的耗时写进 ``taskflow_redis_operation_seconds`` 直方图.
+
+    TASK-090（§1「日志与指标」）：Redis 延迟是排障的关键维度（限流、Celery、
+    缓存全压在这一个实例上），而 redis-py 没有内置埋点钩子。``execute_command``
+    是所有命令的单一出口——在子类里包一层计时，应用侧所有 Redis 访问
+    （限流、健康探测、任务幂等标记）自动获得延迟观测，无需逐调用点埋点。
+
+    计时放在 ``finally``：慢操作与失败操作都要被观测到（失败的慢查询恰恰
+    是最需要看到的那类）。
+
+    指标对象在函数内惰性导入：``app.core.metrics`` import 时会把采集器
+    注册进注册表并立刻采样一次（注册表要枚举指标名），采样路径又要回到
+    本模块拿 Redis 客户端——模块级导入会形成循环导入，函数内导入即可解开。
+    """
+
+    async def execute_command(self, *args, **kwargs):
+        from app.core.metrics import REDIS_LATENCY
+
+        start = time.perf_counter()
+        try:
+            return await super().execute_command(*args, **kwargs)
+        finally:
+            REDIS_LATENCY.observe(time.perf_counter() - start)
+
+
 def get_redis_client() -> Redis:
     """返回进程内共享的 Redis 客户端（惰性创建）。
 
@@ -57,7 +84,7 @@ def get_redis_client() -> Redis:
     """
     global _client
     if _client is None:
-        _client = Redis.from_url(
+        _client = _InstrumentedAsyncRedis.from_url(
             settings.redis_url,
             encoding="utf-8",
             decode_responses=True,

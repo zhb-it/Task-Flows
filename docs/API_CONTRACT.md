@@ -338,6 +338,8 @@ Request：
 - GET `/health/db`（TASK-088）—— PostgreSQL 单依赖明细：可用 200，不可用 **503**。
 - GET `/health/redis`（TASK-088）—— Redis 单依赖明细：可用 200，不可用 **503**。
 - 全部探针端点免认证、不限流（限流只作用于 `/api/v1` 前缀）。
+- GET `/metrics`（TASK-090）—— Prometheus 文本格式指标；`METRICS_ENABLED=false`（默认）时 **404**。免认证、不限流；不经 nginx 暴露（生产唯一入口只代理 `/` 与 `/api/`），Prometheus 在内网抓取（`deploy/prometheus/`）。
+- **未处理异常**（TASK-090）—— 任何路由内未捕获异常返回 **500** + §26 统一信封 `{"detail": "Internal server error"}`，对外不含堆栈与异常消息；异常细节进结构化日志（`exc_info`）并带 `request_id`，响应头回传 `X-Request-ID`。
 
 ## 响应
 

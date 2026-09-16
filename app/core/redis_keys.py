@@ -99,3 +99,40 @@ def jwt_blacklist_key(jti: str) -> str:
     if not jti:
         raise ValueError("jti must be a non-empty string")
     return build_key(PURPOSE_JWT, "blacklist", jti)
+
+
+# ---------------------------------------------------------------------------
+# §1 / TASK-090：可观测性指标（worker 与 API 两个进程共用 Redis 交换）
+# ---------------------------------------------------------------------------
+
+
+def celery_queue_key() -> str:
+    """Celery 默认队列的 List Key：``taskflow:celery``。
+
+    Celery 的默认队列名是 ``celery``，加上 ``global_keyprefix``（TASK-045 键
+    约定）后正好落在本模块的命名空间里——``LLEN`` 它就是队列深度。前提是
+    Broker 走默认队列（本项目未改 ``task_default_queue``）；若将来自定义队列
+    名，此处必须同步。
+    """
+    return build_key(PURPOSE_CELERY)
+
+
+def celery_task_stats_key() -> str:
+    """Celery 任务成功/失败/重试计数的 Hash Key：``taskflow:celery:task_stats``。
+
+    field = 状态（success / failure / retry），value = 累计次数。worker 进程在
+    Celery 信号里 ``HINCRBY``，API 进程的 ``/metrics`` 在抓取时读取——指标必须
+    跨进程汇聚，而 Prometheus 的进程内 Counter 看不见 worker 的内存。
+    """
+    return build_key(PURPOSE_CELERY, "task_stats")
+
+
+def maintenance_last_success_key() -> str:
+    """维护任务最后成功时间戳的 Hash Key：``taskflow:celery:maintenance:last_success``。
+
+    field = 任务名（celery_app.TASK_NAME_*），value = Unix 时间戳。归档/清理
+    任务成功结束时由 worker 写入（TASK-089 的 §61 交付物），``/metrics`` 暴露为
+    ``taskflow_maintenance_last_success_timestamp{task=...}``——监控据此告警
+    「维护任务超过 N 天没跑成」。
+    """
+    return build_key(PURPOSE_CELERY, "maintenance", "last_success")

@@ -17,7 +17,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -25,7 +25,9 @@ from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError, app_error_handler
 from app.core.logging_config import configure_logging
+from app.core.metrics import render_metrics
 from app.core.middleware import (
+    MetricsErrorMiddleware,
     RateLimitMiddleware,
     RequestIdMiddleware,
     RequestLoggingMiddleware,
@@ -61,6 +63,12 @@ app.add_middleware(RateLimitMiddleware)
 # 访问日志放在限流**之后**注册：Starlette 后注册的中间件在更外层，因此本中间件
 # 包住限流——duration 才是「客户端实际等待的总时间」（含限流判定的开销）。
 app.add_middleware(RequestLoggingMiddleware)
+
+# 指标与 5xx 统一信封（TASK-090）：注册在访问日志之外、request_id 之内——
+# 异常日志才有 request_id 关联，信封响应也经 RequestIdMiddleware 回传
+# X-Request-ID 头。嵌套顺序（外→内）：
+#   RequestId → MetricsError → RequestLogging → RateLimit → 路由
+app.add_middleware(MetricsErrorMiddleware)
 
 # Request ID 最后注册，因而位于**最外层**（§34）：它的 ContextVar 必须在限流与
 # 访问日志之前就位，这样本次请求的**全部**日志（含限流 warning、访问日志）都带
@@ -177,3 +185,28 @@ async def health_redis() -> JSONResponse:
         status_code=200 if redis_up else 503,
         content={"redis": "up" if redis_up else "down"},
     )
+
+
+# ---------------------------------------------------------------------------
+# 指标端点（TASK-090，§1「日志与指标」）
+#
+# Prometheus 抓取入口。三条纪律：
+#
+# 1. **默认关闭**（``METRICS_ENABLED=false``）：/metrics 暴露内部结构（路由、
+#    连接池、队列）与流量画像，运维先评估暴露面再打开；关闭时返回 404——
+#    不是 403，让探针对外看起来与「没有这个端点」完全一致。
+# 2. **不经 nginx 暴露**：生产唯一入口 nginx 只代理 ``/`` 与 ``/api/``，
+#    app 容器也不发布宿主端口——即使开关打开，外网也够不到 /metrics，
+#    Prometheus 在 compose 内网抓取（deploy/prometheus/ 附抓取配置）。
+# 3. **不占限流配额**：限流只作用于 /api/v1 前缀；抓取间隔 15s 的探针
+#    不应消耗业务额度。
+# ---------------------------------------------------------------------------
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus 文本格式指标；``METRICS_ENABLED=false``（默认）时 404。"""
+    if not settings.metrics_enabled:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    body, content_type = render_metrics()
+    return Response(content=body, media_type=content_type)

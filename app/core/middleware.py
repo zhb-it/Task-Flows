@@ -74,6 +74,7 @@ from app.core.client_ip import FORWARDED_FOR_HEADER, parse_trusted_proxies, reso
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitExceededError
 from app.core.logging_config import request_id_var, user_id_var
+from app.core.metrics import IN_PROGRESS, REQUEST_COUNT, REQUEST_LATENCY, route_label
 from app.core.redis_keys import RATE_LIMIT_SCOPE_IP, RATE_LIMIT_SCOPE_USER
 from app.core.redis_keys import rate_limit_key
 from app.core.security import decode_access_token
@@ -340,6 +341,88 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 # 由它渲染 500，那个响应**没有** ``X-Request-ID`` 头。这不影响 §34 的硬要求：
 # 该请求的日志（访问日志中间件在向上抛之前已记 ``status_code=500``）仍然带
 # request_id。
+
+# ===========================================================================
+# 指标与 5xx 统一信封（TASK-090，§1「日志与指标」/ §26 / B9）
+# ===========================================================================
+
+
+class MetricsErrorMiddleware(BaseHTTPMiddleware):
+    """请求计数/延迟指标 + 未处理异常的统一信封（双重职责，见下）.
+
+    嵌套位置：注册在 ``RequestIdMiddleware`` 之内、``RequestLoggingMiddleware``
+    之外——必须**包住**访问日志（才能观测到限流判定的时间）又**被** request_id
+    包住（异常日志才有 request_id 关联，§34）。
+
+    ## 职责 1：指标（§1「日志与指标」）
+
+    请求计数与延迟按 ``method + 路由模板 + status`` 打标签。路由模板在
+    ``call_next`` 返回后从 ``scope["route"]`` 读取（Starlette 路由分发成功后
+    写入）——必须是模板而不是原始路径，否则每个 UUID 一个标签序列，基数打爆
+    监控存储（见 ``app/core/metrics`` 标签纪律）。未命中路由（404）统一落
+    ``unmatched``。两条同模板不同 id 的请求因此产生**同一个**标签值——这是
+    TASK-090 验收标准之一。
+
+    ## 职责 2：未处理异常 → §26 统一信封（B9）
+
+    此前未处理异常一路冒泡到 Starlette 的 ``ServerErrorMiddleware``，渲染出的
+    500 既不是 ``{"detail": ...}`` 信封、又带框架默认 HTML（debug 时是堆栈页），
+    也没有 request_id 头。在这里捕获并渲染 §26 信封：
+
+    - **对外不含堆栈**：body 只有 ``{"detail": "Internal server error"}``，
+      异常细节只进日志（``exc_info`` 全量堆栈，JSON formatter 落 ``exception``
+      字段）——堆栈里的路径/版本信息是攻击者的侦察素材（§9 敏感信息）；
+    - **日志带 request_id**：本中间件在 request_id ContextVar 存活期内记日志，
+      关联天然成立；``ServerErrorMiddleware`` 在最外层，ContextVar 已还原，
+      这是把信封放中间件而非异常处理器的决定性原因；
+    - **X-Request-ID 头得以回传**：信封响应正常返回给 ``RequestIdMiddleware``，
+      它会把 id 写进响应头——用户报障时手里有 id 可捞日志。
+
+    计数必须含异常路径（status=500），否则 5xx 率这一最重要的告警信号会失真。
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        method = request.method
+        in_progress = IN_PROGRESS.labels(method)
+        in_progress.inc()
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            # 路由模板取不到（异常发生在路由分发中）——落 unmatched，
+            # 原始路径绝不能进标签（标签纪律）。
+            route = route_label(request.scope)
+            REQUEST_COUNT.labels(method, route, "500").inc()
+            REQUEST_LATENCY.labels(method, route).observe(
+                time.perf_counter() - started
+            )
+            # exc_info 全量堆栈只进日志；request_id 由 ContextVar 提供。
+            logger.error(
+                "unhandled exception",
+                exc_info=True,
+                extra={"method": method, "path": request.url.path},
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+        finally:
+            in_progress.dec()
+
+        route = route_label(request.scope)
+        status = str(response.status_code)
+        REQUEST_COUNT.labels(method, route, status).inc()
+        REQUEST_LATENCY.labels(method, route).observe(time.perf_counter() - started)
+        return response
+
+
+# ===========================================================================
+# 请求 ID（TASK-057，§34）
+# ===========================================================================
 
 #: 客户端传入 / 服务端回传 request_id 的 HTTP 头名。
 REQUEST_ID_HEADER = "X-Request-ID"

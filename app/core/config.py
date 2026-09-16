@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # 探针必须快速失败——编排器靠它判断实例生死，一个挂起的探测比失败的探测更有害。
     health_probe_timeout: float = 2.0
 
+    # 指标端点（§1「日志与指标」/ TASK-090）。
+    # 默认关闭：/metrics 暴露内部结构与流量画像，运维先评估暴露面再打开；
+    # 打开后也只在应用端口可用（compose 里 app 不发布宿主端口，生产唯一入口
+    # nginx 不代理 /metrics，见 DEPLOYMENT.md 监控章节），不占限流配额。
+    metrics_enabled: bool = False
+
     # Celery（§23 / TASK-048）
     # broker / backend 留空时回落到 redis_url（DECISIONS 026）：
     # §21 规定 Redis 同时充当 Celery Broker 与 Backend，与限流共用同一实例即可，

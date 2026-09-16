@@ -1,0 +1,91 @@
+# 告警规则草案（TASK-090，§1「日志与指标」）
+#
+# 这些规则与 prometheus.yml 配套加载：
+#   rule_files: ["/etc/prometheus/alerts.yml"]
+# 或启动参数 --rules=/etc/prometheus/alerts.yml。
+#
+# 定位是**草案**：所有阈值都是保守起点，上线后按真实负载调优（尤其 5xx 率
+# 与队列深度），并把通知渠道（webhook / 邮件 / IM）接入 Alertmanager 后再启用。
+
+groups:
+  - name: taskflow-availability
+    rules:
+      # 应用抓取失败（实例下线或 METRICS_ENABLED 未开）。持续 2 分钟才告警，
+      # 避免滚动重启/网络抖动的误报。
+      - alert: TaskflowAppDown
+        expr: up{job="taskflow-app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TaskFlow app 不可抓取（up=0）"
+          description: "Prometheus 连续 2 分钟抓不到 app:8000/metrics——实例下线，或 METRICS_ENABLED 未开启。"
+
+      # 5xx 率：异常路径也已计入 taskflow_http_requests_total（status="500"）。
+      - alert: TaskflowHigh5xxRate
+        expr: |
+          sum(rate(taskflow_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(taskflow_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TaskFlow 5xx 率超过 5%（5 分钟窗口）"
+          description: "按 request_id 检索应用日志定位具体异常。"
+
+  - name: taskflow-dependencies
+    rules:
+      # DB 连接池耗尽：in_use 达到 pool 上限（默认 pool_size 5 + max_overflow 10，
+      # 见 app/db/session.py）——请求将阻塞等待连接。
+      - alert: TaskflowDbPoolExhausted
+        expr: taskflow_db_pool_connections{state="in_use"} >= 15
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB 连接池接近耗尽"
+          description: "连接占用 ≥15（pool_size+max_overflow），慢查询或连接泄漏。"
+
+      # Redis 命令延迟：P99 超过 500ms 说明 Redis 病态（限流 fail-open 会先失效）。
+      - alert: TaskflowRedisSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(taskflow_redis_operation_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis 命令 P99 延迟超过 500ms"
+
+  - name: taskflow-celery
+    rules:
+      # 队列积压：通知/维护任务投递速度超过 worker 消化速度。
+      - alert: TaskflowCeleryQueueBacklog
+        expr: taskflow_celery_queue_depth > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery 默认队列积压超过 100（持续 10 分钟）"
+
+      # 任务持续失败：5 分钟内 failure 增量 > 0 且无成功补偿时值得关注。
+      - alert: TaskflowCeleryTasksFailing
+        expr: increase(taskflow_celery_tasks_total{state="failure"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery 任务出现失败"
+          description: "结合应用与 worker 日志（task_id 关联）排查。"
+
+      # 维护任务停摆：归档任务每天应执行一次，超过 26 小时（24h + 余量）
+      # 没有成功记录即告警——这正是 TASK-089 之前「beat 缺位、任务永不执行」
+      # 的观测形态。
+      - alert: TaskflowMaintenanceStale
+        expr: time() - taskflow_maintenance_last_success_timestamp{task="app.archive_operation_logs"} > 93600
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "日志归档任务超过 26 小时未成功执行"
+          description: "检查 celery_beat 与 worker 是否存活、beat_schedule 是否生效。"

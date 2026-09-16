@@ -40,6 +40,7 @@
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_failure, task_retry, task_success
 
 from app.core.config import get_settings
 
@@ -144,6 +145,45 @@ def create_celery_app() -> Celery:
 
 
 celery_app = create_celery_app()
+
+
+# ---------------------------------------------------------------------------
+# 任务成功/失败/重试计数（TASK-090，§1「日志与指标」）
+#
+# worker 是独立进程，API 进程的 Prometheus Counter 看不见它的内存——计数经
+# Redis 中转（``redis_keys.celery_task_stats_key`` 的 Hash，HINCRBY 累计），
+# /metrics 抓取时读出。信号在 worker 进程触发；eager 模式（测试）跳过——
+# 测试环境未必有 Redis，且 eager 调用不构成真实执行统计。
+# ---------------------------------------------------------------------------
+
+
+def _bump_task_stat(state: str, sender: object) -> None:
+    """HINCRBY 一次任务状态计数；观测失败绝不影响任务结果。"""
+    request = getattr(sender, "request", None)
+    if request is not None and getattr(request, "is_eager", False):
+        return
+    try:
+        from app.core.redis_keys import celery_task_stats_key
+        from app.db.redis import get_sync_redis_client
+
+        get_sync_redis_client().hincrby(celery_task_stats_key(), state, 1)
+    except Exception:  # noqa: BLE001 — 观测是尽力而为，不能让任务标记失败
+        pass
+
+
+@task_success.connect
+def _on_task_success(sender=None, **_kwargs) -> None:
+    _bump_task_stat("success", sender)
+
+
+@task_failure.connect
+def _on_task_failure(sender=None, **_kwargs) -> None:
+    _bump_task_stat("failure", sender)
+
+
+@task_retry.connect
+def _on_task_retry(sender=None, **_kwargs) -> None:
+    _bump_task_stat("retry", sender)
 
 
 @celery_app.task(name="app.ping")
