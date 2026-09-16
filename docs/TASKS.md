@@ -316,7 +316,7 @@
   - 验收标准：`/metrics` 含上述指标且内容类型正确；故意制造未捕获异常时返回 JSON 信封、日志有 `request_id` 关联的 error 记录、响应体不含堆栈；两条不同 id 的请求不产生两个标签值。
   - 测试要求：指标端点契约（内容类型、关键指标名存在、路由标签不含原始 id）；500 信封用例（结构断言 + 不泄露堆栈）；标签基数用例。
 
-- [ ] TASK-091 生产配置自检
+- [x] TASK-091 生产配置自检
   - 目标：关闭 **B8**——`debug=True`、`jwt_secret_key="change-me"`、连接串里的 `postgres:postgres` 让「不配任何环境变量也能跑起来」，这是企业部署事故的常见来源。
   - 依赖：无。
   - 涉及文件：`app/core/config.py`、`app/main.py`、`tests/test_config_production_guards.py`（新建）。

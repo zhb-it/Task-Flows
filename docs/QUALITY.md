@@ -19,18 +19,18 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1084 passed
-pytest -q --cov --cov-report=term-missing   # 1084 passed，并输出下表
+pytest -q                                  # 1095 passed
+pytest -q --cov --cov-report=term-missing   # 1095 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-090 重测）**：1084 passed / 66 个测试文件 / 986 个 `def test_*` /
-> 2685 语句 / 99.81% 行、99.75% 分支。
+> **当前基线（快照 2026-09-16，TASK-091 重测）**：1095 passed / 67 个测试文件 / 997 个 `def test_*` /
+> 2707 语句 / 99.82% 行、99.52% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1084 个用例全部通过**，0 failed / 0 error / 0 skipped（66 个测试文件，986 个
+- **1095 个用例全部通过**，0 failed / 0 error / 0 skipped（67 个测试文件，997 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
@@ -45,6 +45,10 @@ ruff check .                               # All checks passed!
   request_id 日志关联、采集器健壮性（幂等注册 / engine 缺失 / Redis 中转读取）、
   维护时间戳与任务计数的写入侧；另随新契约更新 3 处既有原子性用例——未捕获
   异常改为断言 500 信封，不再断言异常冒泡。）
+  （TASK-091 增量 11 项：`tests/test_config_production_guards.py` 新建——四类错配
+  各一条拒绝用例（报错点名配置项）、合法生产配置放行、开发环境不检查、收集式
+  全量点名、两条真实子进程端到端（错配 `import app.main` 即非零退出 / 合法配置
+  正常启动）。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -59,15 +63,15 @@ ruff check .                               # All checks passed!
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
 | `app/api/v1`（Router） | 311 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志/指标） | 541 | 2 | 116 | 99.63% 行 / 100% 分支 |
+| `app/core`（配置/安全/中间件/日志/指标） | 562 | 2 | 130 | 99.64% 行 / 100% 分支 |
 | `app/crud` | 347 | 0 | 28 | 100% |
 | `app/db`（engine / session / redis） | 46 | 0 | 8 | 100% |
 | `app/models` | 241 | 0 | 0 | 100% |
 | `app/schemas` | 102 | 0 | 0 | 100% |
 | `app/services` | 785 | 3 | 204 | 99.62% 行 / 99.51% 分支 |
 | `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
-| `app/main.py`（含健康探针族与 /metrics） | 75 | 0 | 4 | 100% |
-| **TOTAL** | **2685** | **5** | **406** | **99.81% 行 / 99.75% 分支** |
+| `app/main.py`（含健康探针族与 /metrics） | 76 | 0 | 4 | 100% |
+| **TOTAL** | **2707** | **5** | **420** | **99.82% 行 / 99.52% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -78,13 +82,14 @@ ruff check .                               # All checks passed!
 > （TASK-063 新增 `tests/test_readme.py` 27 项 + `tests/test_docs_consistency.py` 补 2 项）→
 > 1037（TASK-088 登记增量 2 项护栏反向用例）→ 1053（TASK-088 实现增量 16 项）→
 > 1070（TASK-089：beat 契约 11 + 终态清理 3 + compose 契约 3）→
-> **1084**（TASK-090：`tests/test_metrics.py` 14 项）。
+> **1084**（TASK-090：`tests/test_metrics.py` 14 项）→
+> **1095**（TASK-091：`tests/test_config_production_guards.py` 11 项）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
-> **TASK-088~090 更新（2026-09-16）**：上表为 TASK-090 重测值（`core` 446 → 541：
-> 新增 `metrics.py` 67 语句 + `MetricsErrorMiddleware` + Redis 埋点客户端；`tasks`
-> 205 → 237：Celery 信号计数 + 维护时间戳写入；总语句 2542 → 2685）。`tasks` 层
-> 保持 100% 覆盖。
+> **TASK-088~091 更新（2026-09-16）**：上表为 TASK-091 重测值（`core` 541 → 562：
+> `config.py` 新增生产配置自检 22 语句（收集/校验函数与常量），仍 100% 覆盖；
+> `main.py` 75 → 76：import 顶层的自检调用点；总语句 2685 → 2707）。分支 406 → 420
+> 全部来自自检的判定分支。
 
 **未覆盖行（5 处）**：
 
@@ -111,7 +116,7 @@ ruff check .                               # All checks passed!
 **双口径披露**：`[tool.coverage.report] exclude_also = ["def __repr__"]` 把 16 个模型
 里 `__repr__` 的 **32 条语句**排除在分母外。若把它们计入，数字是
 **2717 语句 / 37 未覆盖 / 98.64% 行**。之所以排除，是因为它们无业务语义；之所以
-在此写明，是因为「99.81%」这个数字**依赖于该配置**——不披露就是误导。
+在此写明，是因为「99.82%」这个数字**依赖于该配置**——不披露就是误导。
 
 ---
 
@@ -196,7 +201,7 @@ OpenAPI schema / 文件系统对齐） / `.env.example`。
 
 | Phase 14 要求 | 结论 |
 | --- | --- |
-| `pytest` 可运行、覆盖核心业务 | ✅ 1084 passed（TASK-090 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.51% 分支 |
+| `pytest` 可运行、覆盖核心业务 | ✅ 1095 passed（TASK-091 后）；Router/CRUD/Model/Schema 全 100%，Service 99.62% 行 / 99.51% 分支 |
 | 「核心 Service + API 有较高测试覆盖率」 | ✅ Service 724 语句 / 1 未覆盖；API 274 语句 / 0 未覆盖 |
 | 「不要为了追求数字而测试没有业务价值的代码」 | ✅ 显式执行：未覆盖的那 1 行（协议声明式方法）**刻意不测**，见 1.2 与第 7 节 |
 

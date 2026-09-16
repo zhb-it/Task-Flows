@@ -109,6 +109,83 @@ class Settings(BaseSettings):
     archive_final_retention_days: int = 365
 
 
+# ---------------------------------------------------------------------------
+# 生产配置自检（§51 补充 / TASK-091，关闭 ENTERPRISE_READINESS 缺口 B8）
+#
+# `debug=True`、`jwt_secret_key="change-me"`、默认连接串里的 `postgres:postgres`
+# 让「不配任何环境变量也能跑起来」——这是企业部署事故的常见来源：staging 沿用
+# 默认密钥、某个容器漏传 DEBUG、明文默认口令进日志。生产 compose 的 `${VAR:?}`
+# fail-fast 是 compose 的功劳，不是应用自己的防线；本节把防线补在应用内。
+#
+# 约定：
+#   * 只在 ``APP_ENV=production`` 时执行，开发/测试环境不受影响（开发就是要
+#     「不配任何变量也能跑」）；
+#   * 收集**全部**问题再一次报出——运维改一项撞一项的循环没有任何价值；
+#   * 报错必须点名具体配置项（§51），不接受笼统的 "invalid config"。
+# ---------------------------------------------------------------------------
+
+DEFAULT_JWT_SECRET = "change-me"
+
+# jwt_secret_key 的最小长度。规格未给数值（DECISIONS 063）：HMAC-SHA256 的签名
+# 密钥至少应与其输出等长，32 字节 = 256 bit，与 HS256 安全强度对齐；低于它视为
+# 「长度不足」拒绝。
+MIN_JWT_SECRET_LENGTH = 32
+
+
+def collect_production_config_problems(settings: "Settings") -> list[str]:
+    """逐项收集生产环境下的危险配置，返回人类可读的问题清单（空 = 通过）。"""
+    if settings.app_env != "production":
+        return []
+    problems: list[str] = []
+
+    if settings.debug:
+        problems.append(
+            "DEBUG=true 与 APP_ENV=production 不兼容：调试模式会向客户端回传"
+            "完整异常堆栈（含内部路径与配置片段）。请显式设置 DEBUG=false。"
+        )
+
+    if settings.jwt_secret_key == DEFAULT_JWT_SECRET:
+        problems.append(
+            "JWT_SECRET_KEY 仍是默认值 'change-me'：默认密钥等于把签名密钥"
+            "公开，任何人可伪造任意用户的令牌。请设置足够长的随机密钥"
+            f"（>= {MIN_JWT_SECRET_LENGTH} 字符）。"
+        )
+    elif len(settings.jwt_secret_key) < MIN_JWT_SECRET_LENGTH:
+        problems.append(
+            f"JWT_SECRET_KEY 长度不足：要求 >= {MIN_JWT_SECRET_LENGTH} 字符，"
+            f"当前 {len(settings.jwt_secret_key)} 字符。"
+        )
+
+    if ":postgres@" in settings.database_url:
+        problems.append(
+            "DATABASE_URL 使用默认口令 'postgres'：默认凭据是最先被字典枚举的"
+            "组合。请更换数据库用户口令并同步更新连接串。"
+        )
+
+    if settings.trust_proxy_headers and not settings.trusted_proxy_ips.strip():
+        problems.append(
+            "TRUST_PROXY_HEADERS=true 但 TRUSTED_PROXY_IPS 为空：信任了代理头"
+            "却没有声明可信网段，客户端 IP 可被任意伪造（限流与审计日志全部"
+            "失真）。请设置 TRUSTED_PROXY_IPS（逗号分隔的 IP/CIDR）。"
+        )
+
+    return problems
+
+
+def validate_production_config(settings: "Settings") -> None:
+    """生产环境启动自检：存在危险配置时抛 RuntimeError 拒绝启动。
+
+    开发 / 测试环境（``app_env != "production"``）不做任何检查——本任务的
+    目标恰恰是保住「开发零配置可用」的便利，同时不让这份便利泄漏到生产。
+    """
+    problems = collect_production_config_problems(settings)
+    if problems:
+        raise RuntimeError(
+            "生产配置自检失败，拒绝启动（APP_ENV=production）：\n"
+            + "\n".join(f"  - {p}" for p in problems)
+        )
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Return a cached Settings instance (one per process)."""

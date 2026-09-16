@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.v1 import api_router
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_production_config
 from app.core.exceptions import AppError, app_error_handler
 from app.core.logging_config import configure_logging
 from app.core.metrics import render_metrics
@@ -40,6 +40,11 @@ settings = get_settings()
 # 日志在应用创建之前配置（§33）：越早安装 handler，越不容易漏掉启动阶段的日志。
 # 幂等，可重复调用（测试会多次 import 本模块）。
 configure_logging(settings)
+
+# 生产配置自检（§51 补充 / TASK-091）：放在 import 顶层——uvicorn 拉起进程的
+# 第一步就是 import 本模块，危险错配（默认密钥 / 默认口令 / DEBUG=true /
+# 空信任网段）在这里就被拒绝，而不是等到第一个请求或第一次签发令牌才暴露。
+validate_production_config(settings)
 
 
 @asynccontextmanager
