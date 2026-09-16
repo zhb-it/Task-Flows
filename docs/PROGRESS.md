@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-076 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~076）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-077 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~077）。
 
 ## Current Phase
 Phase 12：前端业务页面
 
 ## Current Task
-TASK-076 权限模块（规格 §34/§35/§36/§69，阶段 12：§69 六项能力审计 + 唯一真实落点——个人中心新增「我的团队与角色」区块，GET /teams + 逐团队 GET /teams/{id}/members 数据驱动展示 owner/admin/member（单团队失败显示「未知」，不连累其余），顶部注明后端不暴露全局角色与权限集合（D4）；按权限的菜单/按钮/路由控制不做——权限集合恒为空且不据此隐藏任何入口（规格 §35「隐藏按钮 ≠ 安全」，D4/Q1），后端 403/404 兜底，待后端补「我的权限集合」端点再接线；403 页面/路由认证守卫（guards.ts）/权限判断工具（utils/permission.ts + usePermission.ts，10 项单测）阶段 1/2 已具备，审计结论登记 DECISIONS 055
+TASK-077 操作日志（规格 §32/§44，阶段 13：OperationLogList.vue 占位替换为真实日志页——GET /logs 当前用户时间线（skip/limit，limit 上限 100，无 total）；操作类型/时间筛选做在当前已取回的页（后端无筛选参数，D16）；分页仅「上一页/下一页」；规格中的操作人列（时间线即本人）与 IP 列（OperationLogRead 无 IP 字段）无法展示、页面明示；payload 按 action 收窄展示（task:transition/comment:delete/attachment:delete 三种已知，未知 JSON 兜底）；api/log.ts 补 listResourceLogs（GET /logs/{type}/{id} 资源级日志备用）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -86,6 +86,7 @@ TASK-076 权限模块（规格 §34/§35/§36/§69，阶段 12：§69 六项能�
 - [x] TASK-074 附件模块（规格 §29「任务附件」，阶段 10：新建 src/types/attachment.ts + src/api/attachment.ts（attachmentApi.listAttachments/uploadAttachment/downloadAttachment/deleteAttachment + 预检常量 MAX_UPLOAD_SIZE/ALLOWED_EXTENSIONS/ACCEPT_ATTR/isAllowedFile）、utils/format.ts 加 formatFileSize、utils/request.ts 加 http.getBlob（下载返回文件流非信封）；TaskDetail.vue 附件占位替换为真实区块——上传（el-upload 自定义 http-request + 进度条 + before-upload 预检大小/扩展名）、列表（文件名/大小/上传者/时间/下载/删除自己的）、下载用 Blob + 临时 <a> 保存、删除按 uploader_id 数据驱动；成员拥有 attachment:upload/download，删自家附件可用；上传后仍需后端裁决，前端不假设一定成功）
 - [x] TASK-075 通知模块（规格 §30/§31「通知」，阶段 11：NotificationList.vue 占位替换为真实收件箱——列表 GET /notifications（skip/limit）+「全部/未读/已读」客户端三页签（后端无 is_read 筛选参数，D9）、单条/全部标记已读经 stores/notification.ts 同步顶栏铃铛、分页仅「上一页/下一页」；「点击通知跳转对应资源」诚实降级——NotificationRead 无 link/resource_id 字段、资源 id 仅以文本嵌在 content，不解析正文猜 id（D15、DECISIONS 054）；类型标签以后端实际写入的小写 task_assigned/task_status_changed 为准，未知类型原样回退；types/notification.ts 补 NOTIFICATION_TYPE_LABELS/notificationTypeLabel、api/notification.ts listNotifications 增 options 参数、stores/notification.ts 预览请求传 silent:true 使注释与行为一致）
 - [x] TASK-076 权限模块（规格 §34/§35/§36/§69，阶段 12：能力审计 + 唯一真实落点——个人中心「我的团队与角色」区块（GET /teams + GET /teams/{id}/members 数据驱动展示 owner/admin/member，单团队独立容错）；403 页面/路由认证守卫/权限判断工具阶段 1/2 已具备；按权限的菜单/按钮/路由控制受 D4/Q1 阻塞不做（权限集合恒空、不据此隐藏入口，规格 §35「隐藏按钮 ≠ 安全」），待后端补端点再接线；见 DECISIONS 055）
+- [x] TASK-077 操作日志（规格 §32/§44，阶段 13：OperationLogList.vue 占位替换为真实日志页——GET /logs 当前用户时间线（skip/limit，limit 上限 100，无 total）；操作类型/时间筛选做在当前已取回的页（后端无筛选参数，D16）；分页仅「上一页/下一页」；操作人列与 IP 列因后端不返回相应数据无法展示、页面明示；payload 按 action 收窄（三种已知 action，未知 JSON 兜底）；types/log.ts 补 action/资源类型中文标签，api/log.ts 补 listResourceLogs）
 
 ## In Progress
 - [ ]
@@ -95,7 +96,7 @@ TASK-076 权限模块（规格 §34/§35/§36/§69，阶段 12：§69 六项能�
 
 ## Next
 
-无——TASK-001 ~ TASK-076 全部交付（后端 TASK-001~064、前端 TASK-065~076），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 13~16：日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-077 起；其中阶段 13 操作日志页接 `GET /logs` 即可、无已知阻塞项。
+无——TASK-001 ~ TASK-077 全部交付（后端 TASK-001~064、前端 TASK-065~077），`docs/TASKS.md` 中已无未勾选任务。前端业务页面规格 §59 阶段 5~13（Dashboard/团队/项目/任务/评论/附件/通知/权限/日志）至此全部完成，剩余阶段（14+：测试报告、Nginx 部署、性能优化等）属工程与部署向，按 §59 顺序在后续轮次登记 TASK-078 起；已知的降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16）均待后端补端点后自然消解。无——TASK-001 ~ TASK-076 全部交付（后端 TASK-001~064、前端 TASK-065~076），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 13~16：日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-077 起；其中阶段 13 操作日志页接 `GET /logs` 即可、无已知阻塞项。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。**（TASK-060 更新：上面「app 绑回环端口」已被取代——反代接入后 app 不再发布任何宿主端口，对外只有 nginx；同一套冒烟验证与零残留结论见 TASK-060 条目。）**

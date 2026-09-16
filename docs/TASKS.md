@@ -193,6 +193,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；团队角色区块真实渲染并接后端；阻塞项在界面/文档明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，个人中心只做结构与四门校验验证。
 
+- [x] TASK-077 操作日志（规格 §32「操作日志」/§44，阶段 13）
+  - 目标：`OperationLogList.vue` 占位替换为真实日志页，接 `GET /logs` 当前用户时间线；§32 的筛选/操作人/IP 等超出真实契约的部分按既定纪律降级并在页面明示（登记 §4-D16）。
+  - 依赖：TASK-069（`logApi.listMyLogs` 已在 Dashboard 概览使用）。
+  - 涉及文件：`src/views/operation-log/OperationLogList.vue`（重写）、`src/types/log.ts`（补 action/资源类型中文标签）、`src/api/log.ts`（补 `listResourceLogs`）。
+  - 实现要求：① 列表 `GET /logs`（skip/limit，`limit` 上限 100，响应裸数组无 total）→ 分页仅「上一页/下一页」，以「本页取满 pageSize」推断有无下一页；② 操作类型 / 时间筛选做在**当前已取回的页**上（后端无筛选参数），页面注明「仅作用于当前页」；③ 不设「操作人」列（时间线即本人）与「IP」列（`OperationLogRead` 无 IP 字段），顶部 `el-alert` 明示；④ `payload` 按已知三种 action 收窄为人类可读描述（`task:transition` → 状态 x→y 用 `TASK_STATUS_LABELS`；`comment:delete` → 任务 #x 中的评论 #y；`attachment:delete` → 任务 #x 的附件「名」），未知 action 原样展示、payload 走 JSON 兜底；⑤ `api/log.ts` 补 `listResourceLogs`（`GET /logs/{resource_type}/{resource_id}` 资源级日志备用）。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；日志页真实渲染并接后端；降级项在界面/文档明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，日志页只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
