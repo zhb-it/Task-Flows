@@ -35,7 +35,14 @@
 3. `## Completed` 的**最后一条**就是 `## Current Task`（这条正是历史事故的落点：
    Completed 停在 N-1 而 Current Task 已经写成 N）；
 4. `## Next` 行以 `TASK-NNN` 开头，且指向 TASKS.md 中**第一个未勾选**任务；
-5. `## Current Phase` 与 Current Task 在 TASKS.md 里所属的 Phase 标题一致。
+5. `## Current Phase` 与 Current Task 在 TASKS.md 里所属的 Phase 标题一致；
+6. 已勾选任务编号是 `1..max` 的**连续区间**，且未勾选任务编号全部大于该前沿。
+
+第 6 条是 TASK-088 起（项目进入 Phase 18 企业化规划、TASKS.md 里长期存在未勾选任务）
+新增的：原先「TASKS.md 里不许有未勾选任务」的断言，在「规划新工作」成为常态后不再成立，
+但它要防的东西依然成立——**README 声称「已交付到 TASK-NNN」时，这个前沿不能有空洞**
+（有空洞 = 中间有任务被跳过，而前沿声明把这件事盖住了），也**不能把新任务插在前沿之前**
+（那是「补登记历史任务」，会让前沿声明同时表达两件互相矛盾的事）。
 
 第 3 条是「静默丢失」的直接探针；第 2 条能抓住更隐蔽的情况（只补了 Current Task
 和 Next、忘了往 Completed 里追加一行）。
@@ -237,7 +244,23 @@ def check_text(tasks_text: str, progress_text: str) -> list[str]:
             f"TASK-{int(next_match.group('num')):03d}——应改为显式声明「全部完成」"
         )
 
-    # --- 6. Current Phase 必须与 Current Task 的 Phase 一致 --------------------
+    # --- 6. 勾选前沿必须连续：不留空洞，也不把新任务插在前沿之前 --------------
+    if done_order:
+        frontier = max(done_order)
+        gaps = sorted(set(range(1, frontier + 1)) - set(done_order))
+        if gaps:
+            backfilled = sorted(number for number in gaps if number in set(pending))
+            diagnosis = (
+                f"其中 {backfilled} 已作为未勾选任务登记在前沿之前"
+                "——这是「补登记历史任务」，而 README 声称的是「已交付到 TASK-NNN」"
+                if backfilled
+                else "这些编号下没有任何任务条目：任务被删号或漏登记了"
+            )
+            problems.append(
+                f"已勾选任务的编号不是 1..{frontier} 的连续区间，缺口：{gaps}；{diagnosis}"
+            )
+
+    # --- 7. Current Phase 必须与 Current Task 的 Phase 一致 --------------------
     if current_number is not None and current_number in by_number:
         expected_phase = by_number[current_number].phase
         actual_phase = _first_line(sections["Current Phase"])

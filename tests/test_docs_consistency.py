@@ -226,3 +226,79 @@ def test_next_still_naming_a_task_after_everything_is_done_is_detected() -> None
 def test_next_declaring_completion_is_accepted() -> None:
     """与之配套的正向用例：显式声明「全部完成」时不得报错。"""
     assert check_text(ALL_DONE_TASKS, ALL_DONE_PROGRESS) == []
+
+
+#: 前沿有空洞、且缺口号被登记成了一个**未勾选**任务（「补登记历史任务」的形态）。
+BACKFILLED_TASKS = """# Tasks
+
+## Phase 1：基础设施
+- [x] TASK-001 骨架
+- [ ] TASK-002 依赖
+
+## Phase 2：认证
+- [x] TASK-003 登录
+"""
+
+BACKFILLED_PROGRESS = """# Progress
+
+## Current Phase
+Phase 2：认证
+
+## Current Task
+TASK-003 登录
+
+## Completed
+- [x] TASK-001 骨架
+- [x] TASK-003 登录
+
+## Next
+TASK-002 依赖
+"""
+
+#: 前沿有空洞、且缺口号下**没有任何条目**（任务被删号或漏登记）。
+HOLE_TASKS = """# Tasks
+
+## Phase 1：基础设施
+- [x] TASK-001 骨架
+- [x] TASK-003 依赖
+"""
+
+HOLE_PROGRESS = """# Progress
+
+## Current Phase
+Phase 1：基础设施
+
+## Current Task
+TASK-003 依赖
+
+## Completed
+- [x] TASK-001 骨架
+- [x] TASK-003 依赖
+
+## Next
+无——全部任务已完成
+"""
+
+
+def test_tasks_registered_behind_the_frontier_are_detected() -> None:
+    """把新任务插在已勾选前沿之前，必须报出来。
+
+    TASK-088 之前 `docs/TASKS.md` 里不存在未勾选任务，「编号连续」天然成立；项目进入
+    Phase 18 企业化规划（见 `docs/ENTERPRISE_READINESS.md`）后未勾选任务成为常态，
+    这条不变量才开始有实际职责：它保住的是 README「已交付到 TASK-NNN」的可信度——
+    有空洞意味着中间有任务被跳过，而前沿声明把这件事盖住了。
+    """
+    problems = check_text(BACKFILLED_TASKS, BACKFILLED_PROGRESS)
+
+    assert len(problems) == 1, f"应只报第 6 条不变量，实际：{problems}"
+    assert "缺口：[2]" in problems[0]
+    assert "补登记历史任务" in problems[0]
+
+
+def test_frontier_hole_without_an_entry_is_detected() -> None:
+    """缺口号下连条目都没有时，归因文案要与「补登记」区分开——否则看的人找错方向。"""
+    problems = check_text(HOLE_TASKS, HOLE_PROGRESS)
+
+    assert len(problems) == 1, f"应只报第 6 条不变量，实际：{problems}"
+    assert "缺口：[2]" in problems[0]
+    assert "漏登记" in problems[0]

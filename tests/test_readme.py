@@ -197,11 +197,29 @@ def test_readme_declares_the_frontier_reported_by_tasks() -> None:
     assert int(match.group(1)) == max(done)
 
 
-def test_all_tasks_are_completed_so_the_frontier_claim_is_true() -> None:
-    """README 声称「全部交付」，因此 TASKS.md 里不应再有未勾选任务。"""
+#: README 里「没有任何未完成任务」的措辞——有未勾选任务时它就是一句谎话。
+_NO_PENDING_CLAIM_RE = re.compile(r"无未完成任务")
+
+
+def test_readme_does_not_claim_completion_while_tasks_are_pending() -> None:
+    """TASKS.md 里有未勾选任务时，README 不许声称「无未完成任务」。
+
+    TASK-087 收尾时这里的断言方向是反的（断言「未勾选任务必须为空」）。项目随后进入
+    Phase 18 企业化规划（`docs/ENTERPRISE_READINESS.md`），未勾选任务变成**计划**
+    而不是**遗漏**，于是这件事由 `scripts/check_docs.py` 的第 6 条不变量接管——
+    它保证勾选编号是 `1..max` 的连续区间，因此「已交付到 TASK-NNN」这句话仍然可信，
+    而本用例守住 README 不出现在同一段里自相矛盾的声明。
+
+    正向那半（README 声明的前沿必须等于 TASKS.md 的勾选前沿）在
+    `test_readme_declares_the_frontier_reported_by_tasks` 里，不受 pending 影响。
+    """
     pending = re.findall(r"^- \[ \] TASK-(\d+)", TASKS_TEXT, re.M)
 
-    assert pending == [], f"仍有未完成任务：{pending}（README 的前沿声明因此不成立）"
+    if pending:
+        assert not _NO_PENDING_CLAIM_RE.search(README_TEXT), (
+            f"docs/TASKS.md 里有 {len(pending)} 个未勾选任务，"
+            "但 README 声称「无未完成任务」——前沿声明因此不成立"
+        )
 
 
 # --- 2. README 的结构性声明必须与代码事实一致 --------------------------------------

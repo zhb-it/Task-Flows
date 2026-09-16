@@ -1,8 +1,9 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-087 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）。
 
+**TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 ## Current Phase
 Phase 17：找人体验与占位清理（TASK-085~087）
 
@@ -106,8 +107,9 @@ TASK-087 项目详情页「任务列表/任务看板」Tab 从阶段 8 时期的
 
 ## Next
 
-无——TASK-001 ~ TASK-080 全部交付（后端 TASK-001~064、前端 TASK-065~080），`docs/TASKS.md` 中已无未勾选任务。**前端规格 §59 全部阶段（1~16）收官**。后续如出现新组件/API 需求按 TASK-080 的按需引入口径增量维护（新命令式 API 在 main.ts 补样式）；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。
-无——TASK-001 ~ TASK-078 全部交付（后端 TASK-001~064、前端 TASK-065~078），`docs/TASKS.md` 中已无未勾选任务。前端规格 §59 仅剩阶段 15（Docker / Nginx：前端多阶段构建镜像、dist 交 nginx 托管，接入既有生产栈）与 阶段 16（优化：按需引入压缩主 chunk 等工程向收尾），将在后续轮次登记 TASK-079 起；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。无——TASK-001 ~ TASK-077 全部交付（后端 TASK-001~064、前端 TASK-065~077），`docs/TASKS.md` 中已无未勾选任务。前端业务页面规格 §59 阶段 5~13（Dashboard/团队/项目/任务/评论/附件/通知/权限/日志）至此全部完成，剩余阶段（14+：测试报告、Nginx 部署、性能优化等）属工程与部署向，按 §59 顺序在后续轮次登记 TASK-078 起；已知的降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16）均待后端补端点后自然消解。无——TASK-001 ~ TASK-076 全部交付（后端 TASK-001~064、前端 TASK-065~076），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 13~16：日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-077 起；其中阶段 13 操作日志页接 `GET /logs` 即可、无已知阻塞项。
+TASK-088 健康检查补齐与存活/就绪分离（Phase 18 首个任务）
+
+TASK-001~087 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-088（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。**（TASK-060 更新：上面「app 绑回环端口」已被取代——反代接入后 app 不再发布任何宿主端口，对外只有 nginx；同一套冒烟验证与零残留结论见 TASK-060 条目。）**

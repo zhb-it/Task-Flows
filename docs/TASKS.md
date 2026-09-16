@@ -286,6 +286,359 @@
   - 验收标准：四门全绿；项目详情 → 任务列表/看板 Tab 直接展示该项目的任务与看板。
   - 测试要求：既有 72 项单测不回退（props 可选、缺省行为不变）；生产冒烟确认产物不再含「阶段 8（任务模块，待实现）」文案。
 
+## Phase 18：生产可靠性地基（TASK-088~092）
+
+> 依据：`docs/ENTERPRISE_READINESS.md`（缺口 A1/A2/A3/B8/B9/C1/C7/C8）。
+> 这一 Phase 与租户形态无关，先做能立刻降低上线风险，也为 Phase 19 的结构性改造
+> 提供可观测性（改造期间最需要的就是指标与健康检查）。
+
+- [ ] TASK-088 健康检查补齐与存活/就绪分离
+  - 目标：关闭规格 §32 欠债——补齐 `/health/db`、`/health/redis`，并新增 `/health/live` 与 `/health/ready`，把「进程活着」与「依赖可用」两种语义分开。
+  - 依赖：无。
+  - 涉及文件：`app/main.py`、`app/core/config.py`（如需探针超时配置）、`tests/test_health.py`（新建）、`docker-compose.yml`、`docker-compose.prod.yml`、`docs/DEPLOYMENT.md`。
+  - 实现要求：① `/health/live` 恒 200（仅进程）；② `/health/ready` 在依赖不可用时返回 503，body 给出各项明细；③ `/health/db`、`/health/redis` 单依赖明细；④ **既有 `/health` 行为不变**（向后兼容：已有测试与 compose healthcheck 依赖它）；⑤ compose 的 app healthcheck 切到 `/health/ready`，nginx 保持探自有端点；⑥ 订正 `docs/DEPLOYMENT.md` 第 96–100 行的漂移（文档列了三个端点，代码只有 `GET /health` 一个）。
+  - 验收标准：四个端点语义各自成立；停掉 PostgreSQL 后 `/health/ready` 返回 503，而 `/health/live`、`/health` 仍 200 且 `/health` 的 body 标 `database: down`；`/health` 既有响应结构未变。
+  - 测试要求：`tests/test_health.py` 覆盖四项正常路径 + DB 不可用 / Redis 不可用 / 两者都不可用三种降级路径（用可注入探针打桩，不真停容器）；含「探针端点免认证」断言。
+
+- [ ] TASK-089 Celery Beat 周期调度与归档终态保留
+  - 目标：关闭 **C1**——`archive_operation_logs` 与 `cleanup_expired_attachments` 目前在生产**永远不会执行**（`app/` 内 `beat|crontab|beat_schedule` 0 命中、两个 compose 均无 `celery_beat`、唯一调用点在 `tests/`）。
+  - 依赖：无（任务本身的重试/幂等/超时已完成并有 13+2 项测试）。
+  - 涉及文件：`app/tasks/celery_app.py`、`app/core/config.py`、`docker-compose.yml`、`docker-compose.prod.yml`、`tests/test_beat_schedule.py`（新建）、`tests/test_maintenance_tasks.py`（补终态清理用例）、`docs/DEPLOYMENT.md`。
+  - 实现要求：① `beat_schedule` 登记两项维护任务，间隔经 `.env` 可配，默认错峰（归档走每日低位时段、清理每小时）；② 两个 compose 增 `celery_beat` 服务（同镜像、独立命令、`restart: always`、日志轮转），配置注释写明**beat 必须单实例**（多副本会重复投递，幂等只保证无副作用、不保证不浪费队列）；③ 归档任务补**归档表终态保留策略**（保留 N 天后删除，N 可配），一并处理合规上的「存储期限最小化」；④ 维护任务的 `last_success_timestamp` 交给 TASK-090 的指标暴露。
+  - 验收标准：真实 compose 栈上两个任务被 beat **自动**触发并落库/删文件；`celery -A app.tasks.celery_app inspect scheduled` 能看到下一次执行时间；归档表超出保留期的行被清理。
+  - 测试要求：`beat_schedule` 契约测试（两项都在、间隔合法、callable 可解析且与任务函数名一致）；沿用既有幂等用例；新增「归档表终态清理」用例。
+
+- [ ] TASK-090 指标端点与 5xx 统一信封
+  - 目标：关闭 **A3**（规格 §1 的交付清单写着「日志与指标」，指标 0 实现）与 **B9**（5xx 不走统一信封、不进结构化日志）。
+  - 依赖：TASK-088（复用健康探针）、TASK-089（维护任务时间戳）。
+  - 涉及文件：`app/main.py`、`app/core/metrics.py`（新建）、`app/core/middleware.py`、`app/core/exceptions.py`、`app/core/config.py`、`requirements.txt`、`deploy/prometheus/`（新建：抓取配置 + 告警规则草案）、`tests/test_metrics.py`（新建）。
+  - 实现要求：① `/metrics` 输出 Prometheus 文本格式（用 `prometheus_client`，**不自造格式**）；② 指标集：请求总数与延迟直方图（按 method + **路由模板** + status，必须用模板而非原始路径，否则 UUID 会把标签基数打爆）、进行中请求数、DB 连接池占用、Redis 操作延迟、Celery 队列深度与任务成功/失败计数、限流触发次数、维护任务 `last_success_timestamp`；③ `/metrics` 默认**不经 nginx 暴露**，仅在 `.env` 显式开启时可用，且不占限流配额；④ 全局 `Exception` handler → §26 统一信封（对外不含堆栈）+ 结构化 `exc_info` 日志并带 `request_id`。
+  - 验收标准：`/metrics` 含上述指标且内容类型正确；故意制造未捕获异常时返回 JSON 信封、日志有 `request_id` 关联的 error 记录、响应体不含堆栈；两条不同 id 的请求不产生两个标签值。
+  - 测试要求：指标端点契约（内容类型、关键指标名存在、路由标签不含原始 id）；500 信封用例（结构断言 + 不泄露堆栈）；标签基数用例。
+
+- [ ] TASK-091 生产配置自检
+  - 目标：关闭 **B8**——`debug=True`、`jwt_secret_key="change-me"`、连接串里的 `postgres:postgres` 让「不配任何环境变量也能跑起来」，这是企业部署事故的常见来源。
+  - 依赖：无。
+  - 涉及文件：`app/core/config.py`、`app/main.py`、`tests/test_config_production_guards.py`（新建）。
+  - 实现要求：`APP_ENV=production` 时启动自检并**拒绝启动**：`DEBUG=true`；`jwt_secret_key` 为默认值或长度不足；`DATABASE_URL` 含默认口令；开了 `TRUST_PROXY_HEADERS` 但 `TRUSTED_PROXY_IPS` 为空。报错必须点名**哪一个**配置项有问题，不是笼统的 "invalid config"。
+  - 验收标准：四种错配各自拒绝启动且报错点名；合法配置正常启动；`APP_ENV=development` 不受影响。
+  - 测试要求：四条错配各 1 项拒绝用例 + 1 条合法放行 + 1 条「开发环境不检查」。
+
+- [ ] TASK-092 文档语义护栏：端点声明 ↔ OpenAPI
+  - 目标：关闭 **C8**——护栏不含「文档里声明的端点必须真实存在」，所以 A1 那类漂移能长期存活。
+  - 依赖：TASK-088（否则护栏会立刻抓到 A1 的漂移——这正是它该有的行为）。
+  - 涉及文件：`scripts/check_docs.py`、`tests/test_docs_consistency.py`、`docs/DEPLOYMENT.md`。
+  - 实现要求：新增不变量——文档中形如 `` `GET /xxx` `` 的端点声明必须存在于 `app.openapi()`；README 声明的健康检查端点集合与代码一致。
+  - 验收标准：护栏 exit 0；把一个未实现的端点写进文档能立刻报错。
+  - 测试要求：用合成文档构造矛盾，断言检查器**真的会报**（延续 `docs/QUALITY.md` 第 8 节 D8 的「不空转」原则）。
+
+## Phase 19：多租户地基（TASK-093~100）
+
+> 用户已确认目标形态为**多租户 SaaS**。这是本项目**唯一一处结构性改造**，其余 Phase 都是加法。
+> 顺序放在可靠性之后、身份之前：Phase 18 与租户无关且能立刻降低风险；Phase 20 的认证与
+> 权限必须建立在租户模型之上，否则同样的改动要做两遍。
+
+- [ ] TASK-093 租户模型与生命周期
+  - 目标：引入 `tenants` 实体，确立「平台 → 租户 → 用户/团队/项目」的顶层边界。
+  - 依赖：无。
+  - 涉及文件：`app/models/tenant.py`（新建）、`migrations/versions/*_create_tenants.py`（新建）、`app/schemas/tenant.py`（新建）、`app/crud/tenant.py`（新建）、`app/services/tenant.py`（新建）、`app/api/v1/tenants.py`（新建）、`app/api/v1/__init__.py`、`tests/test_tenant_model.py`（新建）、`docs/DB_SCHEMA.md`。
+  - 实现要求：① `tenants` 表：id / name / slug / status（active / suspended / deleted）/ 配额列（成员数上限、存储上限，具体列在 `docs/DB_SCHEMA.md` 定稿）/ created_at / updated_at；② `slug` 全局 UNIQUE；③ 状态转换白名单（active ↔ suspended、→ deleted 单向），不允许绕过；④ 平台管理员身份与租户管理员**严格区分**；⑤ 本 TASK 只做模型 + 迁移 + CRUD/Service 骨架，不接业务表。
+  - 验收标准：迁移 upgrade/downgrade 往返无损；CHECK 约束拒绝非法状态；slug 冲突 409；平台管理员可创建/停用租户。
+  - 测试要求：离线模型断言（列集、约束、索引）+ DB 集成（UNIQUE 冲突、CHECK 拒绝、状态机白名单、级联行为）。
+
+- [ ] TASK-094 业务表租户化与存量回填
+  - 目标：把 `tenant_id` 落到全部需要归属的业务表，并给出存量数据的一次性归属方案。
+  - 依赖：TASK-093。
+  - 涉及文件：`app/models/*.py`（业务模型）、`migrations/versions/*_add_tenant_id.py`（新建）、`migrations/versions/*_backfill_default_tenant.py`（新建）、`tests/test_tenant_columns.py`（新建）、`docs/DB_SCHEMA.md`。
+  - 实现要求：① 需要归属的**每一张**业务表加 `tenant_id` FK→`tenants`，NOT NULL 通过「先加可空列 → 回填 → 置 NOT NULL」三步迁移达成；② **原先的全局 UNIQUE 必须租户化**（`users.username`、`users.email` 等改为 `(tenant_id, ...)` 复合 UNIQUE），否则租户 A 的用户名会挡住租户 B 的同名用户——具体清单在 `docs/DB_SCHEMA.md` 与迁移里定稿；③ 回填迁移创建一个默认租户并把全部存量行挂上去，`downgrade` 显式 no-op 并注明理由；④ 索引一律以 `tenant_id` 为前导列；⑤ 附件存储路径改为按租户分目录。
+  - 验收标准：真实库中每张业务表都有 NOT NULL 的 `tenant_id` 且带 FK；复合 UNIQUE 生效（两个租户可存在同名 username、同租户内冲突）；回填后零孤儿行；迁移往返无损。
+  - 测试要求：列集与约束断言；「同名跨租户可共存、同租户内冲突」的正反用例；回填脚本的幂等性与零孤儿断言。
+
+- [ ] TASK-095 租户上下文与数据访问作用域
+  - 目标：让「忘记带 `tenant_id` 条件」在结构上不可能——这是多租户最核心的隔离保证。
+  - 依赖：TASK-094。
+  - 涉及文件：`app/core/tenant_context.py`（新建）、`app/core/deps.py`、`app/crud/*.py`、`migrations/versions/*_row_level_security.py`（新建）、`tests/test_tenant_isolation.py`（新建）。
+  - 实现要求：① 请求级 `ContextVar` 保存当前租户（由认证依赖注入），请求结束时在 `finally` 内还原；② CRUD 的列表/详情/写路径统一走「租户作用域」辅助（查询自动带 `tenant_id`、INSERT 自动注入），不依赖各 router 自觉；③ **PostgreSQL RLS 作为兜底**（`current_setting('app.tenant_id')` + 策略），应用层出 bug 时仍不越界——纵深防御，不是为了炫技（项目规则 §6）；④ 给出「绕过作用域」的**唯一**显式出口（平台管理员跨租户查询），集中在一处便于审查。
+  - 验收标准：A 租户令牌请求 B 租户资源一律 404（与既有「不存在/无权不可区分」契约一致）；故意构造漏加条件的查询仍被 RLS 拦住；平台管理员跨租户查询走显式出口且被审计。
+  - 测试要求：跨租户越权矩阵（读写删 × A→B）；RLS 兜底用例（直连库设 `app.tenant_id` 验证策略）；ContextVar 并发不串号。
+
+- [ ] TASK-096 RBAC 租户化
+  - 目标：把当前**全局**的 admin/member 角色体系改成租户隔离——否则一个租户的 admin 能管另一个租户。
+  - 依赖：TASK-095。
+  - 涉及文件：`app/models/role.py`、`app/models/user_role.py`、`app/models/role_permission.py`、`migrations/versions/*_tenantize_rbac.py`（新建）、`app/crud/role.py`、`app/crud/permission.py`、`app/services/rbac.py`、`app/api/v1/permissions.py`、`app/api/v1/users.py`、`tests/test_rbac_tenant.py`（新建）。
+  - 实现要求：① 角色与授权关系带 `tenant_id`；② 种子（admin/member + 22 项权限）按租户复制，新租户创建时自动播种；③ `GET /users/me/permissions` 返回**当前租户内**的有效权限集合；④ 权限矩阵端点只看本租户；⑤ 平台管理员不自动获得租户内权限（避免横向放大）。
+  - 验收标准：租户 A 的 admin 对租户 B 的资源无任何额外能力；新租户创建后立即有完整种子；切换租户时 `me/permissions` 结果随之变化。
+  - 测试要求：跨租户角色越权矩阵；种子播种幂等；`me/permissions` 与 `require_permission` 同一数据源断言（延续 TASK-083 的口径）。
+
+- [ ] TASK-097 认证与租户绑定
+  - 目标：令牌必须携带租户身份，且登录/切换租户语义明确。
+  - 依赖：TASK-096。
+  - 涉及文件：`app/core/security.py`、`app/core/deps.py`、`app/services/auth.py`、`app/api/v1/auth.py`、`app/schemas/auth.py`、`app/crud/refresh_token.py`、`tests/test_auth_tenant.py`（新建）。
+  - 实现要求：① Access/Refresh Token 增加租户声明并在校验时强制与资源租户一致；② 用户属于多个租户时的登录语义（登录选择租户 / 切换租户换取新令牌）；③ Refresh Token 记录绑定租户，轮换不跨租户；④ **不允许一个令牌横跨两个租户**——切换租户必须换取新令牌并使旧令牌作用域明确；⑤ 前端配合见 TASK-100。
+  - 验收标准：跨租户使用令牌被拒（401/404 不可区分）；切换租户后新令牌只对本租户生效；同一用户在两租户的权限互不影响。
+  - 测试要求：令牌缺租户声明 / 声明与资源不符的拒绝用例；切换租户链路端到端；refresh 轮换不跨租户。
+
+- [ ] TASK-098 租户成员与邀请
+  - 目标：把「用户 → 租户」的加入链路做实（邀请、加入、移除、状态）。
+  - 依赖：TASK-097。
+  - 涉及文件：`app/models/tenant_member.py`（新建）、`app/schemas/tenant.py`、`app/services/tenant.py`、`app/api/v1/tenants.py`、`tests/test_tenant_members.py`（新建）。
+  - 实现要求：① 用户与租户的成员关系（角色、状态 invited/active/suspended）；② 邀请用一次性令牌（投递走 TASK-110 的邮件；本轮先支持平台管理员代加入 + 结构化日志留痕）；③ 同一用户可属于多个租户，用户名唯一性按 TASK-094 的复合 UNIQUE 口径；④ 移除成员时其在本租户内的资源处置策略明确（转移/保留），写进 `docs/DB_SCHEMA.md`。
+  - 验收标准：邀请 → 加入 → 移除全链路可跑；被移除后立即失去该租户全部访问权；重复邀请幂等。
+  - 测试要求：成员状态机、越权移除（非本租户管理员 403/404）、移除后权限立即失效。
+
+- [ ] TASK-099 租户级配置与配额执行
+  - 目标：让配额**真的被执行**，而不是数据库里躺着几个数字。
+  - 依赖：TASK-098。
+  - 涉及文件：`app/services/quota.py`（新建）、`app/core/middleware.py`、`app/services/team.py`、`app/services/task.py`、`app/services/storage.py`、`app/core/exceptions.py`、`tests/test_tenant_quota.py`（新建）。
+  - 实现要求：① 成员数 / 存储量 / 限流档位三类配额的可配置执行；② 超限返回专用错误与文案，且在创建路径上**前置**校验；③ 存储量统计口径明确（含附件实际占用与孤儿文件）；④ 限流档位按租户分级，与 TASK-102 的登录专项限流衔接。
+  - 验收标准：成员数达上限后邀请被拒；存储超限后上传被拒；不同租户可配不同限流档位且互不影响。
+  - 测试要求：边界值（刚好达上限、超一个）、并发创建不越过配额、配额变更立即生效。
+
+- [ ] TASK-100 跨租户隔离回归与前端租户切换
+  - 目标：把隔离性质固化成回归矩阵，并让前端在租户语境下可用。
+  - 依赖：TASK-093~099。
+  - 涉及文件：`tests/test_tenant_isolation_matrix.py`（新建）、`frontend/src/stores/auth.ts`、`frontend/src/api/auth.ts`、`frontend/src/api/tenant.ts`（新建）、`frontend/src/views/tenant/TenantSettings.vue`（新建）、`frontend/src/components/layout/AppHeader.vue`、`frontend/src/router/routes.ts`、`frontend/tests/unit/*.spec.ts`。
+  - 实现要求：① 后端回归矩阵覆盖「**全部**资源型端点 × 跨租户访问」，不只取样；② 前端增加租户切换器（多租户用户）与租户设置页（本租户信息、成员、配额用量）；③ 切换租户即换令牌，前端不得缓存跨租户数据（store 必须重置）；④ 关闭前端既有的与租户相关的降级项。
+  - 验收标准：后端隔离矩阵全绿；前端四门全绿；切换租户后列表/详情全部刷新，无上一个租户的残留数据。
+  - 测试要求：隔离矩阵覆盖全部资源型端点；前端 store 切换重置的单测。
+
+## Phase 20：身份与安全硬化（TASK-101~106）
+
+> 用户已确认档位为「本地账号加固 + MFA + 企业目录（OIDC/LDAP）」。这一 Phase 决定
+> 「账号体系」能否过采购与安全评审。
+
+- [ ] TASK-101 密码策略与改密/重置
+  - 目标：关闭 **B1**——`app/schemas/user.py` 里 `password: str` 是裸字段（无长度、无复杂度、无弱口令校验），且全仓库无密码找回路径。
+  - 依赖：无（改密与强度校验不依赖邮件；重置的投递接 TASK-110）。
+  - 涉及文件：`app/schemas/user.py`、`app/services/auth.py`、`app/api/v1/auth.py`、`app/core/config.py`、`app/crud/refresh_token.py`、`tests/test_password_policy.py`（新建）、`docs/SECURITY.md`。
+  - 实现要求：① 强度校验：最小长度（默认 12，可配）+ 至少 3 类字符 + 常见弱口令表 + 不得包含用户名/邮箱（大小写不敏感）；② `POST /auth/change-password`（需旧密码，改后**吊销该用户全部 refresh token**）；③ 重置流程骨架（一次性令牌的生成/校验/消费，投递通道在 TASK-110 接邮件，本轮先支持管理员触发 + 结构化日志留痕）；④ 校验在 **Schema 层与 Service 层都做**（Schema 拦早、Service 兜底，堵住绕过 Schema 的调用路径）。
+  - 验收标准：弱口令 422 且文案说明原因；改密后旧 refresh token 全部失效；重置令牌一次性。
+  - 测试要求：强度矩阵逐条（长度/字符类/弱口令/含用户名）；改密后令牌失效端到端；重置令牌重复使用被拒；并发改密不产生半截状态。
+
+- [ ] TASK-102 登录防护：失败计数、锁定与专项限流
+  - 目标：关闭 **B2**——暴力破解目前只靠全站统一 `60/60s` 兜底，登录端点没有更严格的独立配额。
+  - 依赖：无（限流档位与 TASK-099 衔接）。
+  - 涉及文件：`app/services/auth.py`、`app/core/middleware.py`、`app/core/redis_keys.py`、`tests/test_login_protection.py`（新建）。
+  - 实现要求：① 失败计数按 `username` 与按 `IP` 双维度落 Redis（带 TTL）；② 超阈值（默认 5 次 / 15 分钟，可配）→ 锁定（默认 15 分钟，可配），返回 429 且文案**不泄露账号是否存在**；③ 登录端点独立限流档位；④ 成功登录清零计数；⑤ 安全事件结构化日志（供 TASK-120 的告警消费）；⑥ 锁定必须可观测、可解除（管理员解锁入口或自动到期）。
+  - 验收标准：达阈值后即使密码正确也被拒；到期自动恢复；不同 IP 打同一账号同样触发账号维度锁定；成功路径无额外延迟开销。
+  - 测试要求：阈值边界、锁定期间正确密码被拒、解锁后恢复、计数成功清零、「不泄露账号存在性」文案断言。
+
+- [ ] TASK-103 JWT 硬化与会话管理
+  - 目标：关闭 **A4 / B4 / B5**——`jwt_blacklist_key()` 只定义了 Key 没接校验链路；令牌无 `iss`/`aud`/`kid`；无 refresh 重用检测；无会话列表、「强制下线」无处可做。
+  - 依赖：TASK-101（改密要能失效令牌）、TASK-097（令牌租户声明）。
+  - 涉及文件：`app/core/security.py`、`app/core/config.py`、`app/core/deps.py`、`app/services/auth.py`、`app/api/v1/auth.py`、`app/schemas/auth.py`、`app/crud/refresh_token.py`、`tests/test_jwt_hardening.py`（新建）、`tests/test_session_management.py`（新建）、`docs/DECISIONS.md`。
+  - 实现要求：① 加 `iss`/`aud` 并在校验时强制；② 多密钥 `kid` + 验证窗口（新密钥签发、旧密钥在 TTL 内仍可验签），给出轮换 runbook；③ **接上 Access Token 黑名单**（`app/core/redis_keys.py::jwt_blacklist_key` 的落地，TTL ≥ 剩余寿命）：登出 / 禁用 / 改密 / 会话下线时写入；④ **Refresh 重用检测**：已撤销 jti 被再次使用 → 吊销该用户**全部** refresh token + 安全事件日志；⑤ 会话端点 `GET /auth/sessions`、`DELETE /auth/sessions/{id}`、`POST /auth/logout-all`。
+  - 验收标准：登出后旧 Access Token **立即** 401（不再等 TTL 到期）；禁用账号后令牌立即失效；复用一个已轮换的 refresh token → 全族吊销且有日志；会话列表可列出并下线指定会话。
+  - 测试要求：黑名单命中/未命中/TTL 过期；`iss`/`aud` 缺失或错误被拒；`kid` 轮换窗口（新密钥签、旧密钥验仍通过）；重用检测的全族吊销断言；会话列表越权断言（A 看不到 B 的会话）。
+  - 风险与代价（必须写进 DECISIONS）：黑名单意味着**每个认证请求多一次 Redis 往返**。当前限流已在热路径访问 Redis，边际成本可控；但要明确与真实需求的绑定（项目规则 §7），并**显式**给出 Redis 不可用时的行为（建议 fail-open + warning，与限流同一取舍）——这条取舍不能默认。
+
+- [ ] TASK-104 传输与浏览器安全硬化
+  - 目标：关闭 **B6**——`Content-Security-Policy` 0 命中、TLS 未落地、安全头不完整。
+  - 依赖：无。
+  - 涉及文件：`nginx/nginx.conf`、`frontend/nginx.conf`、`docker-compose.prod.yml`、`docs/DEPLOYMENT.md`、`tests/test_nginx_config.py`。
+  - 实现要求：① CSP 先 `Report-Only` 观察再切强制，并在文档里给出「从报告到强制」的判定标准；② 补 `Permissions-Policy` / `COOP` / `COEP`；③ TLS **二选一落地并写清**：(a) 本层 `listen 443 ssl` + 证书挂载 + HSTS，或 (b) 交付上游 LB 的等价配置要求与验收清单——两层不能都以为对方在管。
+  - 验收标准：真实栈冒烟——CSP 报告模式下的违规项已逐条解释；安全头在 2xx/4xx/5xx 上都存在（`always` 语义）；TLS 路径按所选方案可验证（`openssl s_client` 或上游配置清单）。
+  - 测试要求：安全头契约（两层各 4–5 条）；CSP 指令集断言；若选 (b)，断言「不发 HSTS」这一**有意**行为不被后人误加。
+
+- [ ] TASK-105 MFA（TOTP）与恢复码
+  - 目标：关闭 **B3** 的一半——提供第二因子。
+  - 依赖：TASK-102（MFA 校验失败应计入失败计数）。
+  - 涉及文件：`app/models/user.py`（+ 迁移）、`app/services/mfa.py`（新建）、`app/api/v1/auth.py`、`app/schemas/auth.py`、`tests/test_mfa.py`（新建）、`frontend/src/views/profile/Profile.vue`。
+  - 实现要求：① TOTP 密钥**加密存储**且不入日志；② 绑定流程（二维码 + 校验）、校验（时间窗口容错）、**恢复码**（一次性、加密存储、用后作废）；③ 关闭 MFA 需二次验证；④ 管理员可强制重置某用户的 MFA；⑤ 开关化（`MFA_ENABLED`，默认关，避免把小规模部署搞复杂）。
+  - 验收标准：开启后登录需要第二因子；恢复码可用且一次性；错误码被拒且计入 TASK-102 的失败计数。
+  - 测试要求：时间窗口容错边界、错误码拒绝、恢复码一次性、密钥不出现在日志与 API 响应。
+
+- [ ] TASK-106 企业目录 SSO（OIDC / LDAP）
+  - 目标：关闭 **B3** 的另一半——满足「必须接企业目录才可上线」的场景。
+  - 依赖：TASK-097（租户绑定）、TASK-105（登录链路）。
+  - 涉及文件：`app/services/oidc.py`（新建）、`app/services/ldap.py`（新建，若确需）、`app/api/v1/auth.py`、`app/core/config.py`、`app/schemas/auth.py`、`tests/test_oidc.py`（新建）、`docs/DEPLOYMENT.md`。
+  - 实现要求：① OIDC 授权码流程 + PKCE；② 用户映射按 `sub` 优先、`email` 兜底，关联到既有账号并落到该租户的默认角色（与 TASK-081 的 `member` 口径一致）；③ **租户级 IdP 配置**（每个租户接自己的 IdP）；④ 开关化（默认关，不影响本地账号路径）；⑤ LDAP 视实际需求决定是否实现，若要实现必须明确同步策略与冲突处理。
+  - 验收标准：本地假 IdP 上走通登录；首次登录自动建号并落默认角色；IdP 不可用时本地账号路径不受影响。
+  - 测试要求：用本地假 IdP（不依赖外网 CI）覆盖授权码流程、`state` 参数校验（CSRF）、`sub` 与 `email` 映射、未知租户拒绝。
+
+## Phase 21：合规与数据治理（TASK-107~108）
+
+> 合规档位按「个人信息保护法 + GDPR 口径」执行；等级保护与行业认证**不作为代码承诺**。
+
+- [ ] TASK-107 数据主体权利与保留策略
+  - 目标：关闭 **D11**——无导出、无注销、无保留期声明；叠加 C1 后曾等于「数据永久保留」。
+  - 依赖：TASK-089（归档终态清理）。
+  - 涉及文件：`app/services/data_subject.py`（新建）、`app/api/v1/users.py`、`app/tasks/maintenance_tasks.py`、`docs/DEPLOYMENT.md`、`tests/test_data_subject.py`（新建）。
+  - 实现要求：① 「导出我的数据」（JSON，含任务/评论/附件元数据）；② 注销账号（软删 + 数据处置策略，与租户成员关系一并处理）；③ 每类数据的保留期**有明文声明且由代码执行**（与 TASK-089 的归档终态清理对齐）；④ 隐私声明文本。
+  - 验收标准：导出内容完整且**只含本人**数据（越权断言）；注销后不可登录、按策略处置、审计留痕；保留期到期后数据真的被删除。
+  - 测试要求：跨租户/跨用户导出越权断言；注销后登录被拒；保留期清理用例。
+
+- [ ] TASK-108 审计日志强化
+  - 目标：关闭 **D5**——当前时间线缺「从哪里」（无 IP、无 UA），列表无筛选、无 `total`。
+  - 依赖：TASK-105（框架）、TASK-090（统一信封与日志口径）。
+  - 涉及文件：`app/models/operation_log.py`（+ 迁移）、`app/services/operation_log.py`、`app/api/v1/logs.py`、`app/crud/operation_log.py`、`tests/test_operation_log_api.py`、`docs/DB_SCHEMA.md`、`docs/SECURITY.md`。
+  - 实现要求：① `operation_logs` 增 `ip` / `user_agent`（**IP 属个人信息，保留期与用途必须在文档里写清**）；② `GET /logs` 增筛选参数（类型/时间范围/操作人）与 `total`；③ 归档表查询入口；④ **追加写**权限收敛建议（部署时应用账号不持有 `UPDATE/DELETE`），写进 `docs/DEPLOYMENT.md`。
+  - 验收标准：筛选与 `total` 生效；IP/UA 落库且脱敏口径与日志过滤器一致；跨租户查询被拒。
+  - 测试要求：筛选组合、`total` 正确性、越权断言、IP 采集在反代下的正确性（复用 `TRUSTED_PROXY_IPS` 语义）。
+
+## Phase 22：产品补齐（TASK-109~118）
+
+> 排序依据：体感影响 × 依赖关系。邮件是基础设施，后面几项依赖它。
+> 这一 Phase 决定的是**留存**，可以边用边补——但它也是「不如微信群」这个判断的来源。
+
+- [ ] TASK-109 邮件能力
+  - 目标：关闭 **D1**——全仓库 `smtp|send_email|EmailStr` 0 命中，站内通知的到达率等于「用户主动打开」。
+  - 待决策：邮件通道（企业自有 SMTP / 云 SES / 两者都要）。本 TASK 按「抽象 + 可插后端，默认企业自有 SMTP」推进；若不符请先改本节。
+  - 涉及文件：`app/services/email.py`（新建）、`app/core/config.py`、`app/tasks/notification_tasks.py`、`requirements.txt`、`tests/test_email.py`（新建）。
+  - 实现要求：① SMTP 抽象 + 可插后端；② 模板（邀请 / 重置密码 / 通知摘要）；③ 全部经 Celery 队列发送，**不阻塞请求路径**；④ 退信与失败处理（重试 + 终态记录）；⑤ 邮件内容不泄露敏感信息，口径与 `docs/SECURITY.md` 的脱敏要求一致。
+  - 验收标准：本地假 SMTP 上能发出三类邮件；SMTP 不可用时任务重试且不阻塞接口；模板渲染含租户与用户上下文。
+  - 测试要求：用本地假 SMTP（不依赖外网）覆盖发送、重试、退信分支；模板渲染断言；不泄露敏感字段断言。
+
+- [ ] TASK-110 邀请邮件与密码重置投递
+  - 目标：把 TASK-098 / TASK-101 里「骨架已就绪、投递通道待接」的部分接上。
+  - 依赖：TASK-098（邀请）、TASK-101（重置令牌）、TASK-109（邮件）。
+  - 涉及文件：`app/services/tenant.py`、`app/services/user.py`、`app/tasks/notification_tasks.py`、`tests/test_invite_email.py`（新建）。
+  - 实现要求：① 邀请发送一次性链接，过期与重复使用规则明确；② 重置密码发送一次性链接；③ 链接中的令牌**不得进入任何日志**；④ 被邀请人尚未注册时的处理路径明确。
+  - 验收标准：邀请 → 收信 → 完成加入全链路可跑；链接过期后失效；令牌不出现在日志与审计记录中。
+  - 测试要求：端到端链路、过期与其他用户盗用的拒绝用例、日志不含令牌断言。
+
+- [ ] TASK-111 通知 link / resource_id 与前端跳转
+  - 目标：关闭 **D2**——用户看到「任务已分配给你」但点不动，是降级项里最影响体感的一个。
+  - 依赖：无。
+  - 涉及文件：`app/models/notification.py`（+ 迁移）、`app/schemas/notification.py`、`app/services/task.py`、`frontend/src/types/notification.ts`、`frontend/src/views/notification/NotificationList.vue`、`frontend/src/components/layout/NotificationBell.vue`、`tests/test_notification_api.py`。
+  - 实现要求：① 输出侧新增 `resource_type` / `resource_id`（**不破坏既有契约**，前端不必解析正文猜 id）；② 派发点补齐这三项；③ 前端接线跳转并关闭页面上的降级提示（DECISIONS 054 的降级口径随之解除）；④ 目标资源已删除时给出可读兜底。
+  - 验收标准：点击通知跳到正确资源；资源不存在时给出可读提示而不是空白页；既有通知契约不回归。
+  - 测试要求：字段落库与返回断言、派发点覆盖断言、前端跳转与兜底单测。
+
+- [ ] TASK-112 评论通知与 @提及
+  - 目标：关闭 **D3 + D10**——协作回路只补了「分配 + 流转」，评论与提及是核心缺口。
+  - 依赖：TASK-111。
+  - 涉及文件：`app/services/comment.py`、`app/services/notification.py`、`app/schemas/comment.py`、`frontend/src/views/task/TaskDetail.vue`、`tests/test_comment_notification.py`（新建）。
+  - 实现要求：① 评论 → 任务负责人与创建者收到通知；② `@用户名` → 被提及者收到通知（解析规则明确、**不误伤邮箱里的 `@`**）；③ 提及对象必须是本租户可见成员；④ 同一评论不重复轰炸（去重）。
+  - 验收标准：评论后相关人收到通知且可跳转；跨租户提及被拒；去重生效。
+  - 测试要求：提及解析边界（邮箱、中文名、不存在的用户名）、跨租户提及拒绝、去重。
+
+- [ ] TASK-113 列表 total 与分页口径
+  - 目标：关闭 **D4**——8 个列表端点无 `total`，前端只能「上一页/下一页」，且偏移量分页在并发写入下可能跨页重复或漏项。
+  - 待决策：显式 `COUNT(*)` 还是迁移 cursor 分页。**按「显式 count + `total`」推进**（当前表规模下可接受），cursor 分页留作容量数据驱动后的优化项。这与 `docs/QUALITY.md` 第 8 节 D1 的记录一致，属于**重新决策**而非顺手改。
+  - 依赖：无。
+  - 涉及文件：`app/schemas/common.py`（新建或扩展）、8 个 `app/api/v1/*.py`、`app/crud/*.py`、`frontend/src/api/*.ts`、`frontend/src/views/**`、`tests/test_pagination_total.py`（新建）。
+  - 实现要求：① 统一分页响应形状（`items` + `total` + `skip`/`limit`），**一次决策全站统一**；② 查询与 `COUNT(*)` 在同一事务内，避免计数与数据不一致；③ 前端改为展示总数与页码；④ 记录 `COUNT(*)` 的代价与迁移 cursor 的触发条件（写进 DECISIONS）。
+  - 验收标准：所有列表端点返回 `total` 且与实际行数一致；前端显示「共 N 条」；越权场景不泄露他人总数。
+  - 测试要求：`total` 正确性（含筛选条件叠加）、空结果、跨租户不泄露计数、响应形状契约。
+
+- [ ] TASK-114 跨项目「我的任务」与工作台聚合
+  - 目标：关闭 **D7**——当前 `GET /tasks` 的 `project_id` 必填，用户要看「我的任务」得先想清楚任务在哪个项目里，违背语义。
+  - 依赖：TASK-113（分页口径）、TASK-115（聚合）。
+  - 涉及文件：`app/api/v1/tasks.py`、`app/services/task.py`、`app/crud/task.py`、`frontend/src/views/dashboard/Dashboard.vue`、`frontend/src/views/task/TaskList.vue`、`tests/test_my_tasks.py`（新建）。
+  - 实现要求：① 新增跨项目任务查询（`assignee_id = 当前用户`，租户内）；② 复用 TASK-113 的分页口径；③ 前端「我的任务」独立视图 + 工作台聚合；④ 关闭前端既有的降级提示。
+  - 验收标准：跨项目拉取只含我参与的项目下的任务且只含本租户；分页与筛选生效；前端独立视图可用。
+  - 测试要求：跨租户与跨项目可见性、分页、排序；既有 `project_id` 必填路径不回归。
+
+- [ ] TASK-115 项目/团队统计端点
+  - 目标：关闭 **D6**——`ProjectRead` 无状态/成员数/任务数/进度，团队负责人看不到「这个项目还剩多少活」。
+  - 依赖：无。
+  - 涉及文件：`app/api/v1/projects.py`、`app/api/v1/teams.py`、`app/services/project.py`、`app/services/team.py`、`app/schemas/project.py`、`app/schemas/team.py`、`tests/test_project_stats.py`（新建）、`frontend/src/views/project/*.vue`、`frontend/src/views/team/*.vue`。
+  - 实现要求：① 任务数按状态聚合、进度口径**明确定义**（写明分母是哪几个状态）；② 单查询聚合，避免 N+1；③ 前端卡片展示真实数字并移除既有降级提示。
+  - 验收标准：统计数字与真实数据一致（含零任务项目）；无 N+1（沿用既有运行时护栏）；跨租户不泄露。
+  - 测试要求：聚合正确性、零任务与全完成边界、N+1 断言、越权断言。
+
+- [ ] TASK-116 SSE 实时通知
+  - 目标：关闭 **D8**——通知靠轮询，无推送。
+  - 依赖：TASK-099（连接配额）。
+  - 涉及文件：`app/api/v1/notifications.py`、`app/core/redis_keys.py`、`app/services/notification.py`、`frontend/src/stores/notification.ts`、`nginx/nginx.conf`、`tests/test_sse.py`（新建）。
+  - 实现要求：① SSE（单向、跨代理简单，优先于 WebSocket）；② Redis Pub/Sub 作为多副本下的广播通道；③ 反代需关闭缓冲并放宽读超时（`proxy_buffering off`），写进契约测试；④ 断线重连与心跳；⑤ 连接数上限（与 TASK-099 衔接）。
+  - 验收标准：真实栈上通知在 1s 内到达前端；反代配置正确（不缓冲）；断线后自动重连。
+  - 测试要求：SSE 事件流契约、越权（只能订自己的通知）、反代配置契约、心跳与超时。
+
+- [ ] TASK-117 批量操作与 CSV 导入导出
+  - 目标：关闭 **D9**——无批量指派/流转/删除，无成员导入，无数据导出。
+  - 依赖：TASK-099（导出配额）。
+  - 涉及文件：`app/api/v1/tasks.py`、`app/services/task.py`、`app/api/v1/teams.py`、`tests/test_bulk_operations.py`（新建）。
+  - 实现要求：① 批量指派/流转/删除，**逐条校验权限与状态机**（不走捷径）；② 部分失败时的返回语义明确（成功几条、失败几条、原因）；③ CSV 导入成员的校验与错误行报告；④ 导出受配额约束。
+  - 验收标准：批量操作逐条校验生效（含故意混入无权的一条）；部分失败返回可读报告；导入非法行被拒且指出行号。
+  - 测试要求：批量越权（混入无权条目必须失败且不产生半截写入）、部分失败语义、导入边界。
+
+- [ ] TASK-118 到期提醒与汇总邮件
+  - 目标：关闭 **D3** 的最后一环——任务到期提醒。
+  - 依赖：TASK-089（beat）、TASK-109（邮件）。
+  - 涉及文件：`app/tasks/notification_tasks.py`、`app/tasks/celery_app.py`、`app/core/config.py`、`tests/test_due_reminders.py`（新建）。
+  - 实现要求：① `due_at` 临近/逾期提醒（阈值可配）；② 幂等（同一任务同一阈值只发一次）；③ 汇总邮件按人合并（避免一任务一封）；④ 按租户时区与开关。
+  - 验收标准：真实栈上到期任务产生提醒且不重复；关闭开关后不发；汇总邮件按人合并。
+  - 测试要求：幂等性、阈值边界、时区处理、开关生效。
+
+## Phase 23：工程化与交付（TASK-119~127）
+
+> 用户已确认交付底座为 **Docker Compose 与 Kubernetes 都要**。K8s 清单必须复用
+> TASK-088 的存活/就绪探针语义与 TASK-089 的「beat 单副本」约束。
+
+- [ ] TASK-119 备份与恢复
+  - 目标：关闭 **C2**——数据丢失不可逆，当前连 `pg_dump` 都没有（非测试代码 0 命中）。
+  - 依赖：TASK-123（附件与对象存储备份）。
+  - 涉及文件：`scripts/backup.sh`、`scripts/restore.sh`（新建）、`docker-compose.prod.yml`、`deploy/`（新建）、`docs/DEPLOYMENT.md`、`tests/test_backup_scripts.py`（新建）。
+  - 实现要求：① 数据库定时备份 + 附件（与对象存储）备份；② 恢复脚本 + **恢复演练**（写了没跑过不算）；③ **多租户下的恢复粒度**必须明确回答（整库恢复 vs 按租户恢复），并写明能力边界；④ RPO/RTO 写进文档且与调度实际一致。
+  - 验收标准：备份产物能在干净栈上完整恢复并跑通冒烟；演练结果写进文档；RPO/RTO 有声明。
+  - 测试要求：脚本静态契约（不硬编码口令、失败即非零退出）+ 真实栈上的恢复演练。
+
+- [ ] TASK-120 日志聚合与告警规则
+  - 目标：关闭 **C7**——日志质量很高但没有检索与告警，出故障只能 `docker logs` 人肉翻。
+  - 依赖：TASK-090（指标）。
+  - 涉及文件：`deploy/loki/`（新建）、`deploy/prometheus/`（告警规则）、`docs/DEPLOYMENT.md`、`docs/RUNBOOK.md`（新建）、`tests/test_alert_rules.py`（新建）。
+  - 实现要求：① Loki（或 ELK）聚合 + 按 `request_id` 检索；② 告警规则覆盖 5xx 率 / P95 延迟 / 队列积压 / DB 连接池 / 限流触发 / 维护任务未成功；③ **每条告警都有对应 runbook**（现象 → 排查 → 处置）。
+  - 验收标准：真实栈上日志可聚合检索；告警规则语法校验通过且每条在 RUNBOOK 里有对应小节。
+  - 测试要求：告警规则文件可解析 + 「每条告警都有 runbook」的一对一断言（防止只写规则不写处置）。
+
+- [ ] TASK-121 供应链安全门禁
+  - 目标：关闭 **C4**——无镜像扫描、无 SBOM、无依赖更新自动化、无 `pip-audit`/`npm audit` 门禁（全部 0 命中）。
+  - 依赖：无。
+  - 涉及文件：`.github/workflows/ci.yml`、`.github/dependabot.yml`（新建）、`requirements.txt`、`requirements-dev.txt`、`frontend/package.json`、`tests/test_ci_contract.py`。
+  - 实现要求：① dependabot（pip / npm / docker / actions）；② CI 加 `pip-audit` 与 `npm audit`，**允许显式豁免清单**但不允许静默跳过；③ 镜像扫描（trivy）+ SBOM 产出；④ 失败策略：高危阻断、中低危报告。
+  - 验收标准：CI 上三类扫描都跑起来；故意引入一个已知漏洞依赖能被拦下；每条豁免都有理由。
+  - 测试要求：CI 配置契约断言（job 存在、豁免可追溯）。
+
+- [ ] TASK-122 发布流程与回滚
+  - 目标：关闭 **C5**——CI 只验证不部署（取舍正确），但缺 staging、迁移上线门禁、灰度与回滚判定。
+  - 依赖：TASK-119（备份是回滚的安全网）。
+  - 涉及文件：`.github/workflows/`、`docs/DEPLOYMENT.md`、`docs/RUNBOOK.md`、`docs/CHANGELOG.md`。
+  - 实现要求：① staging 环境；② 迁移上线门禁（CI 已验证可逆性，这里补生产实操顺序与失败回退）；③ 发布清单与回滚 runbook；④ 变更记录规范化。
+  - 验收标准：staging 可用；发布 → 回滚路径**演练**过；每次发布有记录。
+  - 测试要求：发布脚本/流程的静态契约；回滚演练结果记录在文档。
+
+- [ ] TASK-123 附件对象存储与内容嗅探
+  - 目标：关闭 **B7 + C3**——`StorageBackend` Protocol 已为对象存储预留但没有第二实现，文件落命名卷导致**单机绑定**，多副本部署前必须先解决。
+  - 依赖：TASK-094（租户化存储路径）。
+  - 涉及文件：`app/services/storage.py`、`app/core/config.py`、`docker-compose.yml`、`docker-compose.prod.yml`、`requirements.txt`、`tests/test_storage_s3.py`（新建）。
+  - 实现要求：① S3/MinIO 后端实现（沿用既有 Protocol，**不改调用方**）；② 本地后端保留为开发默认；③ **magic bytes 内容嗅探**（不信任扩展名与客户端声明的 MIME）；④ 可选 ClamAV 钩子；⑤ 下载/导出配额（与 TASK-099 衔接）；⑥ 租户前缀隔离。
+  - 验收标准：真实 MinIO 上上传/下载/删除通；伪装扩展名的文件被嗅探拦下；切换后端不改业务代码。
+  - 测试要求：两个后端跑同一套契约用例（本地 + MinIO）；嗅探的正反用例；租户前缀隔离断言。
+
+- [ ] TASK-124 资源 limits、容量估算与 Kubernetes 清单
+  - 目标：关闭 **C3** 的交付形态部分——用户已确认 K8s 与 Compose 都要。
+  - 依赖：TASK-119（备份）、TASK-123（对象存储，多副本前置）。
+  - 涉及文件：`docker-compose.prod.yml`、`deploy/k8s/`（新建：Deployment / Service / Ingress / ConfigMap / Secret / HPA / PDB / NetworkPolicy）、`docs/DEPLOYMENT.md`、`tests/test_k8s_manifests.py`（新建）。
+  - 实现要求：① compose 补 `cpus` / `mem_limit`；② K8s 清单：liveness 用 `/health/live`、readiness 用 `/health/ready`（TASK-088 的产出直接落地）、`startupProbe`、HPA、PDB、NetworkPolicy、Secret 管理；③ **Celery Beat 在 K8s 下必须单副本**（与 TASK-089 的约束一致）；④ 容量估算（连接池 × 副本数 vs PostgreSQL `max_connections`）。
+  - 验收标准：清单通过 `kubectl --dry-run=server` 或 kubeconform 校验；容量估算有数字与依据；探针语义与 TASK-088 一致。
+  - 测试要求：清单静态契约（探针路径、副本数、资源限量、PDB 阈值）；容量估算的算术断言（避免「文档写 100 副本但 PG 只支持 100 连接」）。
+
+- [ ] TASK-125 压测与慢查询基线
+  - 目标：关闭 **C6 + A5**——无压测、无慢查询门槛、连接池与容量参数无依据。
+  - 依赖：TASK-090（压测观测依赖指标）。
+  - 涉及文件：`deploy/k6/`（新建）、`docs/QUALITY.md`、`docs/DEPLOYMENT.md`、`tests/test_pg_indexes.py`。
+  - 实现要求：① k6 场景（登录 / 列表 / 任务流转 / 上传）；② 慢查询门槛（`pg_stat_statements` 或日志阈值）+ 对热点查询做 `EXPLAIN ANALYZE` 并留基线；③ 连接池参数按压测数据定，不凭感觉。
+  - 验收标准：压测可复现并产出数字；热点查询计划写入文档；连接池参数有依据。
+  - 测试要求：索引断言沿用既有口径（`SET LOCAL enable_seqscan=off` 后 `EXPLAIN`——小表直 `EXPLAIN` 必走顺序扫描，是假阴性）。
+
+- [ ] TASK-126 前端错误上报、E2E 与组件测试
+  - 目标：解除 **DECISIONS 057** 的三处降级口径（组件测试、登录冒烟、E2E）。
+  - 依赖：无。
+  - 涉及文件：`frontend/src/main.ts`、`frontend/src/utils/errorReporter.ts`（新建）、`frontend/vitest.config.ts`、`frontend/e2e/`（新建）、`frontend/package.json`、`docs/DECISIONS.md`。
+  - 实现要求：① 前端错误上报（带 `request_id` 关联后端日志）；② 组件测试按真实组件形态落地（不再以「非独立组件」为由跳过）；③ Playwright E2E 覆盖登录 → 团队 → 项目 → 任务 → 评论 → 附件主链路；④ **口令字面量**受本机安全策略拦截的问题要在这一轮正面解决（配置化测试凭据），而不是继续挂起。
+  - 验收标准：四门全绿 + E2E 可在 CI 上跑；组件测试覆盖 TaskForm/TaskCard 等既有被测对象；DECISIONS 057 的降级条目逐条关闭或给出新的明确理由。
+  - 测试要求：E2E 主链路；组件测试；错误上报的字段契约。
+
+- [ ] TASK-127 前端 i18n、a11y 与浏览器支持矩阵
+  - 目标：企业多语言与可访问性要求。
+  - 依赖：无。
+  - 涉及文件：`frontend/src/locales/`（新建）、`frontend/src/main.ts`、`frontend/package.json`、`docs/CONVENTIONS.md`。
+  - 实现要求：① i18n（中文 + 英文，文案外置，日期/数字按 locale 格式化）；② a11y（键盘可达、焦点管理、表单标签、对比度）；③ 浏览器支持矩阵明确（含不支持时的降级提示）。
+  - 验收标准：四门全绿；语言切换生效且不刷新丢状态；关键流程键盘可完成。
+  - 测试要求：文案外置断言（不残留硬编码中文）、locale 切换单测、a11y 静态检查。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
