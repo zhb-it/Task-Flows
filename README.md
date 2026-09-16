@@ -20,7 +20,7 @@
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
 
-> 当前处于 Phase 12（前端业务页面），TASK-001 ~ TASK-077 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~077）。
+> 当前处于 Phase 13（前端测试，规格 §59 阶段 14），TASK-001 ~ TASK-078 全部交付（无未完成任务；后端 TASK-001~064 + 前端 TASK-065~078）。
 > 任务清单见 [`docs/TASKS.md`](docs/TASKS.md)，实时进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)，
 > 两者的一致性由 CI 断言（见「本地检查清单」）。
 

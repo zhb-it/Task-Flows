@@ -201,6 +201,16 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；日志页真实渲染并接后端；降级项在界面/文档明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，日志页只做结构与四门校验验证。
 
+## Phase 13：前端测试（规格 §59 阶段 14 / §71）
+
+- [x] TASK-078 前端单元测试补齐（规格 §59「阶段 14 测试」/ §71「第十二阶段：测试」的单元测试部分）
+  - 目标：§71 单元测试重点五项（utils / composables / stores / permission / format）中，permission（permission.spec 10 项）与部分 utils（storage/request）已具备，补齐 format、composables、stores 三个缺口，把纯逻辑契约钉进测试。
+  - 依赖：TASK-065~077（被测对象：`utils/format.ts`、`composables/usePermission.ts`、`stores/auth.ts`、`stores/notification.ts`）。
+  - 涉及文件：`tests/unit/format.spec.ts`、`tests/unit/composables-usePermission.spec.ts`、`tests/unit/store-auth.spec.ts`、`tests/unit/store-notification.spec.ts`（新建）。
+  - 实现要求：① `format.spec`：空值/非法值降级、`formatDateTime` 输出形状（与时区无关断言）、`formatRelativeTime` 五档边界（`vi.setSystemTime` 固定「现在」）、`formatFileSize` 1024 进制与小数位收敛规则；② `composables-usePermission.spec`：钉住「权限集合恒为空」（§4-D4）——`can`/`canAny` 对任何权限返回 false、空参时 AND 恒真/OR 恒假；③ `store-auth.spec`：mock `authApi`，钉住令牌唯一事实来源是 storage、登录失败不留半截状态、登出撤销失败不阻塞本地清理、无令牌不发起撤销；④ `store-notification.spec`：mock `notificationApi`，钉住未读数前端统计、预览请求必须带 `silent: true`（防 TASK-075 修正项回退）、预览失败静默清空、标记已读本地同步翻转、reset 防串号。
+  - 验收标准：`typecheck`/`lint`/`build` 全绿；`test` 全绿且用例数 37 → **70**（8 个 spec 文件）。
+  - 测试要求：新用例全部为纯逻辑/纯 store 测试，不依赖真实后端；§71 的组件测试与 E2E 按真实组件形态与既定口径降级（见 DECISIONS 057），不在本 TASK 伪造。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
