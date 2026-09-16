@@ -244,4 +244,17 @@ export const http = {
   delete<T>(url: string, options?: RequestOptions): Promise<T> {
     return unwrap<T>(instance.delete<ApiEnvelope<T>>(url, options))
   },
+  /**
+   * 下载二进制流（附件下载：`GET /attachments/{id}` 返回文件流而非
+   * `{data, message}` 信封，不能走 `get`）。返回 `Blob`，由调用方
+   * `URL.createObjectURL` + 临时 `<a>` 触发保存。
+   *
+   * 走同一个 axios 实例，因此自动带 Bearer 令牌、401 单飞刷新与错误归一；
+   * 失败时后端若返回 JSON 错误体，会被按 blob 接收，`ApiError` 退化为按状态码
+   * 的通用文案（403/404 等），调用方拿 `error.status` 判断即可。
+   */
+  async getBlob(url: string, options?: RequestOptions): Promise<Blob> {
+    const response = await instance.get<Blob>(url, { ...options, responseType: 'blob' })
+    return response.data
+  },
 }

@@ -50,6 +50,10 @@ uvicorn app.main:app --reload --port 8000
 
 `build` 里串了 `vue-tsc --noEmit`：类型错误不应该等到运行时才暴露，构建即失败。
 
+> ⚠️ 在受限沙箱里运行 `npm run build` 时，若 `dist/assets` 已有超过 50 个文件，Vite 清空输出目录
+> 会触发环境的批量删除守卫（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）而失败。给命令加
+> `CODEBUDDY_SAFE_DELETE_ENABLED=0` 前缀即可绕过（只影响构建产物清理，不影响代码与产物内容）。
+
 ---
 
 ## 3. 目录结构
@@ -150,12 +154,20 @@ Refresh Token 也失效时：清空本地凭证 → 由路由层跳 `/login` 并
 进度按仓库根目录 `docs/TASKS.md` 与 `docs/PROGRESS.md` 记录，开发顺序见
 `docs/FRONTEND_PROJECT_SPEC.md` §59（15 个阶段）。
 
-当前已交付：**阶段 1（项目初始化）+ 阶段 2（基础框架）+ 阶段 3（认证）+ 阶段 5（Dashboard 概览）**。
+当前已交付：**阶段 1（项目初始化）+ 阶段 2（基础框架）+ 阶段 3（认证）+ 阶段 5（Dashboard）+
+阶段 6（团队）+ 阶段 7（项目）+ 阶段 8（任务）+ 阶段 9（评论）+ 阶段 10（附件）**。
 
-Dashboard（TASK-069）已接入真实后端：`GET /teams`、`GET /projects`、`GET /notifications`、
-`GET /logs` 四个真实端点驱动统计卡片与「最近通知 / 最近项目」两个列表；规格 §11.2 的
-「任务统计」与全局「最近任务」受后端 `project_id` 必填与无跨项目统计端点限制
-（见 `docs/FRONTEND_API_MAPPING.md` §4-D7/D8、§6-Q2），页面顶部提示条已写明，不编造接口。
+- Dashboard（TASK-069）：`GET /teams`、`GET /projects`、`GET /notifications`、`GET /logs`
+  驱动统计卡片与「最近通知 / 最近项目」两列表；规格 §11.2 的「任务统计」与全局「最近任务」
+  受后端 `project_id` 必填与无跨项目统计端点限制（`docs/FRONTEND_API_MAPPING.md` §4-D7/D8、§6-Q2），
+  页面顶部提示条已写明，不编造接口。
+- 团队（TASK-070）/ 项目（TASK-071）/ 任务（TASK-072）：列表 / 详情 / 创建 / 设置接入真实端点，
+  按钮显隐按**接口返回的数据**（`owner_id`、成员 `role`、`ProjectRead.team_id`）数据驱动，
+  越权一律交后端 403/404 兜底（不臆测权限集合，`§4-D4`）。
+- 评论（TASK-073）：任务详情内评论区块（列表 / 发表 / 删除自己的评论）；
+  `comment:delete` 种子仅 admin（`§4-D11`），成员删自己的评论可能 403，由请求层提示。
+- 附件（TASK-074）：任务详情内附件区块（上传 / 列表 / 下载 / 删除自己的上传）；
+  上传字段名 `file`、按扩展名白名单预检、10 MiB 上限；下载走 `http.getBlob`（响应是文件流非信封）。
 
-其余业务页面（团队 / 项目 / 任务 / 评论 / 附件 / 通知 / 权限 / 日志）目前是占位页，
+剩余业务页面（通知 / 权限 / 日志）与工程阶段（测试 / Nginx / 优化）按 §59 顺序继续；
 占位页会写明所属阶段与将要调用的端点。

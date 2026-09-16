@@ -54,3 +54,26 @@ export function formatRelativeTime(value: string | null | undefined): string {
   }
   return formatDateTime(value)
 }
+
+/**
+ * 文件大小（字节 → 人类可读），用于附件列表（规格 §29）。
+ *
+ * 1024 进制；小数位随量级收敛（小于 100 保留 1 位，否则取整），避免出现
+ * 「1023.9 KB」这类粗糙显示。
+ */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || Number.isNaN(bytes)) {
+    return '-'
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`
+}

@@ -483,5 +483,15 @@
 
 - Trade-off：① 普通 member 删自己的评论会命中 403（提示由请求层给出）——根因在后端权限粒度（`comment:delete` 收归 admin），待后端把「作者本人」纳入功能级允许范围后自然消解，前端届时无需改动；② 团队 OWNER/ADMIN（非 admin 角色）若想删他人评论，前端不显示按钮（前端无法从数据判别该角色，规格亦未要求），需后端补权限集合端点（`§4-D4`）后才可能支持；③ 评论不支持编辑（规格 §28 未要求，后端亦无 PATCH 评论端点）。均在 `docs/FRONTEND_API_MAPPING.md` §7 标注。
 
+## Decision 053：附件模块接真实端点，下载走 `http.getBlob`、前端预检不替代后端（TASK-074）
+
+- Problem：规格 §29 要求任务详情内提供附件「选择文件 → 检查大小 → 检查类型 → 上传 → 显示进度 → 成功」与列表「文件名 / 大小 / 上传者 / 时间 / 下载 / 删除」。后端契约有两处与「直接套用现有请求层」冲突：① `GET /attachments/{attachment_id}` 的响应是**文件流**（`StreamingResponse`），**不是** `{data, message}` JSON 信封，因此现有 `http.get`（会解信封）无法用于下载；② 上传是 `multipart/form-data`，文件字段名固定 `file`，且后端**按扩展名**判定类型（不采信客户端 `Content-Type`）、大小上限 10 MiB（`app/core/config.py`），前端若照抄规格 §29「检查 MIME」会与后端口径不一致（`§4-D13`）。
+
+- Decision：四端点全部接真实后端（`attachmentApi.listAttachments / uploadAttachment / downloadAttachment / deleteAttachment`）。**下载**在请求层新增 `http.getBlob(url)`（走同一 axios 实例 → 仍自动带令牌 / 401 单飞刷新 / 错误归一），取回 `Blob` 后用临时 `<a download>` 保存；**上传**用 `FormData`（字段名 `file`，不手写 `Content-Type`）、`el-upload` 自定义 `http-request` 走 `attachmentApi` 并把 `onUploadProgress` 接到进度条；`before-upload` 按**后端同一份白名单**（扩展名 + 10 MiB，常量与 `ALLOWED_TYPES`/`max_upload_size` 对齐）做预检，仅作即时反馈——**预检通过不代表后端接受**，413/415/400 一律以后端裁决、由请求层提示（不假设一定成功，正合规格 §29 末句）。**删除**按 `attachment.uploader_id === 当前用户.id` 数据驱动显示（成员拥有 `attachment:upload`，删自家附件可通过功能级 + 资源级双层校验，与评论不同）。附件独立加载、独立容错。
+
+- Reason：① 下载是文件流语义，塞进解信封的 `get` 必然出错——在请求层显式加一个 `getBlob` 出口，比在业务层绕开请求层（裸 `axios` + 手拼令牌）更符合分层约定（`frontend/README.md` §5「页面不直接碰 axios」）；② 前端预检用**后端的白名单**而非「猜 MIME」，保证前后端口径一致，同时坚持「前端检查只为体验、后端是唯一裁决方」（`§4-D13`、规格 §53）；③ 删除按钮按 `uploader_id` 数据驱动：成员对自家附件确有 `attachment:upload` 权限（种子数据成员 10 项含 `attachment:upload`/`attachment:download`），因此这一显隐是**基于真实契约**的，而不是像评论那样「点了会 403」——两处行为不同，正说明「数据驱动」比「写死一套权限判断」更贴合实际。
+
+- Trade-off：① 下载文件名取自列表里的 `filename`（XHR 拿不到 `Content-Disposition`，因为不是导航请求），与后端清洗后的名字一致；② 上传进度依赖 `total`（部分环境 `total` 缺失时进度条不动，但上传仍完成）；③ 删除他人附件需团队 OWNER/ADMIN——前端无法从数据判别该角色，不显示按钮（规格未要求），越权/超范围由后端 403 兜底；④ 沙箱内 `npm run build` 在 `dist/assets` 超 50 文件时会被批量删除守卫拦截，须带 `CODEBUDDY_SAFE_DELETE_ENABLED=0`（已记入 `frontend/README.md` 与工程记忆）。均在 `docs/FRONTEND_API_MAPPING.md` §7 标注。
+
 
 

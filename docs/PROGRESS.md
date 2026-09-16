@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-073 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~073）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-074 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~074）。
 
 ## Current Phase
 Phase 12：前端业务页面
 
 ## Current Task
-TASK-073 评论模块（规格 §28「任务评论」，阶段 9：任务详情内评论区块实现——列表 GET /tasks/{task_id}/comments（task:read）、发表 POST /tasks/{task_id}/comments（comment:create，成员可用）、删除 DELETE /comments/{comment_id}；CommentRead 内嵌 username 直接渲染作者名；删除按钮按 comment.user_id === 当前用户 数据驱动显示（规格 §28「删除自己的评论」），功能级 comment:delete 种子仅 admin 持有 + 资源级允许作者/团队管理者，成员越权由后端 403 兜底、请求层提示，不臆测权限集隐藏；评论独立加载容错；附件/日志仍为阶段10/13 占位）
+TASK-074 附件模块（规格 §29「任务附件」，阶段 10：任务详情内附件区块实现——列表 GET /tasks/{task_id}/attachments（task:read）、上传 POST /tasks/{task_id}/attachments（multipart 字段名 file、attachment:upload）、下载 GET /attachments/{id}（文件流非信封，走 http.getBlob + <a download> 保存）、删除 DELETE /attachments/{id}（上传者或团队管理者）；前端按后端白名单预检大小 10 MiB / 扩展名（仅即时反馈，真值以后端 413/415 为准，D13）；删除按钮按 uploader_id === 当前用户 数据驱动；操作日志仍为阶段13 占位）
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -83,6 +83,7 @@ TASK-073 评论模块（规格 §28「任务评论」，阶段 9：任务详情�
 - [x] TASK-071 项目模块（规格 §16/§17/§18/§19：项目列表卡片+客户端搜索/团队筛选、创建按 team_id、详情四标签（任务列表/看板=占位待阶段8、项目成员=复用团队成员接口、项目设置跳转）、设置页 PATCH/DELETE；ProjectRead 无 status 与成员/任务/进度字段，卡片统计与状态筛选诚实降级顶部提示、不编造接口）
 - [x] TASK-072 任务模块（规格 §20~§27「任务列表/创建/详情/看板/编辑/流转/分配」：GET /tasks 按 project_id 必填（无跨项目「我的任务」端点，§4-D7/D8·Q2，页面用项目选择器 + assignee_id=当前用户 诚实表达）；列表表格+客户端搜索+优先级/状态筛选+排序+分页；看板 HTML5 拖拽走 POST /tasks/{id}/transition（状态机 TRANSITIONS 白名单仅前端提示，task:transition 功能权限 admin-only 可能 403，后端为准）；详情含 transition 下拉/编辑抽屉/分配成员(按 ProjectRead.team_id 拉团队成员)/删除；创建表单无 status/assignee 字段，创建后 POST /tasks/{id}/assignees 指派；评论/附件/日志标签为阶段9/10/13 占位；不编造任何后端不存在的端点）
 - [x] TASK-073 评论模块（规格 §28「任务评论」，阶段 9：新建 src/types/comment.ts + src/api/comment.ts（listComments/createComment/deleteComment），TaskDetail.vue 评论占位替换为真实区块——列表（CommentRead 内嵌 username）、发表（textarea 2000 字 + 字数统计）、删除自己的评论（comment.user_id 比对数据驱动）；评论独立加载容错，缺数据只让评论区报错；功能级 comment:delete 种子仅 admin（§4-D11），成员删自己的评论仍可能 403，由请求层提示、不臆测权限集隐藏按钮）
+- [x] TASK-074 附件模块（规格 §29「任务附件」，阶段 10：新建 src/types/attachment.ts + src/api/attachment.ts（attachmentApi.listAttachments/uploadAttachment/downloadAttachment/deleteAttachment + 预检常量 MAX_UPLOAD_SIZE/ALLOWED_EXTENSIONS/ACCEPT_ATTR/isAllowedFile）、utils/format.ts 加 formatFileSize、utils/request.ts 加 http.getBlob（下载返回文件流非信封）；TaskDetail.vue 附件占位替换为真实区块——上传（el-upload 自定义 http-request + 进度条 + before-upload 预检大小/扩展名）、列表（文件名/大小/上传者/时间/下载/删除自己的）、下载用 Blob + 临时 <a> 保存、删除按 uploader_id 数据驱动；成员拥有 attachment:upload/download，删自家附件可用；上传后仍需后端裁决，前端不假设一定成功）
 
 ## In Progress
 - [ ]
@@ -92,7 +93,7 @@ TASK-073 评论模块（规格 §28「任务评论」，阶段 9：任务详情�
 
 ## Next
 
-无——TASK-001 ~ TASK-073 全部交付（后端 TASK-001~064、前端 TASK-065~073），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 10~16：附件 / 通知 / 权限 / 日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-074 起；其中附件/日志页接真实后端端点即可（附件上传字段与校验口径见 §4-D13），无已知阻塞项。
+无——TASK-001 ~ TASK-074 全部交付（后端 TASK-001~064、前端 TASK-065~074），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 11~16：通知 / 权限 / 日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-075 起；其中通知/日志页接真实后端端点即可，无已知阻塞项。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
 TASK-059 生产栈（`docker-compose.prod.yml`）已在真实 Docker 上验证并**完整拆除**：四服务 healthy、app 仅 `127.0.0.1:18080->8000`（LAN 地址原始 socket 连接超时，反证仅回环可达）、postgres/redis 零宿主端口、卷为 `taskflow-prod_*` 前缀（与开发栈隔离）、迁移后 `/health` 返回 `env=production`、注册/登录/`users/me` 全通、容器日志为 §33 JSON 十字段、Redis AOF=`yes`；`down -v` 后生产容器与卷零残留，开发栈全程保持 healthy。生产栈与服务端 nginx/Gunicorn 的对外暴露留待 TASK-060。**（TASK-060 更新：上面「app 绑回环端口」已被取代——反代接入后 app 不再发布任何宿主端口，对外只有 nginx；同一套冒烟验证与零残留结论见 TASK-060 条目。）**

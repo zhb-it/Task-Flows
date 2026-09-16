@@ -169,6 +169,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；评论区块真实渲染并接后端；权限口径在界面/文档明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，评论区块只做结构与四门校验验证。
 
+- [x] TASK-074 附件模块（规格 §29「任务附件」）
+  - 目标：在任务详情内实现附件区块（上传 / 列表 / 下载 / 删除自己的上传），全部走真实后端端点；前端预检只为即时反馈，真值以后端裁决（D13）。
+  - 依赖：TASK-072（任务详情页已就绪，附件原为阶段 10 占位）；TASK-073（同页评论区块已落地的独立加载模式可复用）。
+  - 涉及文件：`src/types/attachment.ts`（新建：Attachment，对齐 `app/schemas/attachment.py`）、`src/api/attachment.ts`（新建：`attachmentApi.listAttachments/uploadAttachment/downloadAttachment/deleteAttachment` + 预检常量 `MAX_UPLOAD_SIZE/ALLOWED_EXTENSIONS/ACCEPT_ATTR/isAllowedFile`）、`src/utils/format.ts`（加 `formatFileSize`）、`src/utils/request.ts`（加 `http.getBlob`，附件下载返回文件流而非信封）、`src/views/task/TaskDetail.vue`（附件占位替换为真实区块）。
+  - 实现要求：① 列表 `GET /tasks/{task_id}/attachments`（功能级 `task:read`），`AttachmentRead` 内嵌 `uploader` 直接渲染上传者；② 上传 `POST /tasks/{task_id}/attachments`（`attachment:upload`，种子数据成员可用）——`multipart/form-data` 字段名固定 `file`、`FormData` 不手写 `Content-Type`；`el-upload` 自定义 `http-request` 走 `attachmentApi`，`before-upload` 按后端白名单预检大小（10 MiB）与扩展名（图片/文档/压缩包），带 `onUploadProgress` 进度条；预检通过不代表后端接受，413/415/400 由后端裁决、请求层提示；③ 下载 `GET /attachments/{id}`（`attachment:download`）——响应是**文件流**而非 `{data,message}` 信封，走 `http.getBlob` 后用临时 `<a download>` 保存；④ 删除 `DELETE /attachments/{id}`（`attachment:upload` + 上传者或团队 OWNER/ADMIN）——仅对 `uploader_id === 当前用户` 的附件显示删除钮（数据驱动；成员对自家附件有 `attachment:upload`，可删）；⑤ 附件独立加载、独立容错（读取失败只让附件区空/报错，不连累任务主体）；⑥ 操作日志仍为阶段 13 占位，不编造端点。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；附件区块真实渲染并接后端；上传/下载/删除权限口径在界面/文档明示。**注**：前端 `build` 在 `dist/assets` 超过 50 个文件后会触发沙箱批量删除守卫，须带 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 运行（见 `frontend/README.md`）。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，附件区块只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

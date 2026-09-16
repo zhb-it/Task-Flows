@@ -292,7 +292,7 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 | 项目列表 / 详情 / 设置 | 阶段 7 | — | **已实现（TASK-071）**：列表卡片+客户端搜索/团队筛选（`GET /projects` 无搜索与 total）、创建按 team_id（`GET /teams` 选团队）、详情四标签（任务列表/看板=阶段8占位、项目成员=复用 `GET /teams/{team_id}/members`、项目设置跳转）、设置页 `PATCH`/`DELETE`；ProjectRead 无 status 与成员/任务/进度字段，「成员：N/任务：N/78%/状态筛选」按诚实降级顶部提示、不编造接口 |
 | 我的任务 / 看板 / 详情 / 新建 | 阶段 8 | — | **已实现（TASK-072）**：列表表格+客户端搜索/优先级/状态筛选/排序/分页、看板 HTML5 拖拽走 `POST /tasks/{id}/transition`（状态机白名单仅前端提示，真实以后端为准，member 无 `task:transition` 权限时 403 由请求层提示）、详情含 transition 下拉/编辑抽屉/分配成员(`GET /teams/{team_id}/members`)/删除、创建后 `POST /tasks/{id}/assignees` 指派；跨项目「我的任务」全局视图仍受 D7/D8·Q2 阻塞，页面用「项目选择器 + assignee_id=当前用户」诚实表达并顶部提示、不编造接口 |
 | 评论（任务详情内） | 阶段 9 | — | **已实现（TASK-073）**：任务详情内评论区块接 `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`；`CommentRead` 内嵌 `username` 直接渲染作者名、textarea 限 2000 字；删除按钮按 `comment.user_id === 当前用户` 数据驱动显示（规格 §28「删除自己的评论」）；**功能级 `comment:delete` 种子仅 admin 持有且先于资源级判定执行，普通成员删自己的评论也会 403**（§4-D11），由请求层提示、前端不臆测权限集隐藏按钮（见 DECISIONS 052） |
-| 附件（任务详情内） | 阶段 10 | D13（上传字段与校验口径） |
+| 附件（任务详情内） | 阶段 10 | — | **已实现（TASK-074）**：任务详情内附件区块接 `POST/GET /tasks/{task_id}/attachments`、`GET/DELETE /attachments/{id}`；上传 `multipart` 字段名 `file` + 扩展名（后端白名单）/10 MiB 预检 + 进度条；下载走新增的 `http.getBlob`（响应是文件流非信封）+ 临时 `<a download>` 保存；删除按钮按 `uploader_id === 当前用户` 数据驱动（成员有 `attachment:upload`，可删自家附件）；前端预检仅为即时反馈，413/415 仍以后端裁决（见 D13、DECISIONS 053） |
 | 通知列表 | 阶段 11 | D9（无未读筛选） |
 | 操作日志 | 阶段 13 | — |
 

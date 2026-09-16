@@ -5,8 +5,10 @@
  * 阶段 8：任务字段展示 + 状态流转 + 编辑 + 负责人管理 + 删除。
  * 阶段 9：评论区块（列表 / 发表 / 删除自己的评论，规格 §28）接真实端点
  * `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`。
- * 附件（阶段 10）、操作日志（阶段 13）挂在本页下，仍以占位区块明示「尚未实现」，
- * 不编造接口（见 docs/FRONTEND_API_MAPPING.md §7）。
+ * 阶段 10：附件区块（上传 / 列表 / 下载 / 删除自己的上传，规格 §29）接真实端点
+ * `POST/GET /tasks/{task_id}/attachments`、`GET/DELETE /attachments/{id}`。
+ * 操作日志（阶段 13）挂在本页下，仍以占位区块明示「尚未实现」，不编造接口
+ * （见 docs/FRONTEND_API_MAPPING.md §7）。
  *
  * 状态流转必须走 `POST /tasks/{id}/transition`（后端状态机）；普通成员可能无
  * `task:transition` 权限（§4-D11），点击后由后端 403 兜底。删除需团队 owner/admin，
@@ -20,11 +22,18 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, type UploadRawFile, type UploadRequestOptions } from 'element-plus'
 import { taskApi } from '@/api/task'
 import { projectApi } from '@/api/project'
 import { teamApi } from '@/api/team'
 import { commentApi } from '@/api/comment'
+import {
+  ACCEPT_ATTR,
+  MAX_UPLOAD_SIZE,
+  attachmentApi,
+  isAllowedFile,
+} from '@/api/attachment'
+import { formatFileSize } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import {
   TASK_STATUS_LABELS,
@@ -38,6 +47,7 @@ import {
 import type { Project } from '@/types/project'
 import type { TeamMember } from '@/types/team'
 import type { Comment } from '@/types/comment'
+import type { Attachment } from '@/types/attachment'
 
 const props = defineProps<{ taskId?: string }>()
 const router = useRouter()
@@ -61,6 +71,12 @@ const newComment = ref('')
 const posting = ref(false)
 const deletingCommentId = ref<number | null>(null)
 
+// —— 附件（阶段 10，规格 §29）——
+const attachments = ref<Attachment[]>([])
+const attachmentsLoading = ref(false)
+const uploading = ref(false)
+const uploadPercent = ref(0)
+
 const taskIdNum = computed(() => Number(props.taskId))
 
 const allowedTargets = computed<TaskStatus[]>(() =>
@@ -80,6 +96,7 @@ const creatorText = computed(() => {
 onMounted(() => {
   loadTask()
   loadComments()
+  loadAttachments()
 })
 
 async function loadTask(): Promise<void> {
@@ -147,6 +164,79 @@ async function doDeleteComment(c: Comment): Promise<void> {
     /* 功能级 comment:delete 种子仅 admin（§4-D11）→ 成员删自己的评论也会 403，请求层提示 */
   } finally {
     deletingCommentId.value = null
+  }
+}
+
+/** 加载附件（独立于任务主体，单项失败不连累其余区块）。 */
+async function loadAttachments(): Promise<void> {
+  attachmentsLoading.value = true
+  try {
+    attachments.value = await attachmentApi.listAttachments(taskIdNum.value)
+  } catch {
+    /* 403/404 由请求层提示，附件区保持空态 */
+  } finally {
+    attachmentsLoading.value = false
+  }
+}
+
+/** 仅「自己的上传」显示删除钮（数据驱动；成员对自家附件有 attachment:upload）。 */
+function canDeleteAttachment(a: Attachment): boolean {
+  return authStore.currentUser?.id === a.uploader_id
+}
+
+/**
+ * el-upload 的 `before-upload` 预检（规格 §29「检查文件大小 / 检查文件类型」）。
+ *
+ * 仅做**即时反馈**：通过不代表后端一定接受，413/415 由后端裁决（D13）。
+ */
+function beforeUpload(file: UploadRawFile): boolean {
+  if (file.size > MAX_UPLOAD_SIZE) {
+    ElMessage.error(`文件超过 ${formatFileSize(MAX_UPLOAD_SIZE)} 上限`)
+    return false
+  }
+  if (!isAllowedFile(file.name)) {
+    ElMessage.error('不支持的文件类型（仅图片 / 文档 / 压缩包）')
+    return false
+  }
+  return true
+}
+
+/** 自定义上传（el-upload `http-request`），带进度回调（规格 §29「显示进度」）。 */
+async function doUpload(options: UploadRequestOptions): Promise<unknown> {
+  uploading.value = true
+  uploadPercent.value = 0
+  try {
+    const created = await attachmentApi.uploadAttachment(
+      taskIdNum.value,
+      options.file,
+      (percent) => {
+        uploadPercent.value = percent
+      },
+    )
+    attachments.value = [...attachments.value, created]
+    ElMessage.success('上传成功')
+    return created
+  } finally {
+    uploading.value = false
+    uploadPercent.value = 0
+  }
+}
+
+async function doDownloadAttachment(a: Attachment): Promise<void> {
+  try {
+    await attachmentApi.downloadAttachment(a.id, a.filename)
+  } catch {
+    /* 403/404 由请求层提示 */
+  }
+}
+
+async function doDeleteAttachment(a: Attachment): Promise<void> {
+  try {
+    await attachmentApi.deleteAttachment(a.id)
+    attachments.value = attachments.value.filter((item) => item.id !== a.id)
+    ElMessage.success('附件已删除')
+  } catch {
+    /* 403（非上传者且非团队管理者）由请求层提示 */
   }
 }
 
@@ -363,9 +453,58 @@ function fmt(ts: string | null): string {
               </div>
             </div>
           </el-card>
-          <el-card class="block placeholder-block" shadow="never">
-            <template #header>附件</template>
-            <p class="muted">附件功能在阶段 10 实现，本区块为占位。</p>
+          <el-card class="block" shadow="never">
+            <template #header>
+              <span>附件</span>
+              <span v-if="attachments.length" class="muted comment-count">（{{ attachments.length }}）</span>
+            </template>
+            <el-upload
+              class="attachment-upload"
+              :show-file-list="false"
+              :accept="ACCEPT_ATTR"
+              :before-upload="beforeUpload"
+              :http-request="doUpload"
+            >
+              <el-button type="primary" :loading="uploading">选择文件上传</el-button>
+              <template #tip>
+                <div class="muted upload-tip">
+                  支持图片 / 文档 / 压缩包，单文件不超过 {{ formatFileSize(MAX_UPLOAD_SIZE) }}。
+                </div>
+              </template>
+            </el-upload>
+            <el-progress
+              v-if="uploading"
+              :percentage="uploadPercent"
+              :stroke-width="6"
+              class="upload-progress"
+            />
+            <div v-loading="attachmentsLoading" class="attachment-list">
+              <el-empty
+                v-if="!attachmentsLoading && !attachments.length"
+                description="暂无附件"
+                :image-size="60"
+              />
+              <div v-for="a in attachments" :key="a.id" class="attachment-item">
+                <span class="attachment-name" :title="a.filename">{{ a.filename }}</span>
+                <span class="attachment-meta">{{ formatFileSize(a.size) }}</span>
+                <span class="attachment-meta">{{ a.uploader }}</span>
+                <span class="attachment-meta">{{ fmt(a.created_at) }}</span>
+                <div class="attachment-actions">
+                  <el-button link type="primary" size="small" @click="doDownloadAttachment(a)">
+                    下载
+                  </el-button>
+                  <el-popconfirm
+                    v-if="canDeleteAttachment(a)"
+                    title="确认删除该附件？"
+                    @confirm="doDeleteAttachment(a)"
+                  >
+                    <template #reference>
+                      <el-button link type="danger" size="small">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </div>
+            </div>
           </el-card>
         </el-col>
 
@@ -509,5 +648,46 @@ function fmt(ts: string | null): string {
   margin-top: 8px;
   display: flex;
   justify-content: flex-end;
+}
+.attachment-upload {
+  margin-bottom: 4px;
+}
+.upload-tip {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.upload-progress {
+  margin: 8px 0;
+}
+.attachment-list {
+  min-height: 40px;
+  margin-top: 8px;
+}
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.attachment-item:last-child {
+  border-bottom: none;
+}
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.attachment-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.attachment-actions {
+  display: flex;
+  gap: 4px;
 }
 </style>
