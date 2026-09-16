@@ -466,7 +466,6 @@ async def test_update_rejects_slug_and_invalid_quota(client):
 
     # slug 不在更新契约中：即使塞进 payload 也会被 422 挡住（extra 字段默认禁止?）
     # pydantic v2 默认 ignore extra —— 因此显式断言 slug 未被改动的行为契约。
-    payload = TenantUpdate(name="Renamed")
     assert "slug" not in TenantUpdate.model_fields
     resp = await client.patch(
         f"/api/v1/tenants/{tenant_id}",

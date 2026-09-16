@@ -48,6 +48,7 @@ def test_team_tablename():
 def test_team_columns():
     assert set(Team.__table__.columns.keys()) == {
         "id",
+        "tenant_id",  # TASK-094
         "name",
         "description",
         "owner_id",
@@ -96,6 +97,7 @@ def test_team_member_tablename_and_columns():
     assert TeamMember.__tablename__ == "team_members"
     assert set(TeamMember.__table__.columns.keys()) == {
         "id",
+        "tenant_id",  # TASK-094
         "team_id",
         "user_id",
         "role_id",

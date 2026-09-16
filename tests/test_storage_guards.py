@@ -119,8 +119,8 @@ def test_drive_letter_rule_still_fires_when_the_charset_is_loosened(
 
 
 def test_build_key_without_suffix_is_a_bare_token() -> None:
-    key = build_key(7)
-    assert key.startswith("tasks/7/")
+    key = build_key(4, 7)
+    assert key.startswith("tenants/4/tasks/7/")
     token = key.rsplit("/", 1)[1]
     assert len(token) == 32
     int(token, 16)  # 必须是 hex，否则不是 token_hex(16) 的产物
@@ -128,7 +128,7 @@ def test_build_key_without_suffix_is_a_bare_token() -> None:
 
 def test_build_key_does_not_reuse_user_visible_names() -> None:
     """随机名策略：同一 task 连续两次生成必须不同（不参与任何用户输入）。"""
-    assert build_key(1) != build_key(1)
+    assert build_key(1, 1) != build_key(1, 1)
 
 
 @pytest.mark.parametrize(
@@ -136,7 +136,7 @@ def test_build_key_does_not_reuse_user_visible_names() -> None:
     [(".PNG", ".png"), ("txt", ".txt"), (".tar", ".tar")],
 )
 def test_build_key_normalises_suffix(suffix: str, expected: str) -> None:
-    assert build_key(3, suffix=suffix).endswith(expected)
+    assert build_key(4, 3, suffix=suffix).endswith(expected)
 
 
 @pytest.mark.parametrize(
@@ -157,13 +157,13 @@ def test_build_key_rejects_suffix_that_is_not_a_plain_extension(suffix: str) -> 
     进入文件系统。
     """
     with pytest.raises(UnsafeStorageKeyError):
-        build_key(3, suffix=suffix)
+        build_key(4, 3, suffix=suffix)
 
 
 def test_build_key_empty_suffix_is_ignored_not_rejected() -> None:
     """空 suffix 等价于「不传」，不应误报为非法扩展名。"""
-    assert build_key(5, suffix="") == build_key.__wrapped__(5) if False else True
-    assert "/" in build_key(5, suffix="")
+    assert build_key(4, 5, suffix="").startswith("tenants/4/tasks/5/")
+    assert "/" in build_key(4, 5, suffix="")
 
 
 # ===========================================================================

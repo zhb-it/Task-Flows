@@ -234,7 +234,8 @@ async def test_upload_and_list(client, storage_root):
                 select(Attachment).where(Attachment.id == body["id"])
             )
         ).scalar_one()
-    assert row.storage_path.startswith(f"tasks/{task_id}/")
+    # TASK-094：key 以租户为前导目录（tenants/{tid}/tasks/{task_id}/...）。
+    assert row.storage_path.startswith("tenants/") and f"/tasks/{task_id}/" in row.storage_path
     assert ":" not in row.storage_path and not row.storage_path.startswith("/")
     assert (storage_root / row.storage_path).is_file()
 
@@ -434,7 +435,7 @@ async def test_filename_traversal_is_sanitized(client, storage_root):
         ).scalar_one()
 
     # key 完全由服务端生成：不含用户输入的任何片段
-    assert row.storage_path.startswith(f"tasks/{task_id}/")
+    assert row.storage_path.startswith("tenants/") and f"/tasks/{task_id}/" in row.storage_path
     assert "passwd" not in row.storage_path
     assert ".." not in row.storage_path
     # 落盘位置在注入的根目录内，且根目录外没有被写入

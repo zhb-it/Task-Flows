@@ -41,7 +41,8 @@ TASK-042 已确认决策：
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, func, Index, String, text
+
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -78,6 +79,19 @@ class Attachment(Base):
     size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    #: 所属租户（§61.3 多租户，TASK-094）。ON DELETE RESTRICT：租户的删除
+    #: 是状态机事务（DECISIONS 065），物理删除租户一律拒绝而非级联清光。
+    tenant_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("tenants.id", ondelete="RESTRICT"),
+        # 写入桥接（TASK-094，TASK-095 落认证租户后退化为兜底）：ORM 声明
+        # 与 DB 列 DEFAULT 同源——INSERT 未赋值时省略该列、由 DB 归属默认
+        # 租户；显式赋值优先（如归档拷贝）。
+        server_default=text("current_default_tenant_id()"),
+        nullable=False,
+        index=True,
     )
 
     def __repr__(self) -> str:

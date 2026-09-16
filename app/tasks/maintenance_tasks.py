@@ -124,6 +124,7 @@ async def _archive_one_batch(
             values = [
                 {
                     "id": r.id,
+                    "tenant_id": r.tenant_id,
                     "user_id": r.user_id,
                     "resource_type": r.resource_type,
                     "resource_id": r.resource_id,

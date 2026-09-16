@@ -17,7 +17,10 @@ Tenant、User、Role、Permission、UserRole、RolePermission、Team、TeamMembe
 - User -> OperationLog
 - User -> Notification
 - User -> RefreshToken
-- Tenant（TASK-093：独立顶层实体，业务表归属 tenant_id 属 TASK-094）
+- Tenant（TASK-093：独立顶层实体）
+- Tenant -> 12 张业务表（TASK-094：users/refresh_tokens/teams/team_members/projects/tasks/
+  task_assignees/comments/attachments/operation_logs/operation_logs_archive/notifications
+  经 tenant_id FK 归属，ON DELETE RESTRICT；RBAC 三表 + permissions 的租户化属 TASK-096）
 
 ## refresh_tokens（TASK-018 已实现）
 字段取自开发文档 §19「JWT 双 Token」：
@@ -232,6 +235,25 @@ Tenant、User、Role、Permission、UserRole、RolePermission、Team、TeamMembe
 - 本 TASK 不接业务表（无被引用外键，级联行为集合为空）；TASK-094 落 `tenant_id` 后由其迁移与测试补级联断言。
 - 配套种子：权限 `tenant:manage`（平台管理员能力面，只授予全局 `admin` 角色）。
 - 迁移：`migrations/versions/c7d1e8f4a2b6_create_tenants.py`。
+
+## 业务表租户化（TASK-094 已实现）
+
+§61.3 / §5 修订的落库形态（决策全文 docs/DECISIONS.md 066）：
+
+- **归属**：12 张业务表有 `tenant_id BIGINT NOT NULL`，FK → `tenants(id)` ON DELETE
+  RESTRICT，索引 `ix_<table>_tenant_id`（tenant_id 前导）；迁移 f1a2c3d4e5b6。
+- **唯一性租户化**：`users` 的 username/email 唯一性由 `(tenant_id, username)` /
+  `(tenant_id, email)` 复合约束（`uq_users_tenant_username` / `uq_users_tenant_email`）
+  承担，全局唯一已删除；全局查询留 `ix_users_username` / `ix_users_email` 过渡索引。
+  `refresh_tokens.jti`、`attachments.storage_path`、`tenants.slug` 保持全局唯一（系统
+  生成的技术标识，防跨租户混淆）。
+- **存量回填**：默认租户 `slug='default'`（name='Default Tenant'），全部存量行挂靠，
+  零孤儿；迁移 a9b7c5d3e1f0，幂等可重放，downgrade 不还原数据（归属是事实初始化）。
+- **写入桥接**：各业务表 `tenant_id` 的列 DEFAULT 为 `current_default_tenant_id()`
+  （STABLE 函数查默认租户）——INSERT 未赋值时由 DB 归属默认租户；应用层显式赋值
+  优先。TASK-095 落认证租户后本层退化为兜底。
+- **附件存储**：新上传 key 为 `tenants/{tenant_id}/tasks/{task_id}/{random}`；存量
+  旧 key（`tasks/...`）读取不受影响。
 
 ## 已明确约束
 - User.username UNIQUE

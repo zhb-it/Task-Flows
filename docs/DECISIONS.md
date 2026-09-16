@@ -626,3 +626,16 @@
   4. **deleted 是状态而非物理删除，slug 依旧占用**：deleted 租户保留行（审计/恢复语义），其 slug 不释放——复用等于让新租户继承旧租户的对外标识与历史。状态转换白名单（active↔suspended、→deleted 单向）由 Service 执行（DB CHECK 表达不了「从哪个状态来」），同状态重复请求幂等放行。
   5. **name 不加 UNIQUE**（§61.3 未定义，与 teams.name 同口径）；租户列表分页显式 `COUNT(*) + total`（企业化已拍板口径）。
 - Consequence：本 TASK 结束时平台已能管理租户生命周期，且不需要为「平台管理员」引入新表；代价是 `admin` 角色当前同时承担平台管理员语义（单部署部署级管理员），TASK-096 必须把这一层拆干净，否则「平台管理员不自动获得租户内权限」无法成立。deleted 保留行的清理（若有）属合规/数据治理阶段的决策。
+
+## 066 业务表租户化的归属清单、UNIQUE 边界与写入桥接（TASK-094）
+
+- Date：2026-09-16
+- Context：§61.3 / §5 修订要求全站资源归属租户、唯一约束带租户维度，但三件事规格未定稿：哪些表算「业务表」（RBAC 表算吗）；哪些全局 UNIQUE 必须租户化（jti 这类系统标识也要吗）；`tenant_id` 置 NOT NULL 后、租户上下文落地（TASK-095）前，应用写入怎么过桥。
+- Decision：
+  1. **归属清单 12 张**：users、refresh_tokens、teams、team_members、projects、tasks、task_assignees、comments、attachments、operation_logs、operation_logs_archive、notifications。RBAC 三表（roles/user_roles/role_permissions）与 permissions 的租户化属 TASK-096（它的迁移就是 `*_tenantize_rbac.py`）——094 提前动它必然与 096 重做一遍。permissions 保持全局（权限定义是产品语义不是租户数据）。
+  2. **UNIQUE 租户化仅限用户可见命名空间**：`users.username`/`users.email` → `(tenant_id, ...)` 复合唯一（全局唯一删除，全局查询留过渡普通索引）。`refresh_tokens.jti`、`attachments.storage_path`、`tenants.slug` 保持全局唯一——三者是系统生成的技术标识，全局唯一反而防跨租户标识混淆；§5 修订针对的是用户可见命名空间。teams.name 本就无 UNIQUE，§5「同名团队」天然满足。
+  3. **FK 全部 ON DELETE RESTRICT**：租户的删除是状态机事务（DECISIONS 065），物理删除租户必须先清业务数据；RESTRICT 让任何绕过状态机的删除尝试立刻失败，而不是级联清光整个租户。
+  4. **写入桥接 = DB 列 DEFAULT 调 STABLE 函数**：`tenant_id` 的列 DEFAULT 为 `current_default_tenant_id()`（查 `tenants.slug='default'`），INSERT 不带 tenant_id 时由 DB 归属默认租户——与回填语义一致，应用层零桥接；TASK-095 落认证租户后应用层显式赋值优先，本层自动退化为兜底。配套 `app/core/tenant_context.py` 骨架：ContextVar + flush 注入事件（本 TASK 阶段为 no-op，095 接线即生效）。不用 ORM 事件做默认租户回退的原因：flush 事件是同步的，无法在事件内做异步查询。
+  5. **回填迁移幂等可重放**：默认租户 `ON CONFLICT DO NOTHING`、UPDATE 只补 NULL 行、约束切换全部 IF EXISTS/IF NOT EXISTS——本迁移的 downgrade 不恢复旧全局约束（恢复与多租户语义冲突），因此降级过的库重放 upgrade 必须安全。**数据回填不还原**（downgrade 只回滚 DEFAULT/函数）：存量行的归属是事实初始化，不存在可还原状态。
+  6. **附件 key 租户分目录**：`tenants/{tenant_id}/tasks/{task_id}/{random}`；存量旧 key 不迁移（下载按 DB 记录定位），新上传一律走新格式。
+- Consequence：094 交付后单租户时代的一切行为不变（全部写入落默认租户），测试全绿；代价是 095 必须把 ContextVar 注入源从「无人写入」换成认证租户、把查询作用域与 RLS 补上，且 096 租户化 RBAC 时要处理「种子按租户复制」与本 TASK 无关的既有全局种子语义。`current_default_tenant_id()` 依赖 default 租户行存在——删掉它会让一切隐式写入失败（这是想要的失败方式）。

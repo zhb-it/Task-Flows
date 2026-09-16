@@ -315,7 +315,8 @@ async def test_no_file_escapes_storage_root(client, storage_root):
 
     # 存储根的直接子项只应有 tasks/ 目录（所有内容都在根内）
     direct_children = sorted(p.name for p in storage_root.iterdir())
-    assert direct_children == ["tasks"], direct_children
+    # TASK-094：存储根目录下按租户分目录。
+    assert direct_children == ["tenants"], direct_children
 
 
 # =============================================================================
@@ -369,7 +370,7 @@ async def test_percent_encoded_traversal_is_neutralised(client, storage_root):
                 select(Attachment).where(Attachment.id == resp.json()["data"]["id"])
             )
         ).scalar_one()
-    assert row.storage_path.startswith(f"tasks/{task_id}/")
+    assert row.storage_path.startswith("tenants/") and f"/tasks/{task_id}/" in row.storage_path
     assert "passwd" not in row.storage_path
 
 

@@ -308,7 +308,7 @@ async def upload_attachment(
 
     settings = get_settings()
     backend = storage_service.get_storage_backend()
-    key = storage_service.build_key(task.id, suffix=f".{ext}")
+    key = storage_service.build_key(task.tenant_id, task.id, suffix=f".{ext}")
 
     # 落盘：边写边累计，超限会中止并清理半成品。
     #

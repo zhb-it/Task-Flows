@@ -51,6 +51,7 @@ def test_notification_columns_match_spec_18():
     """§18 七字段（id / user_id / type / title / content / is_read / created_at）。"""
     assert set(Notification.__table__.columns.keys()) == {
         "id",
+        "tenant_id",  # TASK-094（§61.3 多租户归属）
         "user_id",
         "type",
         "title",

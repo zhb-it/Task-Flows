@@ -24,14 +24,14 @@ pytest -q --cov --cov-report=term-missing   # 1095 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-093 重测）**：1136 passed / 68 个测试文件 / 1038 个 `def test_*` /
-> 2834 语句 / 99.82% 行、99.54% 分支。
+> **当前基线（快照 2026-09-16，TASK-094 重测）**：1175 passed / 69 个测试文件 / 1055 个 `def test_*` /
+> 2879 语句 / 99.83% 行、99.55% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1136 个用例全部通过**，0 failed / 0 error / 0 skipped（68 个测试文件，1038 个
-  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **4m**。
+- **1175 个用例全部通过**，0 failed / 0 error / 0 skipped（69 个测试文件，1055 个
+  `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **5m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
   （TASK-088 实现增量：`tests/test_health.py` 新建 16 项——四端点正常路径、
@@ -57,6 +57,11 @@ ruff check .                               # All checks passed!
   DB 约束集成（slug UNIQUE、CHECK 拒绝非法状态/slug/配额）/ 平台管理端点端到端
   （创建/详情/列表分页/部分更新/状态机白名单/终态 409/slug 冲突 409/403/404）；
   另同步 5 处 RBAC 种子计数用例 22 → 23（新增 `tenant:manage`）。）
+  （TASK-094 增量 39 项：`tests/test_tenant_columns.py` 新建——元数据断言 / 真实库
+  结构断言 / 跨租户同名正反用例 / FK RESTRICT / DB DEFAULT 桥接 / 回填幂等与零孤儿 /
+  ContextVar 注入优先与显式赋值优先；另同步 12 处既有用例——6 处列集断言加
+  `tenant_id`、2 处 users 唯一断言改复合约束、3 处附件 key 断言租户前缀、1 处
+  存储根目录断言。）
    （TASK-088 登记增量：护栏反向用例 2 项——已勾选前沿的连续性；`tests/test_readme.py` 的
    「全部任务已完成」断言随企业化规划换性质为「有未勾选任务时 README 不得声称无未完成任务」。）
   （演进：TASK-062 完成当时为 956 passed / 59 个文件 / 869 个 `def test_*`；
@@ -70,16 +75,16 @@ ruff check .                               # All checks passed!
 
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
-| `app/api/v1`（Router） | 342 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志/指标） | 562 | 2 | 130 | 99.64% 行 / 100% 分支 |
+| `app/api/v1`（Router） | 343 | 0 | 4 | 100% |
+| `app/core`（配置/安全/中间件/日志/指标/租户上下文） | 589 | 2 | 138 | 99.66% 行 / 100% 分支 |
 | `app/crud` | 374 | 0 | 30 | 100% |
-| `app/db`（engine / session / redis） | 46 | 0 | 8 | 100% |
-| `app/models` | 258 | 0 | 0 | 100% |
+| `app/db`（engine / session / redis） | 47 | 0 | 8 | 100% |
+| `app/models` | 272 | 0 | 0 | 100% |
 | `app/schemas` | 119 | 0 | 0 | 100% |
-| `app/services` | 818 | 3 | 214 | 99.63% 行 / 99.53% 分支 |
+| `app/services` | 822 | 3 | 218 | 99.63% 行 / 99.54% 分支 |
 | `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
 | `app/main.py`（含健康探针族与 /metrics） | 76 | 0 | 4 | 100% |
-| **TOTAL** | **2834** | **5** | **432** | **99.82% 行 / 99.54% 分支** |
+| **TOTAL** | **2879** | **5** | **444** | **99.83% 行 / 99.55% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与
@@ -95,12 +100,16 @@ ruff check .                               # All checks passed!
 > **1104**（TASK-092：`tests/test_docs_consistency.py` 补 9 项——纯脚本/文档层，
   `app/` 语句数与覆盖不变）→
 > **1136**（TASK-093：`tests/test_tenant_model.py` 32 项 + `tenants` 全链五模块
-  127 语句，全部 100% 覆盖；分支 420 → 432 来自租户模块判定）。
+  127 语句，全部 100% 覆盖；分支 420 → 432 来自租户模块判定）→
+> **1175**（TASK-094：`tests/test_tenant_columns.py` 39 项 + 12 个业务模型加
+  `tenant_id` 声明 + `tenant_context.py` 27 语句（100% 覆盖）+ `storage.build_key`
+  租户段；语句 2834 → 2879，分支 432 → 444 全部来自租户列与 build_key 判定）。
 > TASK-062 完成当时的基线是 956 passed / 2373 语句。
 >
-> **TASK-088~093 更新（2026-09-16）**：上表为 TASK-093 重测值（`tenants` 五模块
-> models/schemas/crud/services/api 共 127 语句，全部 100% 覆盖；总语句 2707 → 2834）。
-> 分支 420 → 432 全部来自租户模块；`core`/`db`/`tasks`/`main` 数字与 TASK-091 相同。
+> **TASK-088~094 更新（2026-09-16）**：上表为 TASK-094 重测值（12 个业务模型各加
+> `tenant_id` 声明、`core` 增 `tenant_context.py`、`db.session` 挂接事件注册、
+> `storage.build_key` 租户段与 `attachment` 调用点；总语句 2834 → 2879）。分支
+> 432 → 444 全部来自租户列与 build_key 判定；`tenant_context.py` 27 语句 100% 覆盖。
 
 **未覆盖行（5 处）**：
 

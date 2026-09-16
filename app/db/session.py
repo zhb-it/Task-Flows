@@ -15,6 +15,11 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import get_settings
 
+# 租户上下文（TASK-094 骨架 / TASK-095 完整版）：import 即注册 flush
+# 注入事件（ContextVar 显式租户优先于 DB 列 DEFAULT）——必须挂在一个
+# 所有 DB 使用路径都会加载的模块上，测试直连 SessionFactory 也生效。
+from app.core import tenant_context as _tenant_context  # noqa: F401
+
 settings = get_settings()
 
 engine = create_async_engine(

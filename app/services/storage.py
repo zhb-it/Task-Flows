@@ -107,15 +107,25 @@ def validate_key(key: str) -> str:
     return key
 
 
-def build_key(task_id: int, *, suffix: str = "") -> str:
-    """按 ``tasks/{task_id}/{random}{suffix}`` 生成相对 key。
+def build_key(tenant_id: int, task_id: int, *, suffix: str = "") -> str:
+    """按 ``tenants/{tenant_id}/tasks/{task_id}/{random}{suffix}`` 生成相对 key。
 
     **随机名策略**：磁盘上的文件名与用户提供的 ``filename`` 完全解耦，用户
     可控字符串不参与路径构造，从根上消灭「用文件名做穿越」这一类问题；
     原始文件名只作为展示字段存在数据库里。
 
+    **租户分目录**（TASK-094，§61.3）：key 以 ``tenants/{tenant_id}/`` 为
+    前导段——不同租户的物理文件彼此隔离，为按租户迁移/清理存储（乃至
+    对象存储的租户级桶/前缀策略）留出结构。存量旧 key（``tasks/...``）
+    读取不受影响：下载按 DB 记录的 key 定位，不重算。
+
+    ``tenant_id`` 必须为正整数（归属列 NOT NULL，TASK-094 起恒有值）；
     ``suffix`` 由调用方从已校验的白名单扩展名给出（含点号，如 ``.png``）。
     """
+    if not isinstance(tenant_id, int) or tenant_id <= 0:
+        raise UnsafeStorageKeyError("tenant_id must be a positive integer")
+    if not isinstance(task_id, int) or task_id <= 0:
+        raise UnsafeStorageKeyError("task_id must be a positive integer")
     token = secrets.token_hex(16)
     safe_suffix = ""
     if suffix:
@@ -124,7 +134,7 @@ def build_key(task_id: int, *, suffix: str = "") -> str:
         if not re.match(r"^\.[A-Za-z0-9]{1,16}$", candidate):
             raise UnsafeStorageKeyError("illegal suffix passed to build_key")
         safe_suffix = candidate.lower()
-    return f"tasks/{task_id}/{token}{safe_suffix}"
+    return f"tenants/{tenant_id}/tasks/{task_id}/{token}{safe_suffix}"
 
 
 class LocalStorageBackend:

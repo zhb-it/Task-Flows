@@ -71,6 +71,7 @@ def test_projects_column_set():
     cols = {c.name for c in Project.__table__.columns}
     assert cols == {
         "id",
+        "tenant_id",  # TASK-094
         "name",
         "description",
         "team_id",

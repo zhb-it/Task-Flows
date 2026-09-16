@@ -346,7 +346,7 @@
   - 验收标准：迁移 upgrade/downgrade 往返无损；CHECK 约束拒绝非法状态；slug 冲突 409；平台管理员可创建/停用租户。
   - 测试要求：离线模型断言（列集、约束、索引）+ DB 集成（UNIQUE 冲突、CHECK 拒绝、状态机白名单、级联行为）。
 
-- [ ] TASK-094 业务表租户化与存量回填
+- [x] TASK-094 业务表租户化与存量回填
   - 目标：把 `tenant_id` 落到全部需要归属的业务表，并给出存量数据的一次性归属方案。
   - 依赖：TASK-093。
   - 涉及文件：`app/models/*.py`（业务模型）、`migrations/versions/*_add_tenant_id.py`（新建）、`migrations/versions/*_backfill_default_tenant.py`（新建）、`tests/test_tenant_columns.py`（新建）、`docs/DB_SCHEMA.md`。
