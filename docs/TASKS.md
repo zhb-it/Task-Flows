@@ -153,6 +153,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；项目三页面真实渲染并接后端；被后端卡住处界面明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，项目页只做结构与四门校验验证。
 
+- [x] TASK-072 任务模块（规格 §20~§27「任务列表 / 创建 / 详情 / 看板 / 编辑 / 流转 / 分配」）
+  - 目标：实现任务模块四个页面（列表 / 创建 / 详情 / 看板），全部走真实后端端点；对后端没有的跨项目「我的任务」全局视图做诚实降级（不编造接口）。
+  - 依赖：TASK-065~071（`taskApi`/`projectApi`/`teamApi` 已就绪）。
+  - 涉及文件：`src/types/task.ts`（新建：Task/TaskCreate/TaskUpdate/TaskTransition/TaskListParams + 状态机/枚举标签）、`src/api/task.ts`（新建：listTasks/getTask/createTask/updateTask/deleteTask/transitionTask/listAssignees/addAssignee/removeAssignee）、`src/views/task/TaskList.vue`（表格+客户端搜索+优先级/状态筛选+排序+分页）、`src/views/task/TaskBoard.vue`（HTML5 拖拽看板走 transition 端点）、`src/views/task/TaskDetail.vue`（transition 下拉/编辑抽屉/分配成员/删除）、`src/views/task/TaskCreate.vue`（创建表单无 status/assignee）。
+  - 实现要求：① `GET /tasks` 的 `project_id` 必填（无默认值），列表/看板均为「按项目」作用域；跨项目「我的任务」后端无端点（`§4-D7/D8`·`§6-Q2`），页面用「项目选择器 + assignee_id=当前用户」诚实表达、顶部 `el-alert` 明示，不伪造全局端点；② 状态流转只能走 `POST /tasks/{id}/transition`（状态机 `TRANSITIONS` 白名单仅前端提示，真实合法性以后端为准；`task:transition` 功能权限 admin-only，普通成员流转可能 403，由请求层提示）；看板拖拽临时移动、失败回滚；③ `TaskCreate` 无 `status`/`assignee`，创建后 `POST /tasks/{id}/assignees` 指派，负责人下拉来自 `GET /teams/{team_id}/members`（`team_id` 取自 `ProjectRead`）；④ 评论/附件/日志标签为阶段 9/10/13 占位（PagePlaceholder），不编造后端不存在的评论/附件/日志端点。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；任务四页面真实渲染并接后端；被后端卡住处界面明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，任务页只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

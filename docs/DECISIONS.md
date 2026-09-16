@@ -463,5 +463,15 @@
 
 - Trade-off：① 项目卡片暂时看不到成员数/任务数/进度，也看不到状态；待后端补「跨项目任务统计 / project.status」后补；② 普通 member 仍会看到「删除项目」按钮（点击命中 403，提示由请求层给出）；③ 项目不可改所属团队（schema 无 team_id 变更端点），设置页 team_id 只读展示。均在 §7 标注。
 
+## Decision 051：任务模块按真实端点实现，状态流转严格走 transition 端点、跨项目「我的任务」诚实降级（TASK-072）
+
+- Problem：规格 §20~§27 要求任务列表/创建/详情/看板/编辑/流转/分配。但后端契约有三处与规格 §20 图示不符：① `GET /tasks` 的 `project_id` **必填**（无默认值，`app/api/v1/tasks.py`），因此不存在规格 §5 设想的跨项目「我的任务」全局页——该视图后端无端点（`§4-D7/D8`·`§6-Q2`）；② `status` 字段**不可由 `PATCH` 修改**，状态流转只能走 `POST /tasks/{id}/transition`（状态机 `app/services/state_machine.py::TRANSITIONS`），且 `task:transition` 功能权限在种子数据里是 admin-only（§4-D11），普通成员流转会 403；③ `TaskCreate` 无 `status`/`assignee` 字段（新任务恒为 TODO、创建者恒为调用者），负责人只能创建后 `POST /tasks/{id}/assignees` 添加。
+
+- Decision：四页面全部接真实端点（`taskApi` 封装 `listTasks / getTask / createTask / updateTask / deleteTask / transitionTask / listAssignees / addAssignee / removeAssignee`）。**列表/看板均为「按项目」作用域**：`project_id` 来自下拉（我的项目 `GET /projects`），并用「`assignee_id = 当前用户`」表达「我的任务」——跨项目全局视图不实现、页顶 `el-alert` 明示，不伪造 `/tasks?assignee_id=me` 之类端点。**状态流转只走 transition 端点**：看板用原生 HTML5 拖拽，落点目标状态先过前端 `TRANSITIONS` 白名单（仅作友好提示），实际调用 `POST /tasks/{id}/transition`，成功才落位、失败回滚原位，且 403/409 由请求层统一提示——前端白名单永不替代后端校验。**负责人指派**：创建表单不含 assignee，创建后调用 `addAssignee`，下拉候选人来自 `GET /teams/{team_id}/members`（`team_id` 取自 `ProjectRead`）。**评论/附件/日志标签**为阶段 9/10/13 占位（PagePlaceholder），不编造后端不存在的评论/附件/日志端点。
+
+- Reason：① 同 DECISIONS 047~050——诚实优于伪造，`GET /tasks` 的 `project_id` 必填是硬约束，跨项目「我的任务」需后端补「`project_id` 可选 + 跨项目」端点，当下用「项目选择器 + assignee_id」是当前唯一不自造接口的表达；② `PATCH` 改 `status` 后端会拒绝（状态机单点），前端严守 transition 才是正确契约，避免「前端改了 status 但后端没流转、审计与状态机双双失真」的分裂；③ `task:transition` 功能权限 admin-only 导致的 403 是后端裁决，前端不预隐藏流转按钮（§4-D4 立场），只做友好提示与回滚；④ 负责人必须从团队成员里选（任务归属团队，见 050 归属链），复用团队成员接口是事实来源，不发明 `GET /tasks/{id}/candidates`。
+
+- Trade-off：① 全局「我的任务」视图暂缺，只能逐项目查看；② 普通成员对任务做状态流转会命中 403（提示已由请求层给出，且看板拖拽已回滚）；③ 创建任务后需额外一次指派请求才能设负责人（schema 设计如此，非前端漏做）；④ 评论/附件/日志页暂为占位，待阶段 9/10/13 接真实端点。均在 §7 标注。
+
 
 
