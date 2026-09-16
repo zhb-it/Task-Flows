@@ -309,7 +309,8 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 | 评论（任务详情内） | 阶段 9 | — | **已实现（TASK-073）**：任务详情内评论区块接 `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`；`CommentRead` 内嵌 `username` 直接渲染作者名、textarea 限 2000 字；删除按钮按 `comment.user_id === 当前用户` 数据驱动显示（规格 §28「删除自己的评论」）；**功能级 `comment:delete` 种子仅 admin 持有且先于资源级判定执行，普通成员删自己的评论也会 403**（§4-D11），由请求层提示、前端不臆测权限集隐藏按钮（见 DECISIONS 052） |
 | 附件（任务详情内） | 阶段 10 | — | **已实现（TASK-074）**：任务详情内附件区块接 `POST/GET /tasks/{task_id}/attachments`、`GET/DELETE /attachments/{id}`；上传 `multipart` 字段名 `file` + 扩展名（后端白名单）/10 MiB 预检 + 进度条；下载走新增的 `http.getBlob`（响应是文件流非信封）+ 临时 `<a download>` 保存；删除按钮按 `uploader_id === 当前用户` 数据驱动（成员有 `attachment:upload`，可删自家附件）；前端预检仅为即时反馈，413/415 仍以后端裁决（见 D13、DECISIONS 053） |
 | 通知列表 | 阶段 11 | — | **已实现（TASK-075）**：收件箱接 `GET /notifications`（skip/limit）+「全部/未读/已读」客户端三页签（D9 无 `is_read` 筛选参数）、单条/全部标记已读经 `stores/notification.ts` 同步顶栏铃铛、分页仅「上一页/下一页」（无 total）；「点击通知跳转对应资源」按 §4-D15 诚实降级——`NotificationRead` 无 link/resource_id 字段，不解析正文猜 id，顶部 `el-alert` 明示（见 DECISIONS 054） |
+| 权限模块（个人中心内） | 阶段 12 | D4/Q1（无权限集合端点） | **已实现（TASK-076，能力审计 + 唯一真实落点）**：§69 六项中「403 页面」「路由认证守卫（`guards.ts`）」「权限判断工具（`utils/permission.ts` + `usePermission.ts`，10 项单测）」阶段 1/2 已具备；「按权限的菜单/按钮/路由控制」**不做**——权限集合恒为空且不据此隐藏任何入口（§4-D4、规格 §35「隐藏按钮 ≠ 安全」），后端 403/404 兜底，待后端补「我的权限集合」端点（§6-Q1）再接线；「用户角色」以唯一诚实形态落地——个人中心「我的团队与角色」区块（`GET /teams` + `GET /teams/{id}/members` 数据驱动，owner/admin/member 按团队展示、单团队失败显示「未知」；全局角色后端不暴露），见 DECISIONS 055 |
 | 操作日志 | 阶段 13 | — |
 
-已完成并接真实后端的页面：**登录、注册、个人中心（只读部分）**，以及主框架的
+已完成并接真实后端的页面：**登录、注册、个人中心（资料 + 我的团队角色）**，以及主框架的
 导航、面包屑、用户菜单与通知铃铛。
