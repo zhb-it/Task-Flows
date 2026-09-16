@@ -211,6 +211,16 @@
   - 验收标准：`typecheck`/`lint`/`build` 全绿；`test` 全绿且用例数 37 → **70**（8 个 spec 文件）。
   - 测试要求：新用例全部为纯逻辑/纯 store 测试，不依赖真实后端；§71 的组件测试与 E2E 按真实组件形态与既定口径降级（见 DECISIONS 057），不在本 TASK 伪造。
 
+## Phase 14：前端部署（规格 §59 阶段 15 / §56）
+
+- [x] TASK-079 前端镜像与生产栈接入（规格 §59「阶段 15 Docker / Nginx」/ §56「生产环境架构」）
+  - 目标：前端以多阶段构建产出静态镜像（node 构建 → nginx 托管 dist），接入 TASK-060 的生产栈——入口 Nginx 按 §56 分流：`/` → 前端镜像、`/api/` → FastAPI，暴露面维持「只有 Nginx 对外」。
+  - 依赖：TASK-078（四门全绿的构建产物）、后端 TASK-060（生产栈唯一入口 nginx、固定子网 172.28.0.0/24 与 `tests/test_nginx_config.py` 契约）。
+  - 涉及文件：`frontend/Dockerfile`、`frontend/nginx.conf`、`frontend/.dockerignore`（新建）；`nginx/nginx.conf`、`docker-compose.prod.yml`（接入）；`tests/test_nginx_config.py`、`tests/test_prod_compose.py`（契约演进）。
+  - 实现要求：① `frontend/Dockerfile` 多阶段（node:22-alpine 执行 `npm ci` + `npm run build` → nginx:1.27-alpine 只携带 dist 与 frontend/nginx.conf），基础镜像钉版本；② `frontend/nginx.conf` 只做静态托管——history 回退（`try_files ... /index.html`，路由是 `createWebHistory`）、`/assets/` 按 content hash 永久缓存、index.html no-cache、安全头；**不做 API 反代**（安全语义只有入口一份拷贝）；③ 入口 `nginx/nginx.conf`：新增 `upstream frontend_backend`，原 `location /` 的应用反代整体挪进 `location /api/`（前端基地址即 `/api/v1`），新 `location /` 转发前端；④ compose 增加 `frontend` 服务（构建自 `./frontend`、镜像 `taskflow-frontend:prod`、不发布宿主端口、healthcheck 探自有 `/nginx-health`、restart always + 日志轮转），nginx `depends_on` 增加 frontend healthy；⑤ 契约测试演进：`proxy_pass` 路由表断言（`/api/`→app、`/`→frontend）、`keepalive` 两条、frontend 服务/文件层断言（多阶段 FROM 钉版本、SPA 回退、前端层无 proxy_pass、.dockerignore 排除 node_modules/dist）。
+  - 验收标准：配置契约测试（`test_nginx_config.py` + `test_prod_compose.py`）全绿；全量后端回归无新增失败；`taskflow-frontend:prod` 镜像在本机 Docker 真实构建成功；生产栈冒烟验证 `/` 返回 SPA 入口、`/api/v1` 链路可用、暴露面仅 nginx、`down -v` 零残留。
+  - 测试要求：本 TASK 不新增应用逻辑代码，测试 = 静态契约测试 + 真实 Docker 构建/冒烟；前端四门（typecheck/lint/test/build）不因新增部署文件受影响（不跑在前端门禁内）。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

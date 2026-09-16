@@ -156,7 +156,7 @@ Refresh Token 也失效时：清空本地凭证 → 由路由层跳 `/login` 并
 
 当前已交付：**阶段 1（项目初始化）+ 阶段 2（基础框架）+ 阶段 3（认证）+ 阶段 5（Dashboard）+
 阶段 6（团队）+ 阶段 7（项目）+ 阶段 8（任务）+ 阶段 9（评论）+ 阶段 10（附件）+
-阶段 11（通知）+ 阶段 12（权限）+ 阶段 13（操作日志）+ 阶段 14（测试：单元测试 70 项 / 8 文件）**。
+阶段 11（通知）+ 阶段 12（权限）+ 阶段 13（操作日志）+ 阶段 14（测试：单元测试 70 项 / 8 文件）+ 阶段 15（部署：多阶段构建镜像 + 生产栈 Nginx 托管，TASK-079）**。
 
 - Dashboard（TASK-069）：`GET /teams`、`GET /projects`、`GET /notifications`、`GET /logs`
   驱动统计卡片与「最近通知 / 最近项目」两列表；规格 §11.2 的「任务统计」与全局「最近任务」
@@ -170,4 +170,19 @@ Refresh Token 也失效时：清空本地凭证 → 由路由层跳 `/login` 并
 - 附件（TASK-074）：任务详情内附件区块（上传 / 列表 / 下载 / 删除自己的上传）；
   上传字段名 `file`、按扩展名白名单预检、10 MiB 上限；下载走 `http.getBlob`（响应是文件流非信封）。
 
-剩余阶段（Docker / Nginx 部署、性能优化等工程向）按 §59 顺序继续。
+剩余阶段（性能优化：按需引入压缩主 chunk 等工程向收尾）按 §59 顺序继续。
+
+### 部署（TASK-079，前端规格 §56 / §59 阶段 15）
+
+```bash
+# 单独构建前端镜像（node:22-alpine 构建 → nginx:1.27-alpine 托管 dist）
+docker build -t taskflow-frontend:prod ./frontend
+
+# 或随生产栈整体构建/启动（docker-compose.prod.yml 的 frontend 服务）
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
+
+生产链路：入口 Nginx（唯一对外）按 §56 分流——`/` → 前端镜像（静态托管：
+history 回退 + hash 资源永久缓存），`/api/` → FastAPI。`frontend/nginx.conf`
+只做静态托管，不做 API 反代；安全语义（X-Forwarded-For 覆盖写入等）只在
+入口 `nginx/nginx.conf` 一份拷贝。细节见 DECISIONS 058。

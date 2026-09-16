@@ -8,10 +8,12 @@
 #   3) 换对外端口（与开发栈并行验证、或宿主 80 被占用时）：
 #        NGINX_HTTP_PORT=8080 docker compose -f docker-compose.prod.yml --env-file .env up -d
 #
-# 暴露面（TASK-060 后）：**只有 Nginx 对外**。
-#   Client → nginx(host:${NGINX_HTTP_PORT:-80}) → app(:8000, 仅 compose 内网)
-#                                                  ↘ celery_worker
-#                                                  ↘ postgres / redis（均不发布端口）
+# 暴露面（TASK-079 后）：**只有 Nginx 对外**，入口按路径分流（前端规格 §56）：
+#   Client → nginx(host:${NGINX_HTTP_PORT:-80})
+#              ├── /      → frontend(:80, Vue SPA 静态镜像, 仅 compose 内网)
+#              └── /api/  → app(:8000, 仅 compose 内网)
+#                             ↘ celery_worker
+#                             ↘ postgres / redis（均不发布端口）
 #
 # 与开发版 `docker-compose.yml` 的差异（理由见 DECISIONS 039 / 040）
 #   1. 独立 compose 项目名 `taskflow-prod`：网络与数据卷与开发栈完全隔离，
@@ -160,8 +162,30 @@ services:
     # （TASK-051 / §24），因此即使超时被强杀，重投也不会产生重复副作用。
     stop_grace_period: 30s
 
-  # Nginx 反向代理（TASK-060；§31）：生产的**唯一**对外入口。
-  #   Client → nginx → app(Gunicorn + UvicornWorker) → FastAPI
+  # 前端 SPA（TASK-079；前端规格 §56 / §59 阶段 15）：多阶段构建的静态镜像。
+  #   阶段 1 node:22-alpine 执行 npm ci + vite build；阶段 2 nginx:1.27-alpine
+  #   只携带 dist 产物与 frontend/nginx.conf（构建细节见该 Dockerfile 注释）。
+  # 与 app 同理**不发布宿主端口**：它只被入口 Nginx 转发访问
+  #（test_nginx_is_the_only_service_publishing_host_ports 钉死「唯一对外是 nginx」）。
+  # 也不挂任何卷：dist 在镜像里，配置在镜像里，重建镜像即完成前端发版。
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: taskflow-frontend:prod
+    healthcheck:
+      # 探自有的 /nginx-health（frontend/nginx.conf 提供），不依赖文件系统，
+      # 与入口 Nginx 的探针同一思路：只回答「这一层还活着」。
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging: *default-logging
+    restart: always
+
+  # Nginx 反向代理（TASK-060 反代接入 / TASK-079 前端接入；§31 / 前端规格 §56）：
+  # 生产的**唯一**对外入口，按路径分流 /api/ → app、/ → frontend。
   # 它承担 §31 的五项职责：反向代理、请求体大小限制、基础超时、基础安全 Header，
   # 以及「静态附件访问」——最后一项在本项目里被有意实现为**不直出**（附件是私有
   # 资源，直出会绕过 TASK-043 的鉴权），理由见 nginx/nginx.conf 顶部注释与
@@ -182,7 +206,10 @@ services:
       - "${NGINX_HTTP_PORT:-80}:80"
     depends_on:
       app:
-        # 等 app 健康再起入口，否则入口刚起来的几秒里所有请求都是 502。
+        # 等 app 健康再起入口，否则入口刚起来的几秒里所有 /api 请求都是 502。
+        condition: service_healthy
+      frontend:
+        # 同理：等前端镜像健康再开入口，否则开站头几秒 / 是 502。
         condition: service_healthy
     healthcheck:
       # 探 Nginx 自有的 /nginx-health（不依赖上游）。刻意不探 /health：

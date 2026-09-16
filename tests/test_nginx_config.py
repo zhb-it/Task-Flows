@@ -141,7 +141,7 @@ def test_braces_are_balanced(conf_code: str) -> None:
 
 def test_required_blocks_present(conf_code: str) -> None:
     """一份可独立替换 ``/etc/nginx/nginx.conf`` 的配置必须自带这些块。"""
-    for block in ("events", "http", "server", "upstream app_backend"):
+    for block in ("events", "http", "server", "upstream app_backend", "upstream frontend_backend"):
         assert re.search(rf"^\s*{re.escape(block)}\s*\{{", conf_code, re.MULTILINE), (
             f"缺少 {block} 块"
         )
@@ -159,9 +159,35 @@ def test_upstream_targets_the_app_service(conf_code: str, prod_services: dict) -
     assert int(port) == APP_PORT
 
 
-def test_single_reverse_proxy_location(conf_code: str) -> None:
-    """§31「反向代理」：location / 把请求整体转给 upstream。"""
-    assert _directives(conf_code, "proxy_pass") == ["http://app_backend"]
+def test_upstream_targets_the_frontend_service(conf_code: str, prod_services: dict) -> None:
+    """TASK-079：前端 upstream 指向 compose 的 frontend 服务，端口 80。"""
+    servers = re.findall(
+        r"^\s*server\s+([^;\n]+);", _block(conf_code, "upstream frontend_backend"), re.M
+    )
+    assert len(servers) == 1, f"upstream 应当只有一个后端: {servers}"
+    host, _, port = servers[0].strip().partition(":")
+    assert host in prod_services, f"upstream 指向了不存在的服务: {host}"
+    assert int(port) == 80
+
+
+def test_routes_split_api_and_frontend(conf_code: str) -> None:
+    """TASK-079（前端规格 §56）：``/api/`` → 应用，``/`` → 前端 SPA。
+
+    入口是**唯一**分流点：API 侧的安全语义（覆盖写入的 X-Forwarded-For、
+    请求体上限、超时、request_id）只存在于 ``location /api/`` 一处；静态侧
+    不反代 API。若有人把 ``/api`` 反代挪进前端镜像或再抄一份，两处配置漂移
+    就会把安全语义撕开——这里钉死「分流只发生在这两个 location」。
+    """
+    assert _directives(conf_code, "proxy_pass") == [
+        "http://app_backend",
+        "http://frontend_backend",
+    ]
+    api_block = _block(conf_code, "location /api/")
+    assert "http://app_backend" in api_block
+    assert "frontend_backend" not in api_block
+    root_block = _block(conf_code, "location /")
+    assert "http://frontend_backend" in root_block
+    assert "app_backend" not in root_block
 
 
 def test_only_plain_http_and_no_tls_material(conf_code: str) -> None:
@@ -249,7 +275,19 @@ def test_no_static_file_serving_directives(conf_code: str) -> None:
 def test_connection_header_cleared_for_upstream_keepalive(conf_code: str) -> None:
     """upstream keepalive 生效的前提：请求头 ``Connection`` 必须置空。"""
     assert _headers(conf_code, "proxy_set_header")["Connection"] == '""'
-    assert _directives(conf_code, "keepalive") == ["32"]
+    assert _directives(conf_code, "keepalive") == ["32", "32"]
+
+
+def test_forwarded_for_only_in_api_location(conf_code: str) -> None:
+    """TASK-079：覆盖写入的 ``X-Forwarded-For`` 必须且只出现在 ``/api/`` 块里。
+
+    静态前端不需要真实客户端 IP 做安全决策；把它抄进 ``/`` 块等于给一份
+    安全语义开了第二份拷贝，将来其中一份被改动就会静默漂移。
+    """
+    api_block = _block(conf_code, "location /api/")
+    assert re.search(r"proxy_set_header\s+X-Forwarded-For\s+\$remote_addr;", api_block)
+    root_block = _block(conf_code, "location /")
+    assert "X-Forwarded-For" not in root_block
 
 
 # ---------------------------------------------------------------------------
@@ -348,9 +386,15 @@ def test_nginx_config_is_mounted_read_only(prod_services: dict) -> None:
 
 
 def test_nginx_waits_for_healthy_app(prod_services: dict) -> None:
-    """等 app healthy 再起入口：否则入口启动的头几秒所有请求都是 502。"""
+    """等 app healthy 再起入口：否则入口启动的头几秒所有 /api 请求都是 502。"""
     depends = prod_services["nginx"]["depends_on"]
     assert depends["app"]["condition"] == "service_healthy"
+
+
+def test_nginx_waits_for_healthy_frontend(prod_services: dict) -> None:
+    """TASK-079：同理，入口也要等前端镜像健康再开站（否则头几秒 / 是 502）。"""
+    depends = prod_services["nginx"]["depends_on"]
+    assert depends["frontend"]["condition"] == "service_healthy"
 
 
 def test_nginx_healthcheck_uses_local_endpoint(prod_services: dict, conf_code: str) -> None:
@@ -443,3 +487,87 @@ def test_env_example_documents_proxy_settings() -> None:
         "TRUSTED_PROXY_IPS",
     ):
         assert key in text, f".env.example 未提及 {key}"
+
+
+# ---------------------------------------------------------------------------
+# 5. 前端接入（TASK-079；前端规格 §56 / §59 阶段 15）
+# ---------------------------------------------------------------------------
+
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+FRONTEND_DOCKERFILE = FRONTEND_DIR / "Dockerfile"
+FRONTEND_NGINX_CONF = FRONTEND_DIR / "nginx.conf"
+FRONTEND_DOCKERIGNORE = FRONTEND_DIR / ".dockerignore"
+
+
+def test_prod_has_frontend_service(prod_services: dict) -> None:
+    """前端规格 §56：生产栈要有承载 Vue 静态文件的服务。"""
+    assert "frontend" in prod_services
+
+
+def test_frontend_builds_from_its_own_directory_with_pinned_tag(prod_services: dict) -> None:
+    """构建上下文是 frontend/、镜像用独立 tag（与开发栈 / app 镜像互不串用）。"""
+    service = prod_services["frontend"]
+    assert service["build"]["context"] == "./frontend"
+    assert service["build"]["dockerfile"] == "Dockerfile"
+    assert service["image"] == "taskflow-frontend:prod"
+    assert not service["image"].endswith(":latest")
+
+
+def test_frontend_publishes_no_host_port(prod_services: dict) -> None:
+    """前端与 app 同理只在内网被入口转发；「唯一对外是 nginx」不许破。"""
+    assert "ports" not in prod_services["frontend"]
+
+
+def test_frontend_image_files_exist() -> None:
+    """§59 阶段 15 的三个交付文件必须存在且非空。"""
+    for path in (FRONTEND_DOCKERFILE, FRONTEND_NGINX_CONF, FRONTEND_DOCKERIGNORE):
+        assert path.is_file() and path.read_text(encoding="utf-8").strip(), f"{path} 缺失或为空"
+
+
+def test_frontend_dockerfile_is_multi_stage_with_pinned_bases() -> None:
+    """多阶段构建 + 基础镜像钉版本（node 与本地开发一致、nginx 与入口同线）。"""
+    text = FRONTEND_DOCKERFILE.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    froms = re.findall(r"^FROM\s+(\S+)", code, re.M)
+    assert froms == ["node:22-alpine", "nginx:1.27-alpine"], f"FROM 阶段异常: {froms}"
+    # 依赖按 lockfile 安装（构建可复现），产物与配置进运行时阶段。
+    assert "npm ci" in code
+    assert "COPY --from=build /app/dist" in code
+    assert "COPY nginx.conf /etc/nginx/nginx.conf" in code
+
+
+def test_frontend_nginx_conf_is_static_only_with_spa_fallback() -> None:
+    """前端镜像的 nginx 只做静态托管：有 SPA 回退，但**不反代**。
+
+    API 反代（含全部安全头语义）收敛在入口 ``nginx/nginx.conf`` 的
+    ``/api/`` location；若有人在本层再抄一份 ``proxy_pass``，同一条安全
+    语义就有了第二份会漂移的拷贝。
+    """
+    text = FRONTEND_NGINX_CONF.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    # history 模式路由（router/index.ts 用 createWebHistory）必须有回退。
+    assert "try_files" in code and "/index.html" in code
+    assert not re.search(r"^\s*proxy_pass\s", code, re.M), "前端层不应出现 API 反代"
+    assert _directives(code, "server_tokens") == ["off"]
+    # 带 hash 的构建产物可永久缓存；入口壳不缓存（发版即刻生效）。
+    # 单条 Cache-Control（expires 指令会另追加一条造成重复头，禁用）。
+    assets_block = _block(code, "location /assets/")
+    assert "immutable" in assets_block and "max-age=31536000" in assets_block
+    assert not re.search(r"^\s*expires\s", assets_block, re.M)
+    root_block = _block(code, "location /")
+    assert "no-cache" in root_block
+    # add_header 继承规则：带缓存头的 location 必须重复声明安全头（nosniff 等）。
+    for header in ("X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"):
+        assert header in assets_block and header in root_block, f"{header} 在缓存 location 中丢失"
+
+
+def test_frontend_dockerignore_excludes_node_modules_and_dist() -> None:
+    """构建上下文里不许有 node_modules（平台相关二进制）/ dist（应现场构建）。"""
+    text = FRONTEND_DOCKERIGNORE.read_text(encoding="utf-8")
+    entries = {line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")}
+    assert "node_modules" in entries
+    assert "dist" in entries

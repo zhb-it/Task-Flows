@@ -34,11 +34,12 @@ PROD_COMPOSE = PROJECT_ROOT / "docker-compose.prod.yml"
 DEV_COMPOSE = PROJECT_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 
-#: 生产栈应有的服务（TASK-060 起包含 nginx —— 它是 §31 要求的唯一对外入口）。
-EXPECTED_SERVICES = {"app", "celery_worker", "nginx", "postgres", "redis"}
+#: 生产栈应有的服务（TASK-060 起包含 nginx——它是 §31 要求的唯一对外入口；
+#: TASK-079 起包含 frontend——前端规格 §56 的 Vue 静态镜像，仍只在 compose 内网）。
+EXPECTED_SERVICES = {"app", "celery_worker", "nginx", "frontend", "postgres", "redis"}
 
 #: 需要健康检查的服务——缺了健康检查，depends_on 的 service_healthy 条件就形同虚设。
-SERVICES_WITH_HEALTHCHECK = {"app", "celery_worker", "nginx", "postgres", "redis"}
+SERVICES_WITH_HEALTHCHECK = {"app", "celery_worker", "nginx", "frontend", "postgres", "redis"}
 
 #: 允许挂载宿主路径的**唯一**例外：nginx 的配置文件（只读）。
 #:

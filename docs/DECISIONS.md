@@ -531,3 +531,16 @@
 
 - Trade-off：① 视图层（四个业务页面的交互细节）没有自动化覆盖，回归靠四门门禁 + 人工冒烟；② E2E 缺位使「注册 → 登录 → Dashboard」全链路只有后端测试与前端路由单测两段式保证，中间的集成缝隙（信封解包、令牌轮换在真实浏览器里的表现）未自动化——待安全策略允许后可在阶段 15/16 补 Playwright；③ 测试数基线 37 → 70，TASKS.md 历史条目里的「37 单测不变」是**当时**的验收口径，不改史，新基线以本条与 `docs/TESTING.md` 为准。
 
+## 058 前端镜像与生产栈接入：入口统一分流，前端镜像只做静态托管（TASK-079）
+
+- Date：2026-09-16
+- Context：前端规格 §59 阶段 15（Docker / Nginx）与 §56「生产环境架构」要求 Nginx 下 `/` 出 Vue 静态文件、`/api/` 反代 FastAPI；而后端 TASK-060 已确立「生产唯一对外入口是 nginx 服务」（固定子网 172.28.0.0/24 + X-Forwarded-For 覆盖写入 + 契约测试交叉校验）。两套架构要合成一个栈。
+- Decision：
+  1. **入口统一分流**：`/api/` → app（原有安全语义整体平移进这个 location），`/` → 新增 frontend 服务（frontend/Dockerfile 多阶段构建：node:22-alpine 执行 `npm ci` + `vite build` → nginx:1.27-alpine 只携带 dist 与 frontend/nginx.conf）。frontend/nginx.conf **不做**任何 `proxy_pass`——X-Forwarded-For 覆盖写入、请求体上限、request_id 串联这些安全语义只在入口一份拷贝，不会被两处配置漂移撕开（test_routes_split_api_and_frontend 钉死）。
+  2. **frontend 服务不发布宿主端口**：与 app 同理只在内网被入口转发，暴露面维持「只有 Nginx 对外」的结构保证（test_nginx_is_the_only_service_publishing_host_ports 自动覆盖新服务）。
+  3. **镜像内自包含构建**：构建搬进 Dockerfile 而不是宿主构建后 COPY 产物——生产栈禁止挂宿主目录（TASK-059 契约），dist 是产物必须随镜像走；npm ci 按 package-lock.json 的 resolved（npmmirror）安装，不依赖构建机环境。
+  4. **`/health`、`/docs` 不再对外**：TASK-060 时代 `location /` 全量转 app 顺带暴露了它们；分流后 `/api/` 之外全归 SPA（未命中回退 index.html）。app 的 `/health` 只剩容器内 healthcheck 消费；外部存活性看 nginx 自有的 `/nginx-health`。这是暴露面的**收敛**而非功能缺失。
+- 冒烟实测修掉的两个坑（都有测试钉住防回归）：
+  1. `/assets/` 404：root 只写在 `location /` 里，nginx 的编译默认 root 并不指向官方镜像放文件的 `/usr/share/nginx/html` → root 必须提为 **server 级**声明；
+  2. 重复 Cache-Control：`expires 1y` 会自己追加一条 Cache-Control，与 `add_header Cache-Control` 叠成两条 → 合并为单条显式 `public, max-age=31536000, immutable`。
+- Trade-off：① 入口 → frontend 多一跳反代（静态文件本地转发，本机量级开销可忽略，换来的是路由与安全语义单点化）；② 镜像内构建依赖容器网络可达 npmmirror（离线/受控环境需自建代理或私有仓库）；③ SPA 的 index.html 标 no-cache，每次进站都回源校验——换来发版即刻生效，避免旧壳引用已删除的旧 hash 资源白屏。

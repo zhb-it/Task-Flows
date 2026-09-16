@@ -1,13 +1,13 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-078 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~078）。
+Completed——`docs/TASKS.md` 中 TASK-001 ~ TASK-079 全部勾选，无未完成任务（后端 TASK-001~064 + 前端 TASK-065~079）。
 
 ## Current Phase
-Phase 13：前端测试（规格 §59 阶段 14 / §71）
+Phase 14：前端部署（规格 §59 阶段 15 / §56）
 
 ## Current Task
-TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71 单元测试部分）：§71 重点五项中补齐 format / composables / stores 三个缺口（permission 与 storage/request 已具备）——新建 tests/unit/format.spec.ts、composables-usePermission.spec.ts、store-auth.spec.ts、store-notification.spec.ts 共 33 项，用例数 37 → 70（8 个 spec）；钉住四条契约：format 空值/非法降级与 1024 进制、usePermission 权限集合恒为空（D4）、auth store 令牌唯一来源是 storage + 登录失败不留半截状态 + 登出不阻塞、notification store 预览必须 silent + 未读数前端统计；§71 组件测试与 E2E 按真实组件形态与既定口径降级（DECISIONS 057）
+TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：frontend 多阶段构建镜像（node 构建 → nginx 托管 dist）+ 入口 Nginx 按 §56 分流（/ → 前端、/api/ → FastAPI），暴露面维持「只有 Nginx 对外」。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -88,6 +88,7 @@ TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71 单元测试部
 - [x] TASK-076 权限模块（规格 §34/§35/§36/§69，阶段 12：能力审计 + 唯一真实落点——个人中心「我的团队与角色」区块（GET /teams + GET /teams/{id}/members 数据驱动展示 owner/admin/member，单团队独立容错）；403 页面/路由认证守卫/权限判断工具阶段 1/2 已具备；按权限的菜单/按钮/路由控制受 D4/Q1 阻塞不做（权限集合恒空、不据此隐藏入口，规格 §35「隐藏按钮 ≠ 安全」），待后端补端点再接线；见 DECISIONS 055）
 - [x] TASK-077 操作日志（规格 §32/§44，阶段 13：OperationLogList.vue 占位替换为真实日志页——GET /logs 当前用户时间线（skip/limit，limit 上限 100，无 total）；操作类型/时间筛选做在当前已取回的页（后端无筛选参数，D16）；分页仅「上一页/下一页」；操作人列与 IP 列因后端不返回相应数据无法展示、页面明示；payload 按 action 收窄（三种已知 action，未知 JSON 兜底）；types/log.ts 补 action/资源类型中文标签，api/log.ts 补 listResourceLogs）
 - [x] TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71：新建 format / composables-usePermission / store-auth / store-notification 四个 spec 共 33 项，37 → 70（8 文件）；format 空值/非法降级 + 相对时间五档边界（vi.setSystemTime）+ 文件大小 1024 进制；usePermission 钉住权限集合恒为空（§4-D4）；auth store 钉住令牌唯一来源、登录失败不留半截状态、登出撤销失败不阻塞；notification store 钉住 silent 预览、未读数前端统计、已读同步；组件测试与 E2E 降级口径登记 DECISIONS 057）
+- [x] TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56：frontend 多阶段构建镜像 node:22-alpine 构建 → nginx:1.27-alpine 托管 dist；入口 Nginx 分流 / → 前端、/api/ → FastAPI；compose 增 frontend 服务不发布宿主端口；契约测试演进后 68 项全绿，本机真实构建 + 冒烟：SPA 深链回退、hash 资源单条 immutable 缓存头 + gzip、/api/v1 注册/登录/users/me/notifications 全通、暴露面仅 nginx:18081、down -v 零残留；冒烟修两坑——/assets/ root 需 server 级声明、expires 与 add_header Cache-Control 重复头合并）
 
 ## In Progress
 - [ ]
@@ -97,6 +98,7 @@ TASK-078 前端单元测试补齐（规格 §59 阶段 14 / §71 单元测试部
 
 ## Next
 
+无——TASK-001 ~ TASK-079 全部交付（后端 TASK-001~064、前端 TASK-065~079），`docs/TASKS.md` 中已无未勾选任务。前端规格 §59 仅剩阶段 16（优化：按需引入压缩主 chunk 等工程向收尾），将在后续轮次登记 TASK-080 起；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。
 无——TASK-001 ~ TASK-078 全部交付（后端 TASK-001~064、前端 TASK-065~078），`docs/TASKS.md` 中已无未勾选任务。前端规格 §59 仅剩阶段 15（Docker / Nginx：前端多阶段构建镜像、dist 交 nginx 托管，接入既有生产栈）与 阶段 16（优化：按需引入压缩主 chunk 等工程向收尾），将在后续轮次登记 TASK-079 起；已知降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16、组件测试/E2E 口径 DECISIONS 057）均待后端补端点或环境解除限制后自然消解。无——TASK-001 ~ TASK-077 全部交付（后端 TASK-001~064、前端 TASK-065~077），`docs/TASKS.md` 中已无未勾选任务。前端业务页面规格 §59 阶段 5~13（Dashboard/团队/项目/任务/评论/附件/通知/权限/日志）至此全部完成，剩余阶段（14+：测试报告、Nginx 部署、性能优化等）属工程与部署向，按 §59 顺序在后续轮次登记 TASK-078 起；已知的降级项（权限集合端点 D4/Q1、跨项目任务统计 D7/D8/Q2、通知跳转 D15、日志筛选 D16）均待后端补端点后自然消解。无——TASK-001 ~ TASK-076 全部交付（后端 TASK-001~064、前端 TASK-065~076），`docs/TASKS.md` 中已无未勾选任务。前端后续业务页面（规格 §59 的阶段 13~16：日志 / 测试 / Nginx / 优化）将在后续轮次按 §59 顺序登记 TASK-077 起；其中阶段 13 操作日志页接 `GET /logs` 即可、无已知阻塞项。
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。
@@ -414,7 +416,9 @@ TASK-047 完成限流测试（**Phase 8 第 3 个任务，纯测试任务，未�
 - `migrations/versions/6765bdcfa73e_add_task_search_indexes_and_search_vector.py`（**新建**，autogenerate 后手工调整）：`CREATE EXTENSION IF NOT EXISTS pg_trgm` **先于**建索引（`gin_trgm_ops` 这个 operator class 由扩展提供，顺序反了会直接报错）；`op.add_column` 建生成列；两个 `create_index`。`downgrade` **逆序**（先索引、后列）且**刻意不 `DROP EXTENSION`**——扩展是数据库级对象，一次表级回滚不应连带拆掉可能被别处依赖的全局扩展，配合 `IF NOT EXISTS` 保持幂等可重放。
 - `tests/test_task_search_indexes.py`（**新建**，14 项）：三层守护——**离线声明层**（生成列 `persisted=True`、表达式含 `to_tsvector('simple'` 与 title/description、`insert(Task).values(...)` 编译结果不含 `search_vector`、两个索引的 GIN/`gin_trgm_ops` 声明）；**真实落库层**（`pg_extension` 有 `pg_trgm`、`is_generated='ALWAYS'` 且 `data_type='tsvector'`、`pg_indexes` 定义含 `USING gin (search_vector)` 与 `gin_trgm_ops`、插入任务后 DB 自动填好且 description 也在向量里、改标题后向量自动重算）；**执行计划层**（`ILIKE '%login%'` 走 `ix_tasks_title_trgm`、中文 `ILIKE '%登录缺陷%'` 同样走它、`search_vector @@ tsquery` 走 `ix_tasks_search_vector`）。
 - `tests/test_task_search_indexes.py::test_chinese_substring_matches_ilike_but_not_the_full_text_index`：把「`keyword` 继续走 `ILIKE`」的**依据**固化成断言——`to_tsvector('simple')` 不做中文分词，`修复登录缺陷` 会成为**单个 token**，于是 `to_tsquery('simple','登录')` 命中 0 条而 `ILIKE '%登录%'` 命中 1 条。若将来有人把 `keyword` 改到 `search_vector` 上，中文检索会静默失效，此断言立刻变红。pg_trgm 按字符组切分、与语言无关，这才是中文场景可用的组合。
-- `scripts/check_docs.py`（**新建**）：把「核验 `docs/PROGRESS.md`」变成一条可执行命令（退出码 0/1 + 逐条打印矛盾）。校验 6 条不变量：`## Current Task` 以 `TASK-NNN` 开头且该任务存在并已勾选；`## Completed` 与 `docs/TASKS.md` 的已勾选任务**集合与顺序都相同**；`## Completed` 的**最后一条**就是 `## Current Task`（这条正是四次事故的落点）；`## Next` 指向 TASKS.md 中第一个未勾选任务；`## Current Phase` 与 Current Task 所属 Phase 一致；结构坏掉（解析不出任务条目/缺章节）不得静默通过。
+- `scripts/check_docs.py`（**新建**）：把「核验 `docs/PROGRESS.md`」变成一条可执行命令（退出码 0/1 + 逐条打印矛盾）。校验 6 条不变量：`## Current Task
+TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：frontend 多阶段构建镜像（node 构建 → nginx 托管 dist）+ 入口 Nginx 按 §56 分流（/ → 前端、/api/ → FastAPI），暴露面维持「只有 Nginx 对外」。` 以 `TASK-NNN` 开头且该任务存在并已勾选；`## Completed` 与 `docs/TASKS.md` 的已勾选任务**集合与顺序都相同**；`## Completed` 的**最后一条**就是 `## Current Task
+TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：frontend 多阶段构建镜像（node 构建 → nginx 托管 dist）+ 入口 Nginx 按 §56 分流（/ → 前端、/api/ → FastAPI），暴露面维持「只有 Nginx 对外」。`（这条正是四次事故的落点）；`## Next` 指向 TASKS.md 中第一个未勾选任务；`## Current Phase` 与 Current Task 所属 Phase 一致；结构坏掉（解析不出任务条目/缺章节）不得静默通过。
 - `tests/test_docs_consistency.py`（**新建**，12 项）：第一层断言**仓库真实的两个文档一致**（CI 的 pytest 会在每次提交时执行，等于自动门禁）；第二层用**合成文档**构造 9 种矛盾（Completed 少最后一条 / 漏中间条目 / Next 指回已完成 / Phase 不匹配 / Current Task 未勾选 / Current Task 不存在 / 章节内容丢了 `TASK-NNN` 前缀 / 缺章节 / 无任务条目），断言检查器**真的会报出来**——没有这一层，一个「永远返回空列表」的假检查器也能让第一层通过，那正是本项目在别处踩过的假绿。
 - `tests/test_task_model.py`：`test_tasks_column_set` 的列集断言加入 `search_vector`（tasks 表合法地多了一列，TASK-031 的严格相等断言必须同步）。
 - `.github/workflows/ci.yml`：把注释里写死的「13 个迁移」改为「全部迁移」，避免新增迁移后注释立刻过期。

@@ -1,0 +1,17 @@
+# TASK-079：前端镜像构建上下文瘦身。
+# node_modules 必须排除——npm ci 在容器内按 lockfile 重装（宿主目录含平台
+# 相关二进制，直接拷进去会产出不可复现的镜像）；dist 必须排除——它是构建
+# 产物，让多阶段构建在容器内现场生成（挂宿主产物会绕过「镜像自带代码」）。
+node_modules
+dist
+coverage
+tests
+*.log
+.npm-cache
+.env
+.env.*
+!.env.example
+.vscode
+.idea
+Dockerfile
+.dockerignore
