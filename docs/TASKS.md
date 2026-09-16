@@ -137,6 +137,14 @@
   - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；Dashboard 真实渲染团队/项目/通知/日志概览；被后端卡住的部分在界面明示。
   - 测试要求：沿用现有 `tests/unit/` 四类单测（storage/permission/request/router）门禁；网络层 mock 留待规格 阶段14 测试阶段统一实装，本阶段不新增伪造后端行为的组件测试。
 
+- [x] TASK-070 团队模块（规格 §12/§13/§14/§15「团队列表 / 详情 / 成员管理」）
+  - 目标：实现团队模块三个页面，全部走真实后端端点；对后端没有的能力做诚实降级（不编造接口）。
+  - 依赖：TASK-065~069（框架、请求层、类型与 API 模块约定；`teamApi`/`projectApi` 已就绪）。
+  - 涉及文件：`src/types/team.ts`（扩展 Team/TeamCreate/TeamUpdate/TeamMember/TeamMemberInvite）、`src/api/team.ts`（扩展 createTeam/getTeam/updateTeam/deleteTeam/listMembers/inviteMember/removeMember）、`src/views/team/TeamList.vue`（列表+创建+客户端搜索+删除）、`src/views/team/TeamDetail.vue`（详情：基本信息/成员/项目/编辑设置+任务统计降级提示）、`src/views/team/TeamMembers.vue`（成员表格+邀请+移除）。
+  - 实现要求：① 列表 `GET /teams`、创建 `POST /teams`、删除 `DELETE /teams/{id}`（删除按钮仅对 `owner_id === 当前用户` 显示，数据驱动非猜权限）；② 详情 `GET /teams/{id}`+`GET /teams/{id}/members`+`GET /projects` 按 `team_id` 过滤展示项目，「任务统计」受 `§4-D7/D8`·`§6-Q2` 阻塞，页面提示条明示不编造；③ 成员管理 `GET/POST /teams/{id}/members`、`DELETE /teams/{id}/members/{user_id}`，邀请按 `user_id`（非邮箱，见 `§4-D6`）、role 仅 admin/member；④ 当前用户角色从成员列表 `role` 字段读取，驱动「邀请/移除/编辑」按钮显隐（数据驱动，不依赖不存在的权限集合端点，见 `§4-D4`）；⑤ 后端没有「修改成员角色」端点，「角色调整」走「移除后重邀」，页面已注明。
+  - 验收标准：`typecheck`/`lint`/`test`/`build` 四项全绿（37 单测不变）；团队三个页面真实渲染并接后端；被后端卡住处界面明示。
+  - 测试要求：沿用现有 `tests/unit/` 四类单测门禁；端到端登录态渲染仍受本机安全策略（口令字面量）拦截，按既定口径不绕过，团队页只做结构与四门校验验证。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。
