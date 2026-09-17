@@ -1,7 +1,7 @@
 # TaskFlow Pro 当前进度
 
 ## Project Status
-Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~092（全部 5 项）；Phase 19 已交付 TASK-093~095。
+Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TASK-065~080 + RBAC 闭环 TASK-081~084 + 找人体验与占位清理 TASK-085~087）；Phase 18 已交付 TASK-088~092（全部 5 项）；Phase 19 已交付 TASK-093~096（RBAC 租户化随 TASK-096 收官，全量回归基线待本轮确认）。
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
@@ -9,7 +9,7 @@ Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TAS
 Phase 19：多租户地基（TASK-093~100）
 
 ## Current Task
-TASK-095 租户上下文与数据访问作用域——认证依赖注入请求级租户 ContextVar（finally 还原，含跨 task LookupError 兜底）；应用层统一作用域收口 ORM 事件层（do_orm_execute 对带 tenant_id 的具体 mapper 逐类挂 with_loader_criteria，CRUD 零改动；before_flush 写入注入延续 094）；RLS 兜底 = 迁移 b8d4f2a6c9e1（12 表 ENABLE+FORCE RLS + 策略 tenant_isolation + app.current_tenant_id/rls_bypass 函数 + 运行时角色 taskflow_app）+ after_begin 事务级 GUC（有租户写 app.tenant_id、无上下文写 app.tenant_bypass）+ enforce_tenant_guc 在已开启事务内翻转；绕过作用域唯一显式出口 bypass_tenant_scope()（进入即审计日志）。compose 三服务运行时连接切 taskflow_app；DEPLOYMENT 迁移命令改超管显式 URL。RBAC 租户化属 TASK-096。
+TASK-096 RBAC 租户化与种子按租户复制——三表 roles / role_permissions / user_roles 加 `tenant_id`（RESTRICT FK + 前导索引 + TenantScoped 三道防线继承），全局唯一 `roles_name_key` 改为租户内唯一 `uq_roles_tenant_name`，权限目录 permissions 保持全局；`app/core/rbac_data.py` 集中权限常量（22 项不含 tenant:manage、member 10 项）；`app/services/rbac_seed.py` 的 `seed_tenant_rbac(db, tenant_id)` 幂等播种（置 ContextVar → 翻 GUC → 按 name 查租户内角色缺失才建并绑定）；迁移 c2d4e6f8a0b1（加列回填默认租户置 NOT NULL → 删全局唯一建租户内唯一 → 三表 ENABLE+FORCE RLS + 策略 tenant_isolation）；接线点 auth.register_user 绑 member、tenant.create_tenant_with_checks 建租户即播种、`me/permissions` 返回当前租户内有效权限；`tenant:manage` 平台权限仅默认（bootstrap）租户 admin 持有，普通租户 admin 不持此权限。
 
 ## Completed
 - [x] TASK-001 初始化 Git 与 Python 项目骨架
@@ -107,6 +107,7 @@ TASK-095 租户上下文与数据访问作用域——认证依赖注入请求�
 - [x] TASK-093 租户模型与生命周期（`app/models/tenant.py` + 迁移 c7d1e8f4a2b6（建表 + tenant:manage 种子）+ schemas/crud/services/api 骨架；状态机白名单 active↔suspended、→deleted 单向；slug 冲突 409、deleted 终态 409；`tests/test_tenant_model.py` 31 项（离线模型 + DB 约束集成 + 平台管理端点端到端）；探针库全链路 16 down / 16 up 往返无损；DECISIONS 065）
 - [x] TASK-094 业务表租户化与存量回填（迁移 f1a2c3d4e5b6（12 表加可空 tenant_id + FK RESTRICT + 前导索引）+ a9b7c5d3e1f0（默认租户回填 + users 复合唯一 + 置 NOT NULL + 写入桥接 DEFAULT，幂等可重放、downgrade 数据不还原）；`app/core/tenant_context.py` 骨架；附件 key 租户分目录；`tests/test_tenant_columns.py` 38 项（元数据/库结构/跨租户同名正反用例/RESTRICT/回填幂等/零孤儿/ContextVar 注入优先）；探针库全链路 18 down / 18 up 往返无损；DECISIONS 066）
 - [x] TASK-095 租户上下文与数据访问作用域（`app/core/tenant_context.py` 完整版：请求级 ContextVar + do_orm_execute 统一查询作用域（mapper 遍历挂 with_loader_criteria，CRUD 零改动）+ before_flush 注入 + after_begin 事务级 GUC + bypass_tenant_scope 唯一显式出口（审计日志）；迁移 b8d4f2a6c9e1：12 表 ENABLE+FORCE RLS + 策略 tenant_isolation + app schema 函数 + 运行时角色 taskflow_app（compose 三服务切换，DEPLOYMENT 迁移改超管 URL）；deps.get_current_user 改 yield 依赖注入租户并翻转 GUC；`tests/test_tenant_isolation.py` 29 项（离线接线/作用域/GUC/ContextVar 并发/RLS SET ROLE 实证 fail-closed+WITH CHECK+越租户 UPDATE 零行/API 越权矩阵 8 端点 404+正向对照）；探针库 19 down / 19 up 往返无损；DECISIONS 067
+- [x] TASK-096 RBAC 租户化与种子按租户复制（roles / role_permissions / user_roles 三表加 `tenant_id` + RESTRICT FK + 前导索引 + 继承 TenantScoped；全局 `roles_name_key` 改租户内唯一 `uq_roles_tenant_name`；permissions 保持全局；`app/core/rbac_data.py` 集中权限常量（22 项不含 `tenant:manage`、member 10 项）；`app/services/rbac_seed.py` 的 `seed_tenant_rbac(db, tenant_id)` 幂等播种（置 ContextVar → 翻 GUC → 按 name 查租户内角色缺失才建并绑定）；迁移 c2d4e6f8a0b1（加列 → 默认租户回填置 NOT NULL → 删全局唯一建租户内唯一 → 三表 ENABLE+FORCE RLS + 策略 tenant_isolation）；auth.register_user 绑 member、tenant.create_tenant_with_checks 建租户即播种、`me/permissions` 返回当前租户内有效权限；`tenant:manage` 仅默认租户 admin 持有；`tests/test_rbac_tenant.py` 5 项 + test_tenant_isolation.py/test_rbac_model.py/test_tenant_columns.py/test_tenant_model.py 同步；DECISIONS 068）
 
 ## In Progress
 - [ ]
@@ -116,9 +117,9 @@ TASK-095 租户上下文与数据访问作用域——认证依赖注入请求�
 
 ## Next
 
-TASK-096 RBAC 租户化（Phase 19 第四个任务，角色与授权关系带租户、种子按租户复制）
+TASK-097 认证与租户绑定（Phase 19 第五个任务，令牌携带租户声明 + 多租户登录/切换语义）
 
-TASK-001~095 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-096（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
+TASK-001~096 已全部交付；TASK-088 起为 Phase 18~23 企业化规划，共 40 项、按 Phase 分批实施。第一个未勾选任务是 TASK-097（`## Next` 必须指向它，这是 `scripts/check_docs.py` 的第 4 条不变量）。
 
 ## 部署状态
 Docker 全栈已启动并验证：taskflow-app(:8000) / taskflow-postgres(宿主 5433→5432) / taskflow-redis(宿主 6389→6379) 均 healthy；`GET /health` 返回 `{"status":"ok","database":"up","redis":"up"}`。

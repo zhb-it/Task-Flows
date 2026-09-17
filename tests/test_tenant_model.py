@@ -32,6 +32,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     delete,
+    select,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -43,7 +44,7 @@ from app.crud.user import create_user
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Tenant, User
+from app.models import Role, RolePermission, Tenant, User, UserRole
 from app.models.tenant import ALLOWED_TENANT_TRANSITIONS, TENANT_SLUG_PATTERN
 from app.schemas.tenant import TenantUpdate
 
@@ -83,11 +84,32 @@ async def client():
 async def _cleanup():
     yield
     async with SessionFactory() as session:
-        await session.execute(
-            delete(Tenant).where(Tenant.slug.like(f"t{RUN_TOKEN}%"))
+        # TASK-096：create_tenant_with_checks 现在会为租户播种 RBAC（roles /
+        # role_permissions / user_roles 均带 tenant_id 且 RESTRICT 引用 tenants）。
+        # 直接删 Tenant 会被新加的外键拦截，故先按 slug 锁定租户 id，再按
+        # tenant_id 精确清理 RBAC 三表，最后删用户与租户本身。连接角色为
+        # postgres 超级用户，RLS 自动绕过，批量删除不受行级策略影响。
+        result = await session.execute(
+            select(Tenant.id).where(Tenant.slug.like(f"t{RUN_TOKEN}%"))
         )
+        tenant_ids = [row[0] for row in result]
+        if tenant_ids:
+            await session.execute(
+                delete(RolePermission).where(
+                    RolePermission.tenant_id.in_(tenant_ids)
+                )
+            )
+            await session.execute(
+                delete(UserRole).where(UserRole.tenant_id.in_(tenant_ids))
+            )
+            await session.execute(
+                delete(Role).where(Role.tenant_id.in_(tenant_ids))
+            )
         await session.execute(
             delete(User).where(User.username.like(f"tenant93_{RUN_TOKEN}%"))
+        )
+        await session.execute(
+            delete(Tenant).where(Tenant.slug.like(f"t{RUN_TOKEN}%"))
         )
         await session.commit()
 

@@ -362,10 +362,10 @@
   - 验收标准：A 租户令牌请求 B 租户资源一律 404（与既有「不存在/无权不可区分」契约一致）；故意构造漏加条件的查询仍被 RLS 拦住；平台管理员跨租户查询走显式出口且被审计。
   - 测试要求：跨租户越权矩阵（读写删 × A→B）；RLS 兜底用例（直连库设 `app.tenant_id` 验证策略）；ContextVar 并发不串号。
 
-- [ ] TASK-096 RBAC 租户化
+- [x] TASK-096 RBAC 租户化
   - 目标：把当前**全局**的 admin/member 角色体系改成租户隔离——否则一个租户的 admin 能管另一个租户。
   - 依赖：TASK-095。
-  - 涉及文件：`app/models/role.py`、`app/models/user_role.py`、`app/models/role_permission.py`、`migrations/versions/*_tenantize_rbac.py`（新建）、`app/crud/role.py`、`app/crud/permission.py`、`app/services/rbac.py`、`app/api/v1/permissions.py`、`app/api/v1/users.py`、`tests/test_rbac_tenant.py`（新建）。
+  - 涉及文件：`app/models/role.py`、`app/models/user_role.py`、`app/models/role_permission.py`、`app/core/rbac_data.py`（新建：22 权限/角色常量，不含平台权限 tenant:manage）、`app/services/rbac_seed.py`（新建：seed_tenant_rbac 幂等播种）、`migrations/versions/c2d4e6f8a0b1_tenant_scoped_rbac.py`（新建）、`app/crud/role.py`、`app/crud/permission.py`、`app/services/rbac.py`、`app/services/auth.py`（注册绑定默认租户 member）、`app/services/tenant.py`（创建租户后自动播种）、`app/api/v1/permissions.py`、`app/api/v1/users.py`、`tests/test_rbac_tenant.py`（新建）。
   - 实现要求：① 角色与授权关系带 `tenant_id`；② 种子（admin/member + 22 项权限）按租户复制，新租户创建时自动播种；③ `GET /users/me/permissions` 返回**当前租户内**的有效权限集合；④ 权限矩阵端点只看本租户；⑤ 平台管理员不自动获得租户内权限（避免横向放大）。
   - 验收标准：租户 A 的 admin 对租户 B 的资源无任何额外能力；新租户创建后立即有完整种子；切换租户时 `me/permissions` 结果随之变化。
   - 测试要求：跨租户角色越权矩阵；种子播种幂等；`me/permissions` 与 `require_permission` 同一数据源断言（延续 TASK-083 的口径）。

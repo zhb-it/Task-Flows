@@ -651,3 +651,15 @@
   4. **运行时数据库角色 taskflow_app（RLS 生效的前提）**：超级用户按语义始终绕过 RLS，应用继续以 postgres 连接则兜底形同虚设。迁移创建 `taskflow_app`（LOGIN，密码开发缺省 `taskflow_app`，生产轮换）+ schema/表/序列授权 + 默认权限；compose 三个运行时服务（app/celery_worker/celery_beat）的 `DATABASE_URL` 切到该角色。迁移与测试夹具保持超管（迁移要建角色/策略；1170+ 用例的 teardown 清理不能被 fail-closed 拦截）——RLS 的真实拦截由专项用例 `SET ROLE taskflow_app` 实证（fail closed / WITH CHECK 拒插 / 越租户 UPDATE 零行 / bypass 放行）。角色是集群级对象：downgrade 在同服务器其他库仍持其授权时保留角色（NOTICE 点名），仅回收当前库授权。
   5. **绕过作用域的唯一显式出口 = `bypass_tenant_scope()`**：集中定义于 `app/core/tenant_context.py`，进入即记 WARNING 审计日志（含调用点），离开即恢复；它同时关闭应用层过滤与 RLS bypass GUC。本 TASK 无生产消费方（tenants 平台管理端点操作的 tenants 表本就不参与租户作用域）；首个消费者是 TASK-096 的平台管理员语义——届时跨租户查询必须经由它，不允许在查询里手写跨租户条件。
 - Consequence：租户内请求的应用层查询、写入与 RLS 三层同源（同一 ContextVar），「CRUD 零改动」使 1170+ 既有用例零语义漂移（全绿）；代价是每事务多一条 `SET LOCAL` 往返、yield 依赖的 ContextVar 还原需处理跨 task 的 `LookupError`、以及部署面新增「运行时角色必须先由迁移创建」的顺序依赖（先迁移后启动，本来就是既有前提）。TASK-097 令牌绑定租户后，认证租户来源将从 `user.tenant_id` 换成令牌声明，本模块接口不变。
+
+## 068 RBAC 租户化：角色/授权关系带 tenant_id、种子按租户复制、平台权限隔离（TASK-096）
+
+- Date：2026-09-16
+- Context：§61.3.4 要求角色与授权关系带租户；TASKS-096 要求①角色与授权关系带 tenant_id；②种子（admin/member + 22 项权限）按租户复制、新租户创建时自动播种；③ `me/permissions` 返回当前租户内有效权限；④权限矩阵只看本租户；⑤平台管理员不自动获租户内权限。未定稿：存量全局 admin/member 角色与绑定的归属；`tenant:manage` 平台权限落在哪里；海量既有测试直接调 `assign_role_to_user` 在 `tenant_id NOT NULL` 下如何不破裂。
+- Decision：
+  1. **三表带 tenant_id + TenantScoped，permissions 保持全局目录**：`roles` / `role_permissions` / `user_roles` 加 `tenant_id` FK→`tenants` RESTRICT + 前导索引，继承 `TenantScoped`（与业务表同一道作用域与 RLS）；`permissions` 表不复制（权限定义是平台能力面，全局一份）。`roles.name` 的全局 UNIQUE 改为租户内唯一 `uq_roles_tenant_name`。
+  2. **种子常量集中在 `app/core/rbac_data.py`**：`ALL_PERMISSIONS` = 22 项（开发文档 §6），**不含**平台权限 `tenant:manage`；`ROLE_PERMISSIONS` 映射 `admin`=22、`member`=10（10 项子集）。`seed_tenant_rbac(db, tenant_id)` 幂等：置租户上下文 → 翻转 GUC → 按 name 查租户内角色，缺失才建并绑定（flush-only，事务边界交调用方）。
+  3. **平台权限隔离（DECISIONS 062 落地）**：`tenant:manage` 只授予默认租户（bootstrap 租户）的 admin——由 `c7d1e8f4a2b6` 在全局 admin 上绑定、本迁移回溯回填后归属默认租户；`seed_tenant_rbac` 与 `ROLE_PERMISSIONS` **刻意不含** `tenant:manage`，故普通租户 admin 永远无法跨租户管理。
+  4. **迁移 `c2d4e6f8a0b1`**：三表加列（可空 → 回填默认租户 → NOT NULL，零孤儿断言）→ `roles` 唯一约束切换 → 三表 `ENABLE + FORCE RLS` + 策略 `tenant_isolation`（同 `b8d4f2a6c9e1` 的 GUC 语义）。downgrade 反向、数据不还原。
+  5. **接线点**：`register_user` 置默认租户上下文 + 翻转 GUC 后查/绑 `member`；`create_tenant_with_checks` 创建后调 `seed_tenant_rbac` 并同事务提交；conftest 加 autouse 默认租户上下文夹具（`test_tenant_isolation` / `test_rbac_tenant` 自建引擎、自管上下文，被该夹具跳过，清理走 no-context bypass）。
+- Consequence：每租户独立 admin/member 与授权，越租户角色不可见（RLS 实证）；代价是 RBAC 三表每条写都要租户上下文（`before_flush` 注入），且既有 1175+ 用例靠默认租户夹具零改动通过；`tenant:manage` 仅默认租户持有，是平台 bootstrap 语义、不向新租户扩散。

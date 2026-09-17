@@ -21,11 +21,80 @@ TASK-046 引入的 `RateLimitMiddleware` 对**每个** `/api/v1` 请求生效。
 因此覆盖率不受影响。
 """
 
+import os
+
 import pytest
+import pytest_asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.tenant_context import (
+    reset_current_tenant_id,
+    set_current_tenant_id,
+)
+from app.models.tenant import Tenant
 
 import app.services.task as task_service
+
+#: 与直连测试文件一致的默认测试库（宿主 5433）；可通过 DATABASE_URL 覆盖。
+_TEST_DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/taskflow"
+)
+_DEFAULT_TENANT_SLUG = "default"
+
+
+@pytest_asyncio.fixture(scope="module")
+async def _rbac_test_engine():
+    """模块级引擎：仅供默认租户上下文夹具查询默认租户 id，连接复用。"""
+    engine = create_async_engine(_TEST_DATABASE_URL, poolclass=NullPool)
+    yield engine
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _default_tenant_context(request, _rbac_test_engine):
+    """所有测试默认运行在**默认租户**上下文（TASK-096 租户化 RBAC 后必需）。
+
+    RBAC 三表（roles / role_permissions / user_roles）现在带 tenant_id 且受
+    ``before_flush`` 注入约束——不显式置租户上下文时新建角色/授权会因 tenant_id
+    为 NULL 触发表约束。本夹具把 ContextVar 置为默认租户 id，使直连 CRUD 的
+    测试（如 ``test_rbac_crud`` 的 ``create_role``）与原先「全局 RBAC」语义等价。
+
+    幂等/安全：查不到默认租户（如未迁移的库）时退化为不设置上下文；离线单测
+    不受影响。每个测试结束还原 ContextVar。
+
+    例外：``tests/test_tenant_isolation.py`` 显式断言「无租户上下文」行为
+    （TASK-095 的越权隔离实证），其用例自行管理 ContextVar，故本夹具对该
+    模块跳过，避免污染其 no-context 断言与跨租户种子。
+    """
+    if request.module is not None and request.module.__name__.endswith(
+        ("test_tenant_isolation", "test_rbac_tenant")
+    ):
+        yield
+        return
+    try:
+        async with async_sessionmaker(
+            _rbac_test_engine, expire_on_commit=False
+        )() as s:
+            tenant_id = (
+                await s.execute(
+                    select(Tenant.id).where(Tenant.slug == _DEFAULT_TENANT_SLUG)
+                )
+            ).scalar_one_or_none()
+    except Exception:  # noqa: BLE001 — 连不上库时退化为不置上下文，绝不拖垮测试
+        tenant_id = None
+
+    if tenant_id is None:
+        yield
+        return
+
+    token = set_current_tenant_id(tenant_id)
+    try:
+        yield
+    finally:
+        reset_current_tenant_id(token)
 
 
 @pytest.fixture(autouse=True)

@@ -2,8 +2,9 @@
 
 五组：
 
-1. **离线接线**——12 个业务模型继承 ``TenantScoped``、RBAC/tenants 模型
-   不继承；作用域事件函数在位（行为在 2/3 组实证）；``bypass_tenant_scope``
+1. **离线接线**——12 个业务模型 + RBAC 角色/授权关联表（Role/UserRole/
+   RolePermission）继承 ``TenantScoped``；permissions 与 tenants 是全局/平台
+   实体不继承；作用域事件函数在位（行为在 2/3 组实证）；``bypass_tenant_scope``
    进入/离开与审计日志。
 2. **应用层统一作用域**（真实库）——ContextVar 有租户时 ORM SELECT 自动
    过滤（CRUD 零改动）；无上下文不过滤；显式出口放开；``before_flush``
@@ -147,6 +148,8 @@ async def _cleanup_rows() -> None:
             TeamMember,
             Team,
             RefreshToken,
+            RolePermission,
+            Role,
         ):
             await session.execute(delete(model).where(model.tenant_id.in_(tenant_ids)))
         # RBAC 关联表无租户列，按本运行创建的用户删。
@@ -189,9 +192,15 @@ def test_all_tenant_business_models_inherit_mixin():
 
 
 def test_rbac_and_tenant_models_do_not_inherit_mixin():
-    """RBAC 与 tenants 表不是租户归属实体——不得被作用域过滤。"""
-    for model in (Role, Permission, UserRole, RolePermission, Tenant):
+    """permissions 与 tenants 是全局/平台实体——不得被作用域过滤。
+
+    而 Role / UserRole / RolePermission 自 TASK-096 起带 tenant_id（每租户
+    独立授权），必须继承 TenantScoped。
+    """
+    for model in (Permission, Tenant):
         assert not issubclass(model, TenantScoped), model.__name__
+    for model in (Role, UserRole, RolePermission):
+        assert issubclass(model, TenantScoped), model.__name__
 
 
 def test_scope_event_functions_present_and_session_module_imports_context():
@@ -632,31 +641,52 @@ async def _seed_cross_tenant_world():
     """A/B 租户 + 各自 admin 用户 + A 租户的 team/project/task 链。
 
     返回 (ua_id, ub_id, team_id, project_id, task_id)。
+
+    TASK-096 后角色/授权是租户内实体：每个新建租户必须先播种自己的 admin/
+    member 角色（``seed_tenant_rbac``），否则 ``get_role_by_name("admin")``
+    在该租户内为空。播种与用户建连按「每租户独立提交」进行，保证租户上下文
+    （ContextVar）与事务级 GUC（``app.tenant_id``）始终一致——二者错位会被
+    RLS 的 WITH CHECK 拒绝写入。
     """
+    from app.services.rbac_seed import seed_tenant_rbac
+
     async with SessionFactory() as session:
         ta = Tenant(slug=_slug("a"), name=f"A {_PREFIX}")
         tb = Tenant(slug=_slug("b"), name=f"B {_PREFIX}")
         session.add_all([ta, tb])
-        await session.flush()
+        await session.commit()
+        ta_id, tb_id = ta.id, tb.id
+
+        # 每租户各自播种 RBAC（独立提交 → GUC 与 ContextVar 一致）。
+        await seed_tenant_rbac(session, ta_id)
+        await session.commit()
+        await seed_tenant_rbac(session, tb_id)
+        await session.commit()
 
         async def _user(tag: str, tenant_id: int) -> User:
-            u = User(
-                username=_username(tag),
-                email=f"{_username(tag)}@example.com",
-                password_hash="h",
-                tenant_id=tenant_id,
-            )
-            session.add(u)
-            await session.flush()
-            role = await get_role_by_name(session, "admin")
-            assert role is not None
-            await assign_role_to_user(session, user_id=u.id, role_id=role.id)
-            return u
+            token = set_current_tenant_id(tenant_id)
+            try:
+                u = User(
+                    username=_username(tag),
+                    email=f"{_username(tag)}@example.com",
+                    password_hash="h",
+                    tenant_id=tenant_id,
+                )
+                session.add(u)
+                await session.flush()
+                role = await get_role_by_name(session, "admin")
+                assert role is not None, f"admin role missing for tenant {tenant_id}"
+                await assign_role_to_user(session, user_id=u.id, role_id=role.id)
+                return u
+            finally:
+                reset_current_tenant_id(token)
 
-        ua = await _user("ua", ta.id)
-        ub = await _user("ub", tb.id)
+        ua = await _user("ua", ta_id)
+        await session.commit()
+        ub = await _user("ub", tb_id)
+        await session.commit()
 
-        team = Team(name=f"{_PREFIX} team", owner_id=ua.id, tenant_id=ta.id)
+        team = Team(name=f"{_PREFIX} team", owner_id=ua.id, tenant_id=ta_id)
         session.add(team)
         await session.flush()
         session.add(
@@ -664,7 +694,7 @@ async def _seed_cross_tenant_world():
                 team_id=team.id,
                 user_id=ua.id,
                 role_id=TeamRole.OWNER,
-                tenant_id=ta.id,
+                tenant_id=ta_id,
             )
         )
         project = Project(
@@ -672,7 +702,7 @@ async def _seed_cross_tenant_world():
             description=None,
             team_id=team.id,
             owner_id=ua.id,
-            tenant_id=ta.id,
+            tenant_id=ta_id,
         )
         session.add(project)
         await session.flush()
@@ -682,7 +712,7 @@ async def _seed_cross_tenant_world():
             priority=TaskPriority.HIGH,
             status=TaskStatus.TODO,
             creator_id=ua.id,
-            tenant_id=ta.id,
+            tenant_id=ta_id,
         )
         session.add(task)
         await session.commit()

@@ -32,6 +32,7 @@ def test_role_tablename():
 def test_role_columns():
     assert set(Role.__table__.columns.keys()) == {
         "id",
+        "tenant_id",
         "name",
         "description",
         "created_at",
@@ -47,9 +48,18 @@ def test_role_id_is_bigint_primary_key():
 
 def test_role_name_unique_not_null():
     col = Role.__table__.columns["name"]
-    assert col.unique is True
+    # TASK-096：name 在租户内唯一（uq_roles_tenant_name），不再是列级全局 unique。
+    # 唯一约束改为表级 UniqueConstraint，因此列对象的 .unique 为 None（而非 False）。
+    assert col.unique is None
     assert col.nullable is False
     assert isinstance(col.type, String)
+    # 复合唯一约束 (tenant_id, name) 必须在位，且 name 收窄为 String(64)。
+    constraints = [
+        c for c in Role.__table__.constraints if isinstance(c, UniqueConstraint)
+    ]
+    pairs = {tuple(c.columns.keys()) for c in constraints}
+    assert ("tenant_id", "name") in pairs
+    assert col.type.length == 64
 
 
 def test_role_description_nullable():
@@ -110,7 +120,12 @@ def test_user_role_tablename():
 
 
 def test_user_role_columns():
-    assert set(UserRole.__table__.columns.keys()) == {"id", "user_id", "role_id"}
+    assert set(UserRole.__table__.columns.keys()) == {
+        "id",
+        "tenant_id",
+        "user_id",
+        "role_id",
+    }
 
 
 def test_user_role_composite_unique():
@@ -140,6 +155,7 @@ def test_role_permission_tablename():
 def test_role_permission_columns():
     assert set(RolePermission.__table__.columns.keys()) == {
         "id",
+        "tenant_id",
         "role_id",
         "permission_id",
     }

@@ -19,18 +19,18 @@
 
 ```bash
 # 全量（与 CI 的 pytest job 同一条命令，只是多了覆盖率测量）
-pytest -q                                  # 1207 passed
-pytest -q --cov --cov-report=term-missing   # 1207 passed，并输出下表
+pytest -q                                  # 1215 passed
+pytest -q --cov --cov-report=term-missing   # 1215 passed，并输出下表
 ruff check .                               # All checks passed!
 ```
 
-> **当前基线（快照 2026-09-16，TASK-095 重测）**：1207 passed / 70 个测试文件 / 1087 个 `def test_*` /
-> 2948 语句 / 99.76% 行、99.34% 分支。
+> **当前基线（快照 2026-09-16，TASK-096 重测）**：1215 passed / 71 个测试文件 / 1092 个 `def test_*` /
+> 3001 语句 / 99.73% 行、98.94% 分支。
 > 这一行是**机器可校验的基线声明**：`scripts/check_docs.py` 会断言它与 `README.md`
 > 里同样带「当前基线」字样的那行**数字一致**——这两处最容易各自漂移且没人发现。
 > 改数字时两处一起改（检查器会指名道姓告诉你哪处没改）。
 
-- **1207 个用例全部通过**，0 failed / 0 error / 0 skipped（70 个测试文件，1087 个
+- **1215 个用例全部通过**，0 failed / 0 error / 0 skipped（71 个测试文件，1092 个
   `def test_*`，其余为参数化展开）。带覆盖率测量的全量运行约 **6~10m**。
   （TASK-081~085 增量：注册默认角色 2 项 + RBAC 管理端点契约 10 项 + 用户搜索 2 项，
   `tests/test_rbac_admin_api.py` 新建。）
@@ -76,15 +76,15 @@ ruff check .                               # All checks passed!
 | 分层 | 语句 | 未覆盖 | 分支 | 覆盖 |
 | --- | --- | --- | --- | --- |
 | `app/api/v1`（Router） | 343 | 0 | 4 | 100% |
-| `app/core`（配置/安全/中间件/日志/指标/租户上下文） | 646 | 4 | 152 | 99.38% 行 / 99.34% 分支 |
+| `app/core`（配置/安全/中间件/日志/指标/租户上下文） | 653 | 4 | 152 | 99.39% 行 / 99.34% 分支 |
 | `app/crud` | 374 | 0 | 30 | 100% |
 | `app/db`（engine / session / redis） | 47 | 0 | 8 | 100% |
-| `app/models` | 284 | 0 | 0 | 100% |
+| `app/models` | 291 | 0 | 0 | 100% |
 | `app/schemas` | 119 | 0 | 0 | 100% |
-| `app/services` | 822 | 3 | 218 | 99.63% 行 / 99.08% 分支 |
+| `app/services` | 861 | 4 | 230 | 99.54% 行 / 98.26% 分支 |
 | `app/tasks`（Celery，含 beat_schedule/信号计数） | 237 | 0 | 42 | 100% |
 | `app/main.py`（含健康探针族与 /metrics） | 76 | 0 | 4 | 100% |
-| **TOTAL** | **2948** | **7** | **458** | **99.76% 行 / 99.34% 分支** |
+| **TOTAL** | **3001** | **8** | **470** | **99.73% 行 / 98.94% 分支** |
 
 > **TASK-064 / TASK-063 更新（2026-09-15）**：上表数字是 TASK-064 完成后的实测值
 > （`models` 由 238 → 241，来自 `app/models/task.py` 新增的 `search_vector` 列与

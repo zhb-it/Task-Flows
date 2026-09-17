@@ -6,14 +6,14 @@
    FK → tenants ON DELETE RESTRICT）；users 的唯一约束租户化（复合唯一
    显式命名，列级 unique 已去）；storage ``build_key`` 租户分目录与参数
    校验。
-2. **真实库结构断言**——12 张业务表在开发库中 ``tenant_id`` NOT NULL +
-   FK（RESTRICT）+ ``tenant_id`` 前导索引在位；复合唯一在位、全局唯一
-   已删。
+2. **真实库结构断言**——15 张租户化表（12 张 TASK-094 业务表 + RBAC 三表）在
+   开发库中 ``tenant_id`` NOT NULL + FK（RESTRICT）+ ``tenant_id`` 前导索引在位；
+   复合唯一在位、全局唯一已删。
 3. **约束行为集成**——「同名跨租户可共存、同租户内冲突」的正反用例
    （§5 修订的核心语义）；FK RESTRICT（删有业务行的租户被拒）；DB 列
    DEFAULT 桥接（INSERT 不带 tenant_id 归默认租户）。
 4. **回填幂等与零孤儿**——重放回填 SQL 后行数与默认租户计数不变
-   （幂等）；12 张表 ``tenant_id IS NULL`` 计数为 0（零孤儿）。
+   （幂等）；15 张租户化表 ``tenant_id IS NULL`` 计数为 0（零孤儿）。
 
 迁移往返（upgrade head → downgrade base → upgrade head）在探针库执行，
 见 docs/PROGRESS.md 的任务条目与工作区日志；不进 pytest（需要建库权限，
@@ -56,7 +56,9 @@ RUN_TOKEN = uuid.uuid4().hex[:10]
 engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 SessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
-#: TASK-094 归属清单（与迁移 f1a2c3d4e5b6 / a9b7c5d3e1f0 一致）。
+#: TASK-094 归属清单（与迁移 f1a2c3d4e5b6 / a9b7c5d3e1f0 一致），TASK-096 起
+#: 追加 RBAC 三表（roles / role_permissions / user_roles），它们同样带
+#: tenant_id（NOT NULL + FK RESTRICT + 前导索引）。
 TENANT_TABLES = (
     "users",
     "refresh_tokens",
@@ -70,6 +72,9 @@ TENANT_TABLES = (
     "operation_logs",
     "operation_logs_archive",
     "notifications",
+    "roles",
+    "role_permissions",
+    "user_roles",
 )
 
 #: 归属清单 ↔ ORM 模型（离线断言用）。
@@ -165,7 +170,7 @@ def test_build_key_random_and_suffix_whitelist():
 
 
 async def test_db_tenant_id_not_null_fk_index():
-    """真实库：12 张业务表 tenant_id NOT NULL + FK RESTRICT + 索引在位。"""
+    """真实库：15 张租户化表 tenant_id NOT NULL + FK RESTRICT + 索引在位。"""
     async with engine.connect() as conn:
         rows = (
             await conn.execute(
@@ -495,7 +500,7 @@ async def test_backfill_is_idempotent():
 
 
 async def test_no_orphan_rows():
-    """零孤儿断言：12 张业务表 tenant_id IS NULL 计数为 0。"""
+    """零孤儿断言：15 张租户化表 tenant_id IS NULL 计数为 0。"""
     async with engine.connect() as conn:
         for tb in TENANT_TABLES:
             nulls = (

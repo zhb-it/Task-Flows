@@ -32,12 +32,19 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.core.tenant_context import (
+    DEFAULT_TENANT_SLUG,
+    enforce_tenant_guc,
+    reset_current_tenant_id,
+    set_current_tenant_id,
+)
 from app.crud.refresh_token import (
     create_refresh_token as store_refresh_token,
     get_refresh_token_by_jti,
     revoke_refresh_token,
 )
 from app.crud.role import assign_role_to_user, get_role_by_name
+from app.crud.tenant import get_tenant_by_slug
 from app.crud.user import create_user, get_user_by_email, get_user_by_username
 from app.models.user import User
 from app.schemas.auth import LoginRequest
@@ -71,30 +78,48 @@ async def register_user(db: AsyncSession, payload: UserCreate) -> User:
     # guard starting at `commit` is unreachable and the losing side of a race gets
     # a 500 instead of a 409. Found by TASK-062's real-concurrency registration
     # test — see DECISIONS 044.
-    try:
-        member_role = await get_role_by_name(db, DEFAULT_ROLE_NAME)
-        if member_role is None:
-            # 种子角色缺失说明库没升到 Alembic head——宁可当场失败（500 且
-            # 日志里点名根因），也不能静默产出一个零权限用户：那正是
-            # TASK-081 修复的缺陷，再兜底一次等于把 bug 埋回去。
-            raise RuntimeError(
-                f"Default role '{DEFAULT_ROLE_NAME}' not found — "
-                "database is not migrated to head (seed migration 0de65c197efc)"
-            )
-        user = await create_user(
-            db,
-            username=payload.username,
-            email=payload.email,
-            password_hash=hash_password(payload.password),
+    #
+    # TASK-096：自注册用户归属**默认租户**（列 DEFAULT current_default_tenant_id()
+    # 兜底），其 member 角色也必须在默认租户内解析与绑定——否则多租户下
+    # ``get_role_by_name`` 会命中别的租户的 member，或跨租户赋值被 RLS WITH CHECK
+    # 拒绝。这里显式把租户上下文置为默认租户，并翻转事务级 GUC 与之对齐。
+    default_tenant = await get_tenant_by_slug(db, DEFAULT_TENANT_SLUG)
+    if default_tenant is None:
+        # 默认租户缺失说明库没升到 Alembic head（回填迁移 a9b7c5d3e1f0）。
+        raise RuntimeError(
+            "Default tenant not found — database is not migrated to head "
+            "(migration a9b7c5d3e1f0)"
         )
-        # 与 create_user 同一事务：角色绑定失败则整个注册回滚，不留半成品。
-        await assign_role_to_user(db, user_id=user.id, role_id=member_role.id)
-        await db.commit()
-    except IntegrityError as exc:
-        # Two concurrent registrations can both pass the checks above; the DB
-        # unique constraints are the real guard, so translate the violation.
-        await db.rollback()
-        raise ConflictError("Username or email is already registered") from exc
+    prev_tenant = set_current_tenant_id(default_tenant.id)
+    await enforce_tenant_guc(db)
+    try:
+        try:
+            member_role = await get_role_by_name(db, DEFAULT_ROLE_NAME)
+            if member_role is None:
+                # 种子角色缺失说明库没升到 Alembic head——宁可当场失败（500 且
+                # 日志里点名根因），也不能静默产出一个零权限用户：那正是
+                # TASK-081 修复的缺陷，再兜底一次等于把 bug 埋回去。
+                raise RuntimeError(
+                    f"Default role '{DEFAULT_ROLE_NAME}' not found — "
+                    "database is not migrated to head (seed migration 0de65c197efc)"
+                )
+            user = await create_user(
+                db,
+                username=payload.username,
+                email=payload.email,
+                password_hash=hash_password(payload.password),
+            )
+            # 与 create_user 同一事务：角色绑定失败则整个注册回滚，不留半成品。
+            await assign_role_to_user(db, user_id=user.id, role_id=member_role.id)
+            await db.commit()
+        except IntegrityError as exc:
+            # Two concurrent registrations can both pass the checks above; the DB
+            # unique constraints are the real guard, so translate the violation.
+            await db.rollback()
+            raise ConflictError("Username or email is already registered") from exc
+    finally:
+        # 还原租户上下文：注册是请求入口前的操作，结束后不应残留默认租户上下文。
+        reset_current_tenant_id(prev_tenant)
 
     await db.refresh(user)
     return user
