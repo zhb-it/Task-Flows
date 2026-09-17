@@ -1,11 +1,10 @@
 /**
  * 全局样式。
  *
- * 只放三样东西：CSS 重置、布局尺寸变量、跨页面复用的少量类。组件私有样式一律
- * 写在各自的 `<style scoped>` 里，避免出现「改一个类名影响另一个页面」。
+ * 只放三样东西：CSS 重置、跨页面复用的少量类、路由过渡。所有颜色/间距/圆角/字体
+ * 一律取自 `tokens.css` 的设计令牌（含明/暗双主题），本文件**不**写魔法值。
  *
- * 主题色沿用 Element Plus 的默认主色（#409eff），不另行覆盖——规格 §75 只要求
- * 代码规范，没有指定配色方案。
+ * 布局尺寸变量（`--tf-*`）也已上移到 `tokens.css`，这里不再重复声明。
  */
 
 * {
@@ -21,18 +20,14 @@ body,
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  font-size: 14px;
-  color: #303133;
-  background-color: #f5f7fa;
-}
-
-:root {
-  --tf-header-height: 56px;
-  --tf-sidebar-width: 220px;
-  --tf-sidebar-collapsed-width: 64px;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background-color: var(--bg-page);
+  /* 主题切换时颜色平滑过渡，避免「啪」地一闪。 */
+  transition:
+    background-color var(--motion-base),
+    color var(--motion-base);
 }
 
 /* 页面级容器：给内容区留统一内边距，配合 el-card 使用。 */
@@ -59,3 +54,4 @@ body {
 .tf-fade-leave-to {
   opacity: 0;
 }
+

@@ -85,22 +85,22 @@ function handleCommand(command: string): void {
 }
 
 .tf-user:hover {
-  background-color: #f5f7fa;
+  background-color: var(--bg-surface-2);
 }
 
 .tf-user__avatar {
-  background-color: #409eff;
-  color: #ffffff;
+  background-color: var(--brand-600);
+  color: var(--text-on-brand);
   font-size: 13px;
 }
 
 .tf-user__name {
   font-size: 14px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .tf-user__email {
-  color: #909399;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 </style>

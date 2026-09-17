@@ -50,12 +50,15 @@ onBeforeUnmount(() => {
 
 <template>
   <el-container class="tf-layout">
-    <el-aside :width="collapsed ? '64px' : '220px'" class="tf-layout__aside">
+    <el-aside
+      :width="collapsed ? 'var(--tf-sidebar-collapsed-width)' : 'var(--tf-sidebar-width)'"
+      class="tf-layout__aside"
+    >
       <AppSidebar :collapsed="collapsed" />
     </el-aside>
 
     <el-container class="tf-layout__body">
-      <el-header height="56px" class="tf-layout__header">
+      <el-header :height="`var(--tf-header-height)`" class="tf-layout__header">
         <AppHeader :collapsed="collapsed" @toggle-sidebar="toggleSidebar" />
       </el-header>
 
@@ -77,21 +80,29 @@ onBeforeUnmount(() => {
 }
 
 .tf-layout__aside {
-  background-color: #ffffff;
-  border-right: 1px solid #e4e7ed;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
   /* 折叠时宽度变化要平滑，否则整个内容区会「跳」一下。 */
-  transition: width 0.2s ease;
+  transition:
+    width var(--motion-base),
+    background-color var(--motion-base),
+    border-color var(--motion-base);
   overflow: hidden;
 }
 
 .tf-layout__header {
   padding: 0;
-  background-color: #ffffff;
-  border-bottom: 1px solid #e4e7ed;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  transition:
+    background-color var(--motion-base),
+    border-color var(--motion-base);
 }
 
 .tf-layout__main {
   padding: 16px;
   overflow-y: auto;
+  background-color: var(--bg-page);
+  transition: background-color var(--motion-base);
 }
 </style>

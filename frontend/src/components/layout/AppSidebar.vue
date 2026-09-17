@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Bell,
+  Brush,
   Document,
   FolderOpened,
   HomeFilled,
@@ -38,6 +39,7 @@ const ICONS: Record<string, Component> = {
   Bell,
   Document,
   Lock,
+  Brush,
 }
 
 function iconFor(name: string): Component {
@@ -106,11 +108,12 @@ const activePath = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
+  height: var(--tf-header-height);
   padding: 0 16px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
   overflow: hidden;
+  transition: border-color var(--motion-base);
 }
 
 .tf-sidebar__logo {
@@ -120,17 +123,18 @@ const activePath = computed(() => {
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  background-color: #409eff;
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  background-color: var(--brand-600);
+  color: var(--text-on-brand);
   font-size: 13px;
   font-weight: 700;
+  box-shadow: var(--shadow-brand);
 }
 
 .tf-sidebar__brand-text {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .tf-sidebar__menu {

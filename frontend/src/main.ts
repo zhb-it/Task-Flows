@@ -24,6 +24,12 @@ import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/es/components/notification/style/css'
 import 'element-plus/es/components/loading/style/css'
 
+// 双主题（Phase A）：Element Plus 按需引入下无 unplugin-element-plus，暗色靠官方
+// dark css-vars 提供组件层变量；必须在我们的 tokens.css 之前引入，使其品牌覆写生效。
+import 'element-plus/theme-chalk/dark/css-vars.css'
+
+// 设计令牌（明/暗 token + EP 变量覆写）—— 全局视觉系统的唯一事实来源。
+import '@/assets/styles/tokens.css'
 import '@/assets/styles/index.css'
 
 import App from '@/App.vue'

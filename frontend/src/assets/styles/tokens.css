@@ -1,0 +1,183 @@
+/**
+ * 设计令牌（Design Tokens）—— TaskFlow Pro 视觉系统的唯一事实来源。
+ *
+ * 这是「前端体验升级方案（docs/frontend-ux-plan.md）」Phase A 的底座。所有颜色、
+ * 间距、圆角、阴影、字体都从这里取，页面/组件**不**写魔法值，改一处即可全站换肤。
+ *
+ * 两层：
+ *   1. 语义令牌（--brand-* / --bg-* / --text-* / --border-* / --space-* / --radius-* /
+ *      --shadow-* / --font-*）：应用层与组件层共用；
+ *   2. Element Plus 覆写（--el-color-* / --el-border-radius-* / --el-font-* 等）：
+ *      把 EP 的默认蓝换成品牌色、把圆角/字体对齐令牌，使原生 el-* 组件自动跟随主题。
+ *
+ * 暗色模式：本项目用 `Element Plus` 按需引入（无 `unplugin-element-plus`），所以暗色
+ * 靠 `main.ts` 引入 `element-plus/theme-chalk/dark/css-vars.css` 提供组件层暗色变量，
+ * 再在本文件 `html.dark` 块里覆写品牌相关项，保证暗色下仍是我们的靛蓝而非 EP 默认蓝。
+ *
+ * 想换品牌色？只改 `:root` 里的 `--brand-*` 六档与下方 `--el-color-primary*` 即可，
+ * 其余全部推导出，无需逐页修改。
+ */
+
+:root {
+  /* ── 品牌色（靛蓝 Indigo；换肤只动这里）──────────────────────────── */
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5; /* 主色 */
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+
+  /* ── 语义色（成功/警告/危险/信息，沿用 EP 调性）──────────────────── */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  /* ── 中性色（明色模式）────────────────────────────────────────── */
+  --bg-page: #f6f7f9; /* 页面底色 */
+  --bg-surface: #ffffff; /* 卡片/浮层 */
+  --bg-surface-2: #f1f3f5; /* 次级面（hover/嵌套） */
+  --bg-inverse: #1f2430; /* 反色（暗底色块上的亮字） */
+  --border-color: #e6e8eb; /* 默认边框 */
+  --border-strong: #d4d7dc; /* 强调边框 */
+  --text-primary: #1a1d23; /* 主文字 */
+  --text-secondary: #5b6270; /* 次文字 */
+  --text-tertiary: #9aa1ad; /* 占位/辅助 */
+  --text-on-brand: #ffffff; /* 品牌色块上的字 */
+
+  /* ── 间距（8px 网格：4/8/12/16/20/24/32/40/48）────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── 圆角 ─────────────────────────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* ── 阴影 ────────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.12);
+  --shadow-brand: 0 6px 18px rgba(79, 70, 229, 0.28);
+
+  /* ── 字体 ────────────────────────────────────────────────────── */
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* ── 布局尺寸（应用壳，沿用既有命名避免大改）──────────────────── */
+  --tf-header-height: 56px;
+  --tf-sidebar-width: 240px;
+  --tf-sidebar-collapsed-width: 64px;
+
+  /* ── 动效 ────────────────────────────────────────────────────── */
+  --motion-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Element Plus 覆写：品牌主色（靛蓝六档 + 暗色档）──────────── */
+  --el-color-primary: var(--brand-600);
+  --el-color-primary-light-3: var(--brand-500);
+  --el-color-primary-light-5: var(--brand-400);
+  --el-color-primary-light-7: var(--brand-300);
+  --el-color-primary-light-8: var(--brand-200);
+  --el-color-primary-light-9: var(--brand-50);
+  --el-color-primary-dark-2: var(--brand-700);
+
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-danger);
+  --el-color-error: var(--color-danger);
+  --el-color-info: var(--color-info);
+
+  /* EP 圆角/字体对齐令牌 */
+  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-full);
+  --el-font-family: var(--font-sans);
+
+  /* EP 面/字/边框对齐令牌 */
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-surface);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-tertiary);
+  --el-text-color-placeholder: var(--text-tertiary);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-color);
+  --el-border-color-lighter: var(--border-color);
+  --el-border-color-extra-light: var(--border-color);
+  --el-fill-color: var(--bg-surface-2);
+  --el-fill-color-light: var(--bg-surface-2);
+  --el-fill-color-lighter: var(--bg-surface-2);
+  --el-fill-color-blank: var(--bg-surface);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   暗色模式：应用层令牌换深色；EP 组件层暗色由 main.ts 引入的
+   `element-plus/theme-chalk/dark/css-vars.css` 提供，这里只覆写品牌相关项。
+   ════════════════════════════════════════════════════════════════ */
+html.dark {
+  --bg-page: #0c0f16;
+  --bg-surface: #151a23;
+  --bg-surface-2: #1d232e;
+  --bg-inverse: #e6e8eb;
+  --border-color: #2a313d;
+  --border-strong: #3a4250;
+  --text-primary: #e8eaed;
+  --text-secondary: #aab1bd;
+  --text-tertiary: #6b7280;
+  --text-on-brand: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-brand: 0 6px 18px rgba(99, 102, 241, 0.4);
+
+  /* 暗色下主色稍提亮，保证对比度 */
+  --el-color-primary: var(--brand-500);
+  --el-color-primary-light-3: var(--brand-400);
+  --el-color-primary-light-5: var(--brand-300);
+  --el-color-primary-light-7: #6366f1;
+  --el-color-primary-light-8: #4f46e5;
+  --el-color-primary-light-9: #2a2f55;
+  --el-color-primary-dark-2: var(--brand-700);
+
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-surface);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-tertiary);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-color);
+  --el-border-color-lighter: var(--border-color);
+  --el-border-color-extra-light: var(--border-color);
+  --el-fill-color: var(--bg-surface-2);
+  --el-fill-color-light: var(--bg-surface-2);
+  --el-fill-color-lighter: var(--bg-surface-2);
+  --el-fill-color-blank: var(--bg-surface);
+}

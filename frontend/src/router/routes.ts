@@ -46,6 +46,12 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     icon: 'Lock',
     requiresAnyPermission: ['user:update'],
   },
+  {
+    // 设计系统展示页：Phase A 验证载体，非业务功能；全员可见便于评审视觉方向。
+    path: '/design-system',
+    title: '设计系统',
+    icon: 'Brush',
+  },
 ]
 
 export const routes: RouteRecordRaw[] = [
@@ -181,6 +187,13 @@ export const routes: RouteRecordRaw[] = [
         name: 'profile',
         component: () => import('@/views/profile/Profile.vue'),
         meta: { title: '个人中心', icon: 'Setting', inMenu: true },
+      },
+      {
+        // 设计系统展示页（Phase A）：配色/字体/间距/组件与首页 Bento 布局预览。
+        path: 'design-system',
+        name: 'design-system',
+        component: () => import('@/views/design-system/DesignSystem.vue'),
+        meta: { title: '设计系统', icon: 'Brush', inMenu: true },
       },
     ],
   },
