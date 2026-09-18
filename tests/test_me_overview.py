@@ -7,7 +7,7 @@
 
 1. 认证与账号状态：无凭证 401、禁用账号 403（与 `/users/me` 同口径）。
 2. **口径正确性**：`assigned_open` / `overdue` / `completed_this_week` /
-   `task_status` / `projects` / `unread_notifications` 各自的计数边界。
+   `task_status` / `teams` / `projects` / `unread_notifications` 各自的计数边界。
 3. **作用域（分母）**：只统计「我所属团队下的项目」，且「我的」口径必须再
    与「分配给我」求交——非成员项目的任务即使把用户写进 `task_assignees`
    也不得出现（这是本端点最容易被写漏的一条谓词）。
@@ -281,6 +281,7 @@ async def test_empty_account_returns_zeroed_overview(client) -> None:
 
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
+    assert data["teams"] == 0
     assert data["projects"] == 0
     assert data["unread_notifications"] == 0
     assert data["my_tasks"] == {
@@ -303,6 +304,10 @@ async def test_counts_reflect_my_assigned_tasks() -> None:
     other = await _make_user("other")
     team_id = await _create_team(me.id, "counts")
     await _add_member(team_id, other.id)
+    # 第二个团队：我加入但还没有项目——`teams` 与 `projects` 因此必须不同，
+    # 否则前端新账号引导会把「已建团队」误判成「已建项目」。
+    second_team_id = await _create_team(me.id, "counts2")
+    await _add_member(second_team_id, other.id)
     project_id = await _create_project(team_id, me.id, "counts")
 
     week_start = _week_start()
@@ -355,6 +360,7 @@ async def test_counts_reflect_my_assigned_tasks() -> None:
 
     data = await _overview(me.id)
 
+    assert data["teams"] == 2
     assert data["projects"] == 1
     assert data["unread_notifications"] == 3
     assert data["my_tasks"]["assigned_open"] == 3  # open / overdue / duefuture
@@ -461,6 +467,7 @@ async def test_tasks_outside_my_teams_are_excluded(client) -> None:
 
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
+    assert data["teams"] == 1  # 另一个团队不属于我 → 不计入
     assert data["projects"] == 1
     assert data["my_tasks"]["assigned_open"] == 1
     assert data["task_status"]["total"] == 1

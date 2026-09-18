@@ -713,14 +713,43 @@
 - [ ] TASK-130 引导、空状态与响应式收口（方案 Phase D）
   - 目标：让新用户第一次打开就知道下一步做什么，并补齐窄屏体验。
   - 依赖：TASK-128（设计令牌与空/加载态组件基础）、TASK-129（首页数据）。
-  - 涉及文件：`frontend/src/components/common/`（空状态与引导组件）、
-    `frontend/src/layouts/BasicLayout.vue`、`frontend/src/views/**`、
-    `docs/frontend-ux-plan.md`。
+  - 涉及文件：`frontend/src/components/common/{EmptyState,GettingStarted}.vue`（新建）、
+    `frontend/src/composables/useBreakpoint.ts`（新建）、
+    `frontend/src/assets/styles/tokens.css`（补 `--overlay-backdrop` / `--bg-auth`）、
+    `frontend/src/layouts/{BasicLayout,AuthLayout}.vue`、
+    `frontend/src/components/layout/{AppHeader,AppSidebar,NotificationBell}.vue`、
+    `frontend/src/components/command/CommandPalette.vue`、
+    `frontend/src/views/{dashboard/Dashboard,project/ProjectList,team/TeamList,task/TaskList,notification/NotificationList,operation-log/OperationLogList,permission/PermissionManage,auth/Login,auth/Register}.vue`、
+    `frontend/tests/unit/{design-tokens,use-breakpoint,empty-state}.spec.ts`（新建）、
+    `frontend/src/components/common/PagePlaceholder.vue`（**删除**，0 引用的死代码）、
+    `app/services/overview.py`、`app/schemas/user.py`、`tests/test_me_overview.py`、
+    `docs/frontend-ux-plan.md`、`docs/DECISIONS.md`（072）。
   - 实现要求：① 新账号引导（建团队 → 建项目 → 建任务的首屏路径）；② 各列表页
     空状态带明确下一步动作，而非只有「暂无数据」；③ <992px 侧栏改抽屉、
     Bento 网格逐级降级已完成，需回归核验；④ 加载态统一（骨架屏，不闪白）。
   - 验收标准：四门全绿；窄屏下无横向溢出；每个空页面都有可执行动作。
   - 测试要求：响应式断点的静态契约；空状态组件的渲染断言。
+
+  **交付说明（2026-09-18）**：本任务**代码已交付并验证**，但按 `DECISIONS 070` 的口径
+  保持**未勾选**（勾掉会造出 TASK-097~127 的编号空洞，违反 `check_docs.py` 不变量 #6）。
+  交付内容与偏离项：
+
+  - ①**引导**：`GettingStarted.vue` 三步卡（只强调第一个未完成步骤）+ 首屏 ⌘K 提示。
+    **偏离**：未引入 `intro.js` 之类的分步 tour（方案 D1 里的 tour 部分未做，理由见
+    `DECISIONS 072`）。为使「第一步是否完成」可判定，`GET /users/me/overview` 增加了
+    `teams` 字段（加法，见 `docs/API_CONTRACT.md`）。
+  - ②**空状态**：新增 `EmptyState.vue`（内联 SVG + 标题 + 描述 + 动作槽），六个业务页
+    接入，且**区分「无数据」与「被筛掉」**（前者给创建动作，后者给「清除筛选」）。
+  - ③**响应式**：`BasicLayout` 在 `<992px` 渲染 `el-drawer`（抽屉 + 遮罩 + 汉堡按钮），
+    `>=992px` 保留常驻侧栏；断点逻辑抽为 `useBreakpoint.ts` 并单独测（991/992/1440
+    三个点 + 监听器清理）；Bento 与卡片网格的逐级降级复核通过。
+  - ④**加载态**：复核既有骨架屏（Dashboard 六格骨架、`v-loading` 蒙层），无闪白；
+    本轮未新增统一 `tf-skeleton` 封装（既有实现已一致，改它属于重构而非补齐）。
+  - ⑤**顺带修掉的缺陷**：命令面板/顶栏引用的一整套未定义 CSS 变量（`--tf-*`）导致
+    浮层透明无阴影无圆角、遮罩失效；通知铃铛暗色下深字深底不可读；共 9 个文件里的
+    魔法颜色清零。为防止复发，新增 `design-tokens.spec.ts` 三条不变量（引用必须已定义 /
+    双主题对等 / 不写魔法颜色）。详见 `DECISIONS 072`。
+
 
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。

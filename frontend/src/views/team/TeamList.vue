@@ -9,6 +9,8 @@ import { teamApi } from '@/api/team'
 import type { Team, TeamCreate } from '@/types/team'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { Search, UserFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -26,6 +28,13 @@ const filteredTeams = computed(() => {
     (t) => t.name.toLowerCase().includes(kw) || (t.description ?? '').toLowerCase().includes(kw),
   )
 })
+
+/** 是否处于「搜索后」状态——空态文案据此分流（TASK-130）。 */
+const hasFilter = computed(() => keyword.value.trim() !== '')
+
+function resetSearch(): void {
+  keyword.value = ''
+}
 
 async function loadTeams(): Promise<void> {
   loading.value = true
@@ -123,7 +132,25 @@ onMounted(loadTeams)
       <span class="count-tip">共 {{ filteredTeams.length }} 个团队</span>
     </div>
 
-    <el-table v-loading="loading" :data="filteredTeams" empty-text="还没有加入任何团队" stripe>
+    <el-table v-loading="loading" :data="filteredTeams" stripe>
+      <!-- 空态走 EmptyState：说清是「还没有团队」还是「搜不到」，并给出下一步 -->
+      <template #empty>
+        <EmptyState
+          :icon="hasFilter ? Search : UserFilled"
+          :title="hasFilter ? '没有匹配的团队' : '你还没有加入任何团队'"
+          :description="
+            hasFilter
+              ? '换个关键字试试；清空搜索就能看到全部团队。'
+              : '团队是协作的起点：项目挂在团队下，成员也按团队共享。你可以自己建一个，或让同事把你拉进去。'
+          "
+          size="sm"
+        >
+          <template #actions>
+            <el-button v-if="hasFilter" @click="resetSearch">清除搜索</el-button>
+            <el-button v-else type="primary" @click="openCreate">创建团队</el-button>
+          </template>
+        </EmptyState>
+      </template>
       <el-table-column prop="name" label="团队名称" min-width="160">
         <template #default="{ row }">
           <el-link type="primary" @click="openDetail(row as Team)">{{ row.name }}</el-link>

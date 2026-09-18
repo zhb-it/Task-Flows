@@ -95,7 +95,7 @@ function goToNotifications(): void {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tf-bell__title {
@@ -114,7 +114,7 @@ function goToNotifications(): void {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid #f2f3f5;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tf-bell__dot {
@@ -123,11 +123,11 @@ function goToNotifications(): void {
   height: 6px;
   margin-top: 6px;
   border-radius: 50%;
-  background-color: #dcdfe6;
+  background-color: var(--border-strong);
 }
 
 .tf-bell__dot--unread {
-  background-color: #f56c6c;
+  background-color: var(--color-danger);
 }
 
 .tf-bell__content {
@@ -136,22 +136,22 @@ function goToNotifications(): void {
 
 .tf-bell__item-title {
   margin: 0;
-  font-size: 13px;
-  color: #303133;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   word-break: break-word;
 }
 
 .tf-bell__item-text {
   margin: 4px 0 0;
-  font-size: 12px;
-  color: #606266;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   word-break: break-word;
 }
 
 .tf-bell__item-time {
   margin: 4px 0 0;
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 .tf-bell__foot {

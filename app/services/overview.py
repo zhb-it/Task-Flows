@@ -15,6 +15,10 @@
 PROJECT_SPEC §5「用户只能访问其所属团队链路下的资源」）。租户隔离由
 `TenantScoped` + RLS 兜底自动生效（TASK-094/095），本模块不重复加条件。
 
+- `teams`：我加入的团队数（`team_members` 中有我）。与 `projects` **不是**
+  同一件事：刚建好团队还没建项目时 `teams = 1, projects = 0`。前端新账号
+  引导（TASK-130）用它判断「第一步建团队」是否已完成——不引入这个字段，
+  引导就只能靠再打一次 `GET /teams` 猜，与「一次请求取齐」的初衷相悖。
 - `projects`：可见项目数。
 - `task_status.*`：可见项目下**全部任务**按状态分档计数；`total` 为其合计
   ——这是「团队概况」口径（前端 Dashboard 顶部数据卡片与状态分布图）。
@@ -129,6 +133,10 @@ async def get_my_overview(
     visible = _visible_project_ids(user.id)
     assigned = _assigned_to(user.id)
 
+    teams = await db.scalar(
+        select(func.count(TeamMember.id)).where(TeamMember.user_id == user.id)
+    )
+
     projects = await db.scalar(
         select(func.count(Project.id)).where(_member_exists(user.id))
     )
@@ -191,6 +199,7 @@ async def get_my_overview(
     return {
         "generated_at": moment,
         "week_start": week_start,
+        "teams": int(teams or 0),
         "projects": int(projects or 0),
         "unread_notifications": int(unread or 0),
         "my_tasks": {

@@ -5,7 +5,7 @@ Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TAS
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
-**前端体验升级已提前实施**（方案见 `docs/frontend-ux-plan.md`）：Phase A（设计令牌 + 双主题）、Phase B（命令面板 + 全局快捷键）、Phase C（个人工作台聚合端点 `GET /users/me/overview` + Bento 首页）**代码已交付并验证**，登记为 TASK-128~130（Phase 24）。三项目前在 `docs/TASKS.md` 中为**未勾选**——不是没做完，而是 `check_docs.py` 不变量 #6 不允许勾选前沿跳跃（097~127 未完成前勾掉 128/129 会造出编号空洞）。交付说明见本文末尾的同名小节。
+**前端体验升级已提前实施**（方案见 `docs/frontend-ux-plan.md`）：Phase A（设计令牌 + 双主题）、Phase B（命令面板 + 全局快捷键）、Phase C（个人工作台聚合端点 `GET /users/me/overview` + Bento 首页）、Phase D（新手引导 / 空状态分流 / 响应式抽屉收口）**代码已交付并验证**，登记为 TASK-128~130（Phase 24）。三项目前在 `docs/TASKS.md` 中为**未勾选**——不是没做完，而是 `check_docs.py` 不变量 #6 不允许勾选前沿跳跃（097~127 未完成前勾掉 128/129/130 会造出编号空洞）。交付说明见本文末尾的同名小节。
 
 ## Current Phase
 Phase 19：多租户地基（TASK-093~100）
@@ -658,10 +658,57 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
   重跑**全量 1230 用例**，16 张表逐表核对：12 张业务表**全 0 行**，只剩 `default`
   租户与它的 RBAC 种子。结论与证据见 `docs/QUALITY.md` §7-F6。
 
-**最终基线（2026-09-17 复测）**：`1230 passed` / 0 failed / 0 error / 0 skipped，
-覆盖率 3063 语句 / 8 未覆盖 / 472 分支 → **99.74% 行、98.94% 分支**；`ruff check .`
-全绿；`scripts/check_docs.py` RC 0；前端 `typecheck` / `lint --max-warnings 0` /
-`test`（75 passed）/ `build` 四门全绿。
+**最终基线（2026-09-17 复测；2026-09-18 随 TASK-130 复核）**：`1230 passed` /
+0 failed / 0 error / 0 skipped，覆盖率 3065 语句 / 8 未覆盖 / 472 分支 →
+**99.74% 行、98.94% 分支**（语句数比 TASK-129 时 +2，来自 `teams` 字段与它的
+COUNT 查询；未覆盖数与分支数不变）；`ruff check .` 全绿；`scripts/check_docs.py`
+RC 0；前端 `typecheck` / `lint --max-warnings 0` / `test`（**111 passed / 12 文件**）/
+`build` 四门全绿。
+
+## TASK-130 完成 引导、空状态与响应式收口（方案 Phase D）
+
+> 代码已交付并验证，**暂未勾选**（原因同 TASK-128：勾掉会造出 TASK-097~127 的编号空洞）。
+
+**目标**：让新用户第一次打开就知道下一步做什么（不再面对六个 0），并补齐窄屏体验。
+
+**引导与空状态**
+- `components/common/GettingStarted.vue`（新建）：首屏三步卡「建团队 → 建项目 → 分任务」，
+  每步的完成状态来自后端真实计数，**只强调第一个未完成的步骤**（同屏最多一个主按钮）。
+- `components/common/EmptyState.vue`（新建）：内联 SVG 插画 + 标题 + 描述 + `#actions` 出口；
+  六个业务页接入（Dashboard 最近项目、项目、团队、任务、通知、操作日志），表格用 `#empty` 槽。
+  **关键改进**：空态区分「还没有数据」（给创建动作）与「被筛掉了」（给清除筛选）——
+  `ProjectList` 旧版把它们合成一句「还没有项目，或筛选无匹配」，用户无从判断该点哪个按钮。
+- `app/services/overview.py` 增加 `teams` 字段（我加入的团队数），使引导能判断「第一步是否
+  完成」；这是加法，不改既有字段语义。测试里钉死 `teams ≠ projects`
+  （第二个团队尚无项目时 `teams = 2, projects = 1`）。
+- 删除死代码 `components/common/PagePlaceholder.vue`（0 引用），同步 `frontend/README.md`。
+
+**响应式收口**
+- `BasicLayout.vue`：`<992px` 渲染 `el-drawer`（抽屉 + 遮罩 + 汉堡按钮），`>=992px` 保留
+  常驻可折叠侧栏——窄屏是 **DOM 结构切换**而不是把侧栏压成 64px 图标条（旧做法在平板/手机
+  宽度会挤出横向滚动条，且图标条对不熟悉产品的人等于没有导航）。抽屉在路由变化与窗口变宽时
+  关闭，Esc 由 `el-drawer` 提供。
+- `composables/useBreakpoint.ts`（新建）：断点值（992 / 240px）的唯一来源，且可脱离组件单测。
+- `AppHeader` 窄屏下搜索入口退化为图标、命令面板面板上移并允许底部提示换行。
+
+**顺带修掉的真实缺陷（Phase A/B 遗留）**
+1. `CommandPalette` / `AppHeader` 引用了一整套**从未定义**的 CSS 变量（`--tf-border` /
+   `--tf-surface` / `--tf-shadow-lg` / `--tf-overlay` …）。CSS 变量未定义不报错，整条声明
+   静默失效：命令面板成了透明底、方角、无阴影的浮层，遮罩也一起失效，而四门全绿。
+2. `NotificationBell` 暗色下写死 `#303133`（深灰字）落在暗色面板上几乎不可读。
+3. 共 9 个文件里的魔法颜色（`#409eff` / `#909399` / `#fff` …）清零，新增
+   `--overlay-backdrop`（遮罩）与 `--bg-auth`（认证页渐变，暗色换深底）两个真需要主题差异的令牌。
+
+**防复发（新增护栏）**
+- `tests/unit/design-tokens.spec.ts` 三条不变量：① 源码 `var(--x)` 的每个变量都必须定义过
+  （`--el-*` 豁免）；② 主题相关令牌必须在 `:root` 与 `html.dark` **两块都定义**（清单显式列举）；
+  ③ 组件/页面样式不出现十六进制或 `rgb()`（`tokens.css` 豁免）。
+- `tests/unit/use-breakpoint.spec.ts`：991 / 992 / 1440 三点跨断点跟随 + 作用域销毁后注销监听。
+- `tests/unit/empty-state.spec.ts`：空态标题/描述/动作槽渲染；引导三步顺序、当前步唯一、
+  主按钮指向当前步目标页（点击断言 `push('/teams')` → `push('/projects')`）。
+
+**验证**：前端 `typecheck` 0 / `lint` 0 / `test` **111 passed（12 文件）** / `build` 0；
+后端全量见文末基线；`scripts/check_docs.py` RC 0。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

@@ -305,7 +305,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  background: color-mix(in srgb, var(--tf-overlay) 55%, transparent);
+  background: var(--overlay-backdrop);
   backdrop-filter: blur(2px);
 }
 
@@ -314,10 +314,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   max-height: 70vh;
   display: flex;
   flex-direction: column;
-  background: var(--tf-surface);
-  border: 1px solid var(--tf-border);
-  border-radius: var(--tf-radius-lg);
-  box-shadow: var(--tf-shadow-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -326,11 +326,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   align-items: center;
   gap: 10px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--tf-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tf-palette__search-icon {
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
   font-size: 18px;
   flex: 0 0 auto;
 }
@@ -341,21 +341,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   outline: none;
   background: transparent;
   font-size: 15px;
-  color: var(--tf-text);
+  color: var(--text-primary);
 }
 
 .tf-palette__input::placeholder {
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
 }
 
 .tf-palette__esc {
   flex: 0 0 auto;
   font-size: 11px;
-  color: var(--tf-text-muted);
-  border: 1px solid var(--tf-border);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 1px 6px;
-  background: var(--tf-bg);
+  background: var(--bg-surface-2);
 }
 
 .tf-palette__list {
@@ -370,7 +370,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
 }
 
 .tf-palette__item {
@@ -380,9 +380,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-radius: var(--tf-radius-md);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--tf-text);
+  color: var(--text-primary);
   font-size: 14px;
   text-align: left;
   cursor: pointer;
@@ -405,7 +405,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 .tf-palette__item-enter {
   opacity: 0;
   font-size: 13px;
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
 }
 
 .tf-palette__item.is-active .tf-palette__item-enter {
@@ -415,7 +415,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 .tf-palette__empty {
   padding: 28px 12px;
   text-align: center;
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
   font-size: 14px;
 }
 
@@ -424,9 +424,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
-  border-top: 1px solid var(--tf-border);
+  border-top: 1px solid var(--border-color);
   font-size: 12px;
-  color: var(--tf-text-muted);
+  color: var(--text-tertiary);
 }
 
 .tf-palette__footer-spacer {
@@ -440,10 +440,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
   margin: 0 1px;
   font-size: 11px;
   text-align: center;
-  color: var(--tf-text);
-  background: var(--tf-bg);
-  border: 1px solid var(--tf-border);
+  color: var(--text-primary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
+}
+
+/* 窄屏：面板上移、底部提示可换行（否则一行挤六个 kbd 会溢出）。 */
+@media (max-width: 767px) {
+  .tf-palette {
+    padding-top: 6vh;
+  }
+
+  .tf-palette__footer {
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .tf-palette__footer-spacer {
+    display: none;
+  }
 }
 
 /* 进出场动画：轻微缩放 + 淡入，呼应整体「克制微动效」基调。 */

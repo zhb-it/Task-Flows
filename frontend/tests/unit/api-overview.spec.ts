@@ -37,6 +37,7 @@ function adapterCapturing(
 const overviewFixture: MeOverview = {
   generated_at: '2026-09-17T12:00:00+00:00',
   week_start: '2026-09-14T00:00:00+00:00',
+  teams: 1,
   projects: 2,
   unread_notifications: 3,
   my_tasks: { assigned_open: 4, overdue: 1, completed_this_week: 2 },

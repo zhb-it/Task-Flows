@@ -202,6 +202,7 @@ Response `200 OK`：
   "data": {
     "generated_at": "2026-09-17T12:00:00Z",
     "week_start": "2026-09-14T00:00:00Z",
+    "teams": 2,
     "projects": 3,
     "unread_notifications": 4,
     "my_tasks": {
@@ -229,6 +230,10 @@ Response `200 OK`：
 
 - **可见范围** = 当前用户作为 `team_members` 成员所属团队下的全部项目
   （与 `GET /projects` 的可见性判定同源；租户隔离由 `TenantScoped` + RLS 保证）。
+- `teams`：我加入的团队数（`team_members` 中有我）。与 `projects` **不同义**：
+  新建团队尚未建项目时为 `teams = 1, projects = 0`。该字段由 TASK-130（新账号引导）
+  需要而补入——引导要判断「第一步建团队」是否完成，否则前端得为此再打一次 `GET /teams`，
+  与「一次请求取齐」的设计意图相悖。
 - `projects`：可见项目数。
 - `task_status.*`：可见项目下**全部**任务按状态分档（团队概况口径），`total` 为其合计。
 - `my_tasks.*`：可见范围 **∩ 分配给我**（个人视图口径）。

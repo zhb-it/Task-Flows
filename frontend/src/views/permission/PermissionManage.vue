@@ -266,7 +266,7 @@ onMounted(loadAll)
 .tf-perm__title {
   margin: 0 0 16px;
   font-size: 18px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .tf-perm__alert {
@@ -295,12 +295,12 @@ onMounted(loadAll)
 }
 
 .tf-perm__muted {
-  color: #909399;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .tf-perm__editor-user {
   margin: 0 0 12px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 </style>

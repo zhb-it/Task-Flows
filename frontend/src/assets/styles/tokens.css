@@ -16,6 +16,16 @@
  *
  * 想换品牌色？只改 `:root` 里的 `--brand-*` 六档与下方 `--el-color-primary*` 即可，
  * 其余全部推导出，无需逐页修改。
+ *
+ * ⚠ 本文件是**唯一事实来源，且有单测兜底**（`tests/unit/design-tokens.spec.ts`）：
+ *   1. 源码里 `var(--x)` 引用的每个自定义属性都必须在某个 CSS/`<style>` 里定义过
+ *      （`--el-*` 除外，那是 Element Plus 运行时提供的）；
+ *   2. 主题相关令牌必须在 `:root` 与 `html.dark` **两个块里都定义**，
+ *      不允许只在明色定义、暗色漏掉；
+ *   3. 组件/页面样式里不许再写十六进制颜色或 `rgb()`（一律走令牌）。
+ * 改令牌时请连同这三条一起满足——它们是为了防「写了未定义变量、样式静默失效」
+ * 这类只有肉眼才能发现的回归（历史上真的发生过：`--tf-border` 一族从未定义，
+ * 导致命令面板成了无阴影无圆角的透明块）。
  */
 
 :root {
@@ -48,6 +58,13 @@
   --text-secondary: #5b6270; /* 次文字 */
   --text-tertiary: #9aa1ad; /* 占位/辅助 */
   --text-on-brand: #ffffff; /* 品牌色块上的字 */
+  --text-on-brand-muted: rgba(255, 255, 255, 0.85); /* 品牌色块上的次要字 */
+
+  /* ── 浮层遮罩（命令面板 / 抽屉）───────────────────────────────── */
+  --overlay-backdrop: rgba(16, 24, 40, 0.45);
+
+  /* ── 认证页底色（品牌淡染渐变；暗色下换成深底，避免整页荧光）──── */
+  --bg-auth: linear-gradient(160deg, var(--brand-50) 0%, var(--bg-page) 60%, var(--bg-surface-2) 100%);
 
   /* ── 间距（8px 网格：4/8/12/16/20/24/32/40/48）────────────────── */
   --space-1: 4px;
@@ -151,6 +168,11 @@ html.dark {
   --text-secondary: #aab1bd;
   --text-tertiary: #6b7280;
   --text-on-brand: #ffffff;
+
+  --overlay-backdrop: rgba(0, 0, 0, 0.6);
+
+  /* 暗色认证页：深底色块 + 一点点品牌色，不能用 --brand-50（那会整页发亮） */
+  --bg-auth: linear-gradient(160deg, #1b2035 0%, var(--bg-page) 60%, var(--bg-surface) 100%);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);

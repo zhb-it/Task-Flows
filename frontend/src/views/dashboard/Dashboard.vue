@@ -22,8 +22,11 @@
  */
 
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { overviewApi } from '@/api/overview'
+import EmptyState from '@/components/common/EmptyState.vue'
+import GettingStarted from '@/components/common/GettingStarted.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { MeOverview } from '@/types/overview'
 import type { TaskStatus } from '@/types/task'
@@ -43,6 +46,7 @@ import {
 } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 const overview = ref<MeOverview | null>(null)
 const loading = ref(true)
@@ -86,6 +90,7 @@ const isEmpty = computed(() => {
     return false
   }
   return (
+    data.teams === 0 &&
     data.projects === 0 &&
     data.task_status.total === 0 &&
     data.unread_notifications === 0 &&
@@ -160,18 +165,13 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 空态（新账号引导） -->
-    <div v-else-if="isEmpty" class="empty">
-      <el-empty description="还没有任何数据">
-        <p class="empty__hint">
-          加入或创建一个团队，再在团队下建项目、分任务——工作台会自动出现在这里。
-        </p>
-        <div class="empty__actions">
-          <router-link to="/teams" class="empty__link">去团队</router-link>
-          <router-link to="/projects" class="empty__link">去项目</router-link>
-        </div>
-      </el-empty>
-    </div>
+    <!-- 空态（新账号引导，TASK-130）：不给六个 0，而给「从哪开始」 -->
+    <GettingStarted
+      v-else-if="isEmpty"
+      :teams="overview?.teams ?? 0"
+      :projects="overview?.projects ?? 0"
+      :tasks="overview?.task_status.total ?? 0"
+    />
 
     <!-- Bento 主体 -->
     <div v-else-if="overview" class="bento">
@@ -278,11 +278,19 @@ onMounted(() => {
           <span class="cell__label">最近项目</span>
           <router-link to="/projects" class="cell__aside cell__aside--link">全部</router-link>
         </div>
-        <el-empty
+        <EmptyState
           v-if="overview.recent_projects.length === 0"
-          description="暂无项目"
-          :image-size="60"
-        />
+          :icon="FolderOpened"
+          title="还没有项目"
+          description="项目是任务的容器；建好之后，最近在动的项目会出现在这里。"
+          size="sm"
+        >
+          <template #actions>
+            <el-button type="primary" size="small" @click="router.push('/projects')">
+              去建项目
+            </el-button>
+          </template>
+        </EmptyState>
         <ul v-else class="projects">
           <li v-for="item in overview.recent_projects" :key="item.id" class="projects__item">
             <router-link :to="`/projects/${item.id}`" class="projects__link">
@@ -401,11 +409,11 @@ onMounted(() => {
 .card--brand .cell__label,
 .card--brand .cell__foot,
 .card--brand .cell__icon {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-on-brand-muted);
 }
 
 .card--brand .cell__cta {
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .card--brand:hover {
@@ -462,7 +470,7 @@ onMounted(() => {
 }
 
 .card--brand .cell__value {
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .cell__value--sm {
@@ -590,28 +598,6 @@ onMounted(() => {
 }
 
 /* ── 空态与脚注 ───────────────────────────────────────────────────── */
-.empty {
-  padding: var(--space-8) 0;
-}
-
-.empty__hint {
-  margin: var(--space-2) 0 var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.empty__actions {
-  display: flex;
-  justify-content: center;
-  gap: var(--space-4);
-}
-
-.empty__link {
-  color: var(--el-color-primary);
-  text-decoration: none;
-  font-size: var(--text-sm);
-}
-
 .footnote {
   display: flex;
   flex-direction: column;

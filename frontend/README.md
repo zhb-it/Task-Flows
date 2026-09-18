@@ -63,11 +63,12 @@ frontend/
 ├── public/                     # 原样拷贝的静态资源
 ├── src/
 │   ├── api/                    # 后端端点的唯一入口（页面不直接碰 axios）
-│   ├── assets/styles/          # 全局样式（重置 + 布局变量）
+│   ├── assets/styles/          # 全局样式（重置 + tokens.css 设计令牌/双主题）
 │   ├── components/
-│   │   ├── common/             # 通用组件（PagePlaceholder 等）
+│   │   ├── command/            # 命令面板（⌘K）
+│   │   ├── common/             # 通用组件（EmptyState 空状态 / GettingStarted 新手引导）
 │   │   └── layout/             # 布局组件（Sidebar/Header/Breadcrumb/UserMenu/NotificationBell）
-│   ├── composables/            # 组合式函数（usePermission）
+│   ├── composables/            # 组合式函数（usePermission / useTheme / useBreakpoint / useCommandPalette）
 │   ├── layouts/                # BasicLayout（主框架）/ AuthLayout（登录注册）
 │   ├── router/                 # routes（含菜单定义）/ index / guards
 │   ├── stores/                 # Pinia（auth / notification）

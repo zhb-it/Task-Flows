@@ -1,15 +1,21 @@
 <script setup lang="ts">
 /**
- * 顶栏（前端规格 §6 / §61）。
+ * 顶栏（前端规格 §6 / §61 / 方案 Phase D・TASK-130）。
  *
- * 三块内容：折叠按钮、右侧的用户菜单与通知铃铛。
+ * 四块内容：侧栏开关、命令面板入口、主题切换、通知铃铛与用户菜单。
  *
- * 折叠状态由布局层（`BasicLayout`）持有，这里只通过 `props` 读、通过事件请求切换
- * ——子组件不直接改父组件的状态。
+ * 侧栏状态由布局层（`BasicLayout`）持有，这里只通过 `props` 读、通过事件请求
+ * 切换——子组件不直接改父组件的状态。同一个按钮在两种形态下语义不同（宽屏
+ * 折叠 / 窄屏开抽屉），所以文案与 `aria-expanded` 都要跟着形态走，不能只换图标。
+ *
+ * 所有颜色/间距都取自 `assets/styles/tokens.css`。**这里曾经踩过坑**：早期用了
+ * 一套从未定义过的 `--tf-border` / `--tf-bg` 等变量名，CSS 变量未定义时整条声明
+ * 静默失效（不是报错），按钮于是变成「无边框、透明底、方角」的样子。现在由
+ * `tests/unit/design-tokens.spec.ts` 兜底：引用了没定义的变量会直接测挂。
  */
 
 import { computed, onMounted } from 'vue'
-import { Expand, Fold, Moon, Search, Sunny } from '@element-plus/icons-vue'
+import { Expand, Fold, Menu, Moon, Search, Sunny } from '@element-plus/icons-vue'
 
 import NotificationBell from '@/components/layout/NotificationBell.vue'
 import UserMenu from '@/components/layout/UserMenu.vue'
@@ -17,7 +23,14 @@ import { useNotificationStore } from '@/stores/notification'
 import { useTheme } from '@/composables/useTheme'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 
-const props = defineProps<{ collapsed: boolean }>()
+const props = defineProps<{
+  /** 宽屏形态下侧栏是否折叠。 */
+  collapsed: boolean
+  /** 是否处于窄屏形态（侧栏是抽屉）。 */
+  isMobile: boolean
+  /** 窄屏形态下抽屉是否已展开（用于 `aria-expanded`）。 */
+  drawerOpen: boolean
+}>()
 
 const emit = defineEmits<{ 'toggle-sidebar': [] }>()
 
@@ -32,6 +45,18 @@ const modKey = computed(() =>
     : 'Ctrl',
 )
 
+/** 同一按钮两种语义：窄屏是「开关导航抽屉」，宽屏是「折叠/展开侧栏」。 */
+const toggleLabel = computed(() => {
+  if (props.isMobile) {
+    return props.drawerOpen ? '关闭导航菜单' : '打开导航菜单'
+  }
+  return props.collapsed ? '展开侧边栏' : '收起侧边栏'
+})
+
+const sidebarExpanded = computed(() =>
+  props.isMobile ? props.drawerOpen : !props.collapsed,
+)
+
 // 进主框架时拉一次通知预览，让铃铛的未读角标一开始就是对的。
 // 失败与否都不影响页面（store 内部静默处理）。
 onMounted(() => {
@@ -41,9 +66,19 @@ onMounted(() => {
 
 <template>
   <div class="tf-header">
-    <el-button text class="tf-header__toggle" @click="emit('toggle-sidebar')">
+    <el-button
+      text
+      class="tf-header__toggle"
+      :aria-label="toggleLabel"
+      :title="toggleLabel"
+      :aria-expanded="sidebarExpanded"
+      aria-controls="tf-sidebar"
+      @click="emit('toggle-sidebar')"
+    >
       <el-icon :size="18">
-        <Expand v-if="props.collapsed" />
+        <!-- 窄屏用汉堡（= 抽屉），宽屏用折叠箭头（= 宽度变化） -->
+        <Menu v-if="props.isMobile" />
+        <Expand v-else-if="props.collapsed" />
         <Fold v-else />
       </el-icon>
     </el-button>
@@ -88,8 +123,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   height: 100%;
-  padding: 0 16px;
-  gap: 8px;
+  padding: 0 var(--space-4);
+  gap: var(--space-2);
 }
 
 .tf-header__toggle {
@@ -103,23 +138,29 @@ onMounted(() => {
 .tf-header__search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--tf-border);
-  border-radius: var(--tf-radius-md);
-  background: var(--tf-bg);
-  color: var(--tf-text-muted);
-  font-size: 13px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition:
-    border-color 0.15s ease,
-    color 0.15s ease;
+    border-color var(--motion-fast),
+    color var(--motion-fast);
 }
 
 .tf-header__search:hover {
   border-color: var(--brand-400);
   color: var(--brand-600);
+}
+
+.tf-header__search:focus-visible {
+  outline: 2px solid var(--brand-400);
+  outline-offset: 1px;
 }
 
 .tf-header__search-text {
@@ -130,13 +171,31 @@ onMounted(() => {
   padding: 1px 6px;
   font-size: 11px;
   font-family: inherit;
-  color: var(--tf-text-muted);
-  background: var(--tf-surface);
-  border: 1px solid var(--tf-border);
+  color: var(--text-tertiary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
 }
 
 .tf-header__spacer {
   flex: 1;
+}
+
+/* 窄屏：搜索入口退化成纯图标按钮（「搜索或跳转」文案 + 快捷键提示在这里
+   只会挤压通知与头像），但按钮本身保留——命令面板是窄屏下唯一的快速导航。 */
+@media (max-width: 767px) {
+  .tf-header {
+    padding: 0 var(--space-3);
+    gap: var(--space-1);
+  }
+
+  .tf-header__search {
+    padding: 0 var(--space-2);
+  }
+
+  .tf-header__search-text,
+  .tf-header__kbd {
+    display: none;
+  }
 }
 </style>

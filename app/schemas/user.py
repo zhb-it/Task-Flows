@@ -107,6 +107,8 @@ class MeOverviewRead(BaseModel):
 
     字段语义：
 
+    - ``teams``：我加入的团队数（与 ``projects`` 不同：新建团队尚无项目时
+      ``teams = 1, projects = 0``；前端新账号引导据此判断第一步是否完成）。
     - ``projects``：可见项目数（所属团队下的项目）。
     - ``unread_notifications``：未读通知条数。
     - ``my_tasks`` / ``task_status``：见各自的模型文档。
@@ -118,6 +120,7 @@ class MeOverviewRead(BaseModel):
 
     generated_at: datetime
     week_start: datetime
+    teams: int = 0
     projects: int = 0
     unread_notifications: int = 0
     my_tasks: MyTaskSummary

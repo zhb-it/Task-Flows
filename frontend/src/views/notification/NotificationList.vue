@@ -21,18 +21,22 @@
  */
 
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Bell, Check, CircleCheck } from '@element-plus/icons-vue'
 
 import { notificationApi } from '@/api/notification'
 import { useNotificationStore } from '@/stores/notification'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { notificationTypeLabel, type Notification } from '@/types/notification'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 type TabKey = 'all' | 'unread' | 'read'
 
 /** 后端 `limit` 上限为 100（`app/api/v1/notifications.py` 的 `le=100`）。 */
 const PAGE_SIZE = 100
 
+const router = useRouter()
 const notificationStore = useNotificationStore()
 
 const loading = ref(false)
@@ -61,10 +65,31 @@ const visibleNotifications = computed(() => {
   return notifications.value
 })
 
-const emptyText = computed(() => {
-  if (activeTab.value === 'unread') return '没有未读通知'
-  if (activeTab.value === 'read') return '没有已读通知'
-  return '暂无通知'
+/**
+ * 空态文案按当前 Tab 分流（TASK-130）：三个 Tab 的空含义完全不同——「全部为空」
+ * 是「还没有任何通知」，「未读为空」其实是好事，「已读为空」只是还没处理过。
+ * 用同一句「暂无通知」会让人以为通知功能坏了。
+ */
+const emptyState = computed(() => {
+  if (activeTab.value === 'unread') {
+    return {
+      icon: CircleCheck,
+      title: '没有未读通知',
+      desc: '收件箱已清空。新的指派、评论与团队邀请会出现在这里。',
+    }
+  }
+  if (activeTab.value === 'read') {
+    return {
+      icon: Check,
+      title: '还没有已读通知',
+      desc: '读过的通知会归到这里，方便回看当时发生了什么。',
+    }
+  }
+  return {
+    icon: Bell,
+    title: '收件箱是空的',
+    desc: '任务被指派给你、有人评论、或收到团队邀请时，这里会有第一条通知。',
+  }
 })
 
 const pageIndex = computed(() => Math.floor(skip.value / PAGE_SIZE) + 1)
@@ -180,11 +205,21 @@ onMounted(load)
     </el-tabs>
 
     <div v-loading="loading" class="notification-body">
-      <el-empty
+      <EmptyState
         v-if="visibleNotifications.length === 0"
-        :description="emptyText"
-        :image-size="80"
-      />
+        :icon="emptyState.icon"
+        :title="emptyState.title"
+        :description="emptyState.desc"
+      >
+        <template #actions>
+          <el-button v-if="activeTab === 'read'" @click="activeTab = 'all'">
+            看全部通知
+          </el-button>
+          <el-button v-else type="primary" @click="router.push('/tasks')">
+            去处理我的任务
+          </el-button>
+        </template>
+      </EmptyState>
 
       <ul v-else class="notification-items">
         <li

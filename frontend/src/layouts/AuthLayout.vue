@@ -34,7 +34,7 @@ import { APP_TITLE } from '@/router/routes'
   justify-content: center;
   min-height: 100%;
   padding: 24px;
-  background: linear-gradient(160deg, #f0f5ff 0%, #f5f7fa 60%, #eef2f7 100%);
+  background: var(--bg-auth);
 }
 
 .tf-auth__card {
@@ -56,9 +56,9 @@ import { APP_TITLE } from '@/router/routes'
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
-  background-color: #409eff;
-  color: #ffffff;
+  border-radius: var(--radius-sm);
+  background-color: var(--brand-600);
+  color: var(--text-on-brand);
   font-weight: 700;
   font-size: 14px;
 }
@@ -71,7 +71,7 @@ import { APP_TITLE } from '@/router/routes'
 
 .tf-auth__footer {
   margin: 16px 0 0;
-  color: #909399;
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 </style>

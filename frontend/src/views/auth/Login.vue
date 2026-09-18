@@ -102,6 +102,6 @@ async function handleSubmit(): Promise<void> {
 .tf-auth__link {
   text-align: center;
   font-size: 13px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 </style>

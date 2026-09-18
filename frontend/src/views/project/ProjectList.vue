@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import { FolderOpened, Search } from '@element-plus/icons-vue'
 
 import { projectApi } from '@/api/project'
 import { teamApi } from '@/api/team'
@@ -11,6 +12,7 @@ import type { Project, ProjectCreate } from '@/types/project'
 import type { Team } from '@/types/team'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -39,6 +41,18 @@ const filteredProjects = computed(() => {
     return matchKw && matchTeam
   })
 })
+
+/**
+ * 是否处于「筛选后」状态。空态文案必须区分这两种情况（TASK-130）：旧版把
+ * 它们合成一句「还没有项目，或筛选无匹配」，用户无法判断是数据没了还是自己
+ * 的筛选条件太严，也就不知道该点「创建项目」还是「清除筛选」。
+ */
+const hasFilter = computed(() => keyword.value.trim() !== '' || teamFilter.value !== '')
+
+function resetFilters(): void {
+  keyword.value = ''
+  teamFilter.value = ''
+}
 
 async function loadAll(): Promise<void> {
   loading.value = true
@@ -159,10 +173,27 @@ onMounted(loadAll)
     </div>
 
     <div v-loading="loading" class="card-grid">
-      <el-empty
+      <EmptyState
         v-if="!loading && filteredProjects.length === 0"
-        description="还没有项目，或筛选无匹配"
-      />
+        class="card-grid__empty"
+        :icon="hasFilter ? Search : FolderOpened"
+        :title="hasFilter ? '没有匹配的项目' : '还没有项目'"
+        :description="
+          hasFilter
+            ? '当前搜索/团队筛选下没有结果。数据还在，换个条件或清空筛选就能看到。'
+            : teams.length === 0
+              ? '项目必须挂在团队下。先去建一个团队，再回来建项目。'
+              : '建立项目后，就可以在里面拆任务、分配负责人了。'
+        "
+      >
+        <template #actions>
+          <el-button v-if="hasFilter" @click="resetFilters">清除筛选</el-button>
+          <el-button v-else-if="teams.length === 0" type="primary" @click="router.push('/teams')">
+            先去建团队
+          </el-button>
+          <el-button v-else type="primary" @click="openCreate">创建项目</el-button>
+        </template>
+      </EmptyState>
       <el-card
         v-for="p in filteredProjects"
         :key="p.id"
@@ -257,6 +288,10 @@ onMounted(loadAll)
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   min-height: 120px;
+}
+/* 空态占据整个网格宽度：否则它会缩在 280px 的第一列里，看起来像一张空卡片。 */
+.card-grid__empty {
+  grid-column: 1 / -1;
 }
 .project-card {
   cursor: pointer;

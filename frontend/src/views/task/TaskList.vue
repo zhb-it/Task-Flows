@@ -8,12 +8,14 @@
  * 「项目选择器 + 仅我的」诚实表达：project_id 来自下拉，assignee_id=当前用户
  * 表达「我的任务」。顶部 el-alert 明示该约束，不编造全局端点。
  */
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi } from '@/api/task'
 import { projectApi } from '@/api/project'
 import { teamApi } from '@/api/team'
 import { useAuthStore } from '@/stores/auth'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { FolderOpened, Search, Tickets } from '@element-plus/icons-vue'
 import {
   TASK_STATUS_LABELS,
   TASK_PRIORITY_LABELS,
@@ -181,6 +183,46 @@ function goDetail(task: Task): void {
 function goCreate(): void {
   router.push({ name: 'task-create' })
 }
+
+/** 是否处于「筛选/仅我的」状态——空态据此区分「没有数据」与「被筛掉了」。 */
+const hasFilter = computed(
+  () =>
+    filters.keyword.trim() !== '' ||
+    filters.status !== '' ||
+    filters.priority !== '' ||
+    filters.assigneeId !== null ||
+    onlyMine.value,
+)
+
+function clearFilters(): void {
+  filters.keyword = ''
+  filters.status = ''
+  filters.priority = ''
+  filters.assigneeId = null
+  onlyMine.value = false
+  applyFilters()
+}
+
+const emptyIcon = computed(() => {
+  if (hasFilter.value) return Search
+  return projects.value.length === 0 ? FolderOpened : Tickets
+})
+
+const emptyTitle = computed(() => {
+  if (hasFilter.value) return '没有匹配的任务'
+  if (projects.value.length === 0) return '你还没有项目'
+  return '这个项目还没有任务'
+})
+
+const emptyDesc = computed(() => {
+  if (hasFilter.value) {
+    return '当前搜索/状态/优先级/负责人条件下没有结果——任务可能还在，只是被筛掉了。'
+  }
+  if (projects.value.length === 0) {
+    return '任务是建立在项目之上的。先创建一个项目，再回到这里拆任务。'
+  }
+  return '拆出第一个任务、指定负责人与截止时间，它就会出现在项目看板和「我的待办」里。'
+})
 </script>
 
 <template>
@@ -251,7 +293,26 @@ function goCreate(): void {
       </el-select>
     </div>
 
-    <el-table v-loading="loading" :data="tasks" row-key="id" class="task-table" empty-text="该项目暂无任务" @row-click="goDetail">
+    <el-table v-loading="loading" :data="tasks" row-key="id" class="task-table" @row-click="goDetail">
+      <!-- 空态三分流（TASK-130）：还没选项目 / 项目里确实没任务 / 筛选后没结果。
+           旧版只有一句「该项目暂无任务」，在没有项目可选时还会显示它——用户会
+           以为是这个项目没任务，而真正的问题是「你还没有项目」。 -->
+      <template #empty>
+        <EmptyState
+          :icon="emptyIcon"
+          :title="emptyTitle"
+          :description="emptyDesc"
+          size="sm"
+        >
+          <template #actions>
+            <el-button v-if="hasFilter" @click="clearFilters">清除筛选</el-button>
+            <el-button v-else-if="projects.length === 0" type="primary" @click="router.push('/projects')">
+              先去建项目
+            </el-button>
+            <el-button v-else type="primary" @click="goCreate">新建任务</el-button>
+          </template>
+        </EmptyState>
+      </template>
       <el-table-column prop="title" label="任务名称" min-width="200">
         <template #default="{ row }">
           <span class="task-title">{{ row.title }}</span>

@@ -19,9 +19,11 @@
  * action 字符串、payload 走 JSON 兜底（后端埋点逐业务接入，当前已知三种）。
  */
 import { computed, onMounted, ref } from 'vue'
+import { Document, Search } from '@element-plus/icons-vue'
 import { logApi } from '@/api/log'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
+import EmptyState from '@/components/common/EmptyState.vue'
 import {
   operationActionLabel,
   resourceTypeLabel,
@@ -182,8 +184,25 @@ onMounted(loadLogs)
         v-loading="loading"
         :data="filteredLogs"
         row-key="id"
-        empty-text="暂无日志"
       >
+        <!-- 空态分两种（TASK-130）：筛选把当前页筛空了 → 给「清除筛选」；
+             本来就没有日志 → 说明日志是自动记录的，没有可执行的下一步。 -->
+        <template #empty>
+          <EmptyState
+            :icon="isFiltered ? Search : Document"
+            :title="isFiltered ? '当前页没有匹配的操作' : '还没有操作日志'"
+            :description="
+              isFiltered
+                ? '筛选只作用于当前已取回的这一页；清空筛选或翻页后再看。'
+                : '你在团队、项目、任务上的写操作会自动记录在这里（仅自己可见）。'
+            "
+            size="sm"
+          >
+            <template v-if="isFiltered" #actions>
+              <el-button @click="resetFilters">清除筛选</el-button>
+            </template>
+          </EmptyState>
+        </template>
         <el-table-column label="操作" min-width="220">
           <template #default="{ row }">
             <el-tag size="small" type="info">{{ operationActionLabel(row.action) }}</el-tag>

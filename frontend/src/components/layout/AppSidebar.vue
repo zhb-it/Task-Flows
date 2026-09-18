@@ -76,7 +76,7 @@ const activePath = computed(() => {
 </script>
 
 <template>
-  <div class="tf-sidebar">
+  <div id="tf-sidebar" class="tf-sidebar">
     <div class="tf-sidebar__brand">
       <span class="tf-sidebar__logo">TF</span>
       <span v-if="!props.collapsed" class="tf-sidebar__brand-text">{{ APP_TITLE }}</span>

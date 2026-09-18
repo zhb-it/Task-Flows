@@ -48,6 +48,8 @@ export interface MeOverview {
   generated_at: string
   /** 本周起点（UTC 周一 00:00）——前端展示「本周」边界时必须用它。 */
   week_start: string
+  /** 我加入的团队数（TASK-130 新增）。与 `projects` 不同：刚建团队还没建项目时为 `1 / 0`。 */
+  teams: number
   /** 可见项目数。 */
   projects: number
   /** 未读通知条数。 */
