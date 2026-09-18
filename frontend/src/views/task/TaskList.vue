@@ -233,11 +233,12 @@ const emptyDesc = computed(() => {
     </div>
 
     <el-alert
+      v-if="!selectedProjectId"
       type="info"
       :closable="false"
       show-icon
       title="按项目查看任务"
-      description="后端 GET /tasks 要求 project_id 必填，没有跨项目的全局任务视图（见 docs/FRONTEND_API_MAPPING.md §4-D7/D8·Q2）。请先选择项目；勾选「仅我的」可按当前用户筛选负责任务。"
+      description="任务按项目组织，请先在上方选择一个项目，即可查看其中的任务；勾选「仅我的」可筛选你负责任务。"
       class="scope-alert"
     />
 

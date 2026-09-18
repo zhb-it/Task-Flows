@@ -121,8 +121,8 @@ onMounted(loadDetail)
         type="info"
         :closable="false"
         show-icon
-        title="任务统计暂时不可用"
-        description="后端没有跨项目的任务统计端点（GET /tasks 要求 project_id 必填，见 docs/FRONTEND_API_MAPPING.md §4-D7/D8）。待后端补充统计能力后，此处会展示任务总数与状态分布。"
+        title="任务统计即将上线"
+        description="团队维度的任务总数与状态分布正在建设中，上线后此处会自动展示。"
         style="margin-bottom: 16px"
       />
 

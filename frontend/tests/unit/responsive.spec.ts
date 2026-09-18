@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file -- 测试桩必须定义多个轻量组件（el-* 桩 + 布局子组件桩），单文件多组件在测试里是合理形态 */
 /**
  * 主框架响应式形态的单元测试（TASK-130）。
  *
