@@ -63,7 +63,13 @@ const rules: FormRules<RegisterForm> = {
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
   ],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  confirmPassword: [{ validator: validateConfirmPassword, trigger: 'blur' }],
+  // `required` 这一条不只是语义：Element Plus 只在规则里存在 `required` 时
+  // 才渲染必填星号。只挂 validator 会让本页四个必填字段里唯独「确认密码」
+  // 没有星号，用户会以为可以不填（视觉实证时发现的）。
+  confirmPassword: [
+    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    { validator: validateConfirmPassword, trigger: 'blur' },
+  ],
 }
 
 async function handleSubmit(): Promise<void> {

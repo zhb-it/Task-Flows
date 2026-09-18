@@ -662,7 +662,7 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 0 failed / 0 error / 0 skipped，覆盖率 3065 语句 / 8 未覆盖 / 472 分支 →
 **99.74% 行、98.94% 分支**（语句数比 TASK-129 时 +2，来自 `teams` 字段与它的
 COUNT 查询；未覆盖数与分支数不变）；`ruff check .` 全绿；`scripts/check_docs.py`
-RC 0；前端 `typecheck` / `lint --max-warnings 0` / `test`（**111 passed / 12 文件**）/
+RC 0；前端 `typecheck` / `lint --max-warnings 0` / `test`（**121 passed / 13 文件**）/
 `build` 四门全绿。
 
 ## TASK-130 完成 引导、空状态与响应式收口（方案 Phase D）
@@ -706,8 +706,25 @@ RC 0；前端 `typecheck` / `lint --max-warnings 0` / `test`（**111 passed / 12
 - `tests/unit/use-breakpoint.spec.ts`：991 / 992 / 1440 三点跨断点跟随 + 作用域销毁后注销监听。
 - `tests/unit/empty-state.spec.ts`：空态标题/描述/动作槽渲染；引导三步顺序、当前步唯一、
   主按钮指向当前步目标页（点击断言 `push('/teams')` → `push('/projects')`）。
+- `tests/unit/responsive.spec.ts`：挂载真实 `BasicLayout`，钉死「窄屏 = 抽屉 / 宽屏 = 常驻
+  侧栏」的**结构契约**——两套形态在任一宽度下恰好存在一套、跨断点整体互换、抽屉宽度取自
+  `DRAWER_WIDTH`、窄屏开合抽屉而宽屏折叠侧栏、窗口变宽时抽屉自行关闭。
+  这份文件此前**只存在于 `BasicLayout.vue` 的注释里**（注释声称有它、实际没有），本轮补成真文件。
 
-**验证**：前端 `typecheck` 0 / `lint` 0 / `test` **111 passed（12 文件）** / `build` 0；
+**视觉实证（无头 Chrome + CDP，2026-09-18）**
+- 四门全绿不等于 UI 是对的，所以用真实渲染走了一遍：视口用 CDP
+  `Emulation.setDeviceMetricsOverride` 设定，**不用 `--window-size`**（Windows 最小窗口宽度约
+  500px，传 390 会按 500 布局再裁图，看起来像「移动端被切掉」）。判据是
+  `documentElement.scrollWidth == innerWidth`：实测登录/注册页在 1440 与 390 两档**均无横向
+  溢出**，明/暗两套主题渲染正确（`--bg-auth` 暗色换深底生效）。
+- 实证抓出两处代码问题并已修：① 注册页「确认密码」漏 `required` 规则 → Element Plus 不渲染
+  必填星号，四个必填字段里唯独它没星号（逻辑没错、呈现错，只有渲染出来才看得见）；
+  ② 上面那条「注释里声称存在、实际不存在」的护栏。
+- **未完成的部分**：登录后的页面（引导卡、空态分流、抽屉）需要后端 + PostgreSQL，而本机
+  Docker 引擎当时未运行，**这部分的浏览器级实证未做**——它们目前由 `responsive.spec.ts` /
+  `empty-state.spec.ts` 的结构断言覆盖，等栈恢复后应补一次真实走查。
+
+**验证**：前端 `typecheck` 0 / `lint` 0 / `test` **121 passed（13 文件）** / `build` 0；
 后端全量见文末基线；`scripts/check_docs.py` RC 0。
 
 ## 规则

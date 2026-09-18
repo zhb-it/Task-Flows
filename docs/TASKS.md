@@ -720,7 +720,7 @@
     `frontend/src/components/layout/{AppHeader,AppSidebar,NotificationBell}.vue`、
     `frontend/src/components/command/CommandPalette.vue`、
     `frontend/src/views/{dashboard/Dashboard,project/ProjectList,team/TeamList,task/TaskList,notification/NotificationList,operation-log/OperationLogList,permission/PermissionManage,auth/Login,auth/Register}.vue`、
-    `frontend/tests/unit/{design-tokens,use-breakpoint,empty-state}.spec.ts`（新建）、
+    `frontend/tests/unit/{design-tokens,use-breakpoint,empty-state,responsive}.spec.ts`（新建）、
     `frontend/src/components/common/PagePlaceholder.vue`（**删除**，0 引用的死代码）、
     `app/services/overview.py`、`app/schemas/user.py`、`tests/test_me_overview.py`、
     `docs/frontend-ux-plan.md`、`docs/DECISIONS.md`（072）。
@@ -749,6 +749,13 @@
     浮层透明无阴影无圆角、遮罩失效；通知铃铛暗色下深字深底不可读；共 9 个文件里的
     魔法颜色清零。为防止复发，新增 `design-tokens.spec.ts` 三条不变量（引用必须已定义 /
     双主题对等 / 不写魔法颜色）。详见 `DECISIONS 072`。
+  - ⑥**视觉实证（部分完成）**：用无头 Chrome + CDP 走了一遍真实渲染（视口用
+    `Emulation.setDeviceMetricsOverride`，不用会被 Windows 最小窗口宽度撑大的 `--window-size`），
+    认证页在 1440 / 390 两档均无横向溢出、明暗主题正确；实证另抓出两处并已修：
+    注册页「确认密码」漏 `required` 导致必填星号缺失、`BasicLayout.vue` 注释声称存在的
+    `responsive.spec.ts` 实际不存在（已补成真文件）。**登录后的页面（引导卡 / 空态分流 /
+    窄屏抽屉）的浏览器级实证未做**——需要后端 + PostgreSQL，实证时本机 Docker 引擎未运行；
+    这部分目前由 `responsive.spec.ts` / `empty-state.spec.ts` 的结构断言覆盖，栈恢复后应补走查。
 
 
 ## TASK 执行规则

@@ -473,7 +473,7 @@ README 是仓库门面，也是**最容易悄悄说谎**的文档——它描述
 ## 前端护栏测试：设计令牌 / 断点 / 空态（TASK-130）
 
 前端测试（`frontend/tests/unit/`，vitest + jsdom + `@vue/test-utils`）从 8 个文件 75 项增至
-**12 个文件 111 项**。新增的三个文件都是**护栏**，而不是「把组件跑一遍」：
+**13 个文件 121 项**。新增的四个文件都是**护栏**，而不是「把组件跑一遍」：
 
 - `design-tokens.spec.ts`——三条不变量：① 源码里 `var(--x)` 的每个变量都必须在自己的
   CSS / `<style>` 里**定义过**（`--el-*` 豁免，那是 Element Plus 运行时提供的）；
@@ -489,10 +489,22 @@ README 是仓库门面，也是**最容易悄悄说谎**的文档——它描述
 - `empty-state.spec.ts`——`EmptyState` 的标题/描述/动作槽渲染，以及 `GettingStarted` 的
   「三步顺序、当前步唯一、主按钮指向当前步目标页」（点击断言 `push('/teams')` →
   `push('/projects')`）。
+- `responsive.spec.ts`——挂载真实 `BasicLayout`，钉死**结构契约**而非像素：任一宽度下
+  `el-drawer` 与 `el-aside` **恰好存在一套**（防止只改一条分支，或两套都渲染/
+  都不渲染）；跨断点时两套形态整体互换；抽屉宽度取自 `DRAWER_WIDTH` 常量；窄屏点顶栏
+  按钮是开合抽屉、宽屏是折叠侧栏；窗口变宽后再回到窄屏，抽屉不得残留为展开态。
+  **为什么需要**：`use-breakpoint.spec.ts` 只保证「断点算得对」，管不了「算完之后用对了」；
+  而「断点改了却漏改另一边」在宽屏开发机上没有任何可见症状。
+  这份文件曾只作为注释里的承诺存在（见 `DECISIONS 072`），补成真文件即由此而来。
 
 写法约束（vitest 下没有 `unplugin-vue-components` 的构建期转换，Element Plus 组件不会被
 自动解析）：测试里显式 stub 掉用到的 `el-*`，断言的才是**我们自己的结构**；需要
 `useRouter()` 的组件用 `global.provide: { [routerKey]: { push } }` 注入替身。
+挂载**布局组件**时（`responsive.spec.ts`）额外两件事：① `el-*` 用 `global.components`
+注册渲染函数桩，而不是 `template` 字符串——vitest 解析的是 runtime-only 构建，运行时
+模板编译不可用；② 子组件桩用 `global.stubs: { AppHeader: 组件定义 }` 传入自定义桩，
+这样才能从桩上读到父组件传下来的 props（`drawerOpen` / `isMobile` / `collapsed`）并
+用 `$emit('toggle-sidebar')` 反向驱动交互。
 
 ## 完成条件
 测试失败不能标记任务完成；不能虚构测试结果。
