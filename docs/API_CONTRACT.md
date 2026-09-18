@@ -157,6 +157,8 @@ Response `200 OK`：
 
 ## User
 - GET `/api/v1/users/me`
+- GET `/api/v1/users/me/permissions`
+- GET `/api/v1/users/me/overview`（TASK-129）
 
 ### GET `/api/v1/users/me`（TASK-017 已实现）
 
@@ -184,6 +186,68 @@ Response `200 OK`：
 - Token 签名有效但对应账号已不存在 → 同样 `401`，且文案与上一条不作区分（避免探测账号是否存在）。
 - Token 有效、账号存在但 `is_active=false`（已被禁用）→ `403 Forbidden`：`{"detail": "User account is disabled"}`。与 `POST /api/v1/auth/login` 对禁用账号的处理保持同一语义。
 - 本接口只读，不修改任何数据。
+
+### GET `/api/v1/users/me/overview`（TASK-129 已实现）
+
+个人工作台聚合：一次请求取齐首页所需的全部数字（规格 §61.6「个人视图」+「统计」）。
+
+认证：同 `/users/me`；**只要求登录，不要求功能级权限**（查的是自己的工作台）。
+
+Query：`recent_limit`（可选，1~20，默认 5）——「最近项目」返回条数。越界 → `422`。
+
+Response `200 OK`：
+
+```json
+{
+  "data": {
+    "generated_at": "2026-09-17T12:00:00Z",
+    "week_start": "2026-09-14T00:00:00Z",
+    "projects": 3,
+    "unread_notifications": 4,
+    "my_tasks": {
+      "assigned_open": 7,
+      "overdue": 2,
+      "completed_this_week": 3
+    },
+    "task_status": {
+      "TODO": 12,
+      "IN_PROGRESS": 5,
+      "REVIEW": 2,
+      "DONE": 20,
+      "CANCELLED": 1,
+      "total": 40
+    },
+    "recent_projects": [
+      { "id": 11, "name": "Alpha", "team_id": 1, "updated_at": "2026-09-17T10:00:00Z" }
+    ]
+  },
+  "message": "success"
+}
+```
+
+**口径（分母定义，按 §61.6「分母必须写明」）**：
+
+- **可见范围** = 当前用户作为 `team_members` 成员所属团队下的全部项目
+  （与 `GET /projects` 的可见性判定同源；租户隔离由 `TenantScoped` + RLS 保证）。
+- `projects`：可见项目数。
+- `task_status.*`：可见项目下**全部**任务按状态分档（团队概况口径），`total` 为其合计。
+- `my_tasks.*`：可见范围 **∩ 分配给我**（个人视图口径）。
+  - `assigned_open`：状态为 `TODO` / `IN_PROGRESS` / `REVIEW`（未完成且未取消）。
+  - `overdue`：`assigned_open` 中 `due_at` 已过期的**子集**——终态任务过期不计。
+  - `completed_this_week`：状态为 `DONE` 且 `updated_at` 不早于 `week_start`。
+- `unread_notifications`：当前用户收件箱中 `is_read = false` 的条数。
+- `recent_projects`：可见项目中 `updated_at` 最新的 `recent_limit` 个。
+
+**已知近似（刻意记录，不是缺陷）**：
+
+1. `tasks` 表没有 `completed_at` 列，「完成时刻」用 `updated_at` 近似。依据是状态机
+   `DONE` 为终态、进入后不能再流转；残留误差是进入 `DONE` 后再被普通 `PATCH`
+   修改字段会把完成时刻推后。精确化需新增列 + 迁移回填，届时应显式决策。
+2. `week_start` 按 **UTC 周一起算**并与 `generated_at` 一同回传——前端不得自行推算
+   周起点。全站时间口径目前统一为 UTC。
+3. 聚合**不缓存**：工作台要求「刚做完的事立刻可见」。
+
+本接口只读：不修改任务状态、也不把通知标记为已读（未读红点不会因查看而消失）。
 
 ## Team（TASK-027 已实现：团队 CRUD；TASK-028 已实现：成员管理）
 

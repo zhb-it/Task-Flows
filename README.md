@@ -12,10 +12,10 @@
 | --- | --- |
 | 运行时 | Python 3.13（CI 与镜像）· FastAPI 0.141 · SQLAlchemy 2.0 async · Pydantic v2 |
 | 数据库 | PostgreSQL 16 · 20 个 Alembic 迁移 · 17 张业务表 · 35 条外键 · 9 个唯一约束 · 7 个 CHECK |
-| HTTP 接口 | 55 个操作（48 个在 `/api/v1` 下，共 32 条 `/api/v1` 路径；另有 `GET /`、5 个健康探针与 `GET /metrics`） |
+| HTTP 接口 | 56 个操作（49 个在 `/api/v1` 下，共 33 条 `/api/v1` 路径；另有 `GET /`、5 个健康探针与 `GET /metrics`） |
 | 缓存与队列 | Redis 7：滑动窗口限流（ZSET + Lua）+ Celery Broker/Backend |
 | 认证授权 | JWT 双 Token（jti 落库 + 轮换 + 登出撤销）· Argon2id · RBAC + 资源级归属链 |
-| 测试 | 1215 passed，0 failed / 0 error / 0 skipped；覆盖率 99.73% 行、98.94% 分支 |
+| 测试 | 1230 passed，0 failed / 0 error / 0 skipped；覆盖率 99.74% 行、98.94% 分支 |
 | 部署 | Dockerfile（`python:3.13-slim`，非 root）· 开发/生产两套 Compose · Nginx + Gunicorn/Uvicorn |
 | CI | GitHub Actions 三 job：ruff / pytest（含迁移可逆性三步）/ docker build |
 | 前端 | Vue 3 + TypeScript + Vite（`frontend/`，规格阶段 1~3 已交付：工程骨架、主框架布局、认证；Dashboard 概览已接入真实后端） |
@@ -43,7 +43,7 @@
 - **性能问题要能解释**：N+1 不靠「记得加 eager load」，而是把关联读取写成显式
   批量 `IN` 查询，并用运行时 SQL 计数测试钉死。
 
-已实现的能力（对应 32 条 `/api/v1` 路径 / 55 个操作）：
+已实现的能力（对应 33 条 `/api/v1` 路径 / 56 个操作）：
 
 | 模块 | 能力 |
 | --- | --- |
@@ -129,7 +129,7 @@ Model 不反向依赖上层、模型里零 `relationship()`。改坏了会当场
 | `app/db` | 引擎、Session、Redis 客户端 |
 | `app/tasks` | Celery 应用与业务任务 |
 | `migrations` | Alembic 迁移（20 个，可逆性在 CI 里验证） |
-| `tests` | 71 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
+| `tests` | 72 个测试文件，见 [`docs/TESTING.md`](docs/TESTING.md) |
 | `scripts` | 文档一致性检查（`check_docs.py`） |
 
 ---
@@ -148,7 +148,7 @@ task-flow/
 │   ├── db/                      # base / session / redis
 │   ├── models/                  # 17 个模型模块
 │   ├── schemas/                 # 12 个请求响应模型模块
-│   ├── services/                # 16 个业务服务（含 state_machine / authorization /
+│   ├── services/                # 17 个业务服务（含 state_machine / authorization /
 │   │                            #   rate_limit / storage / rbac）
 │   └── tasks/                   # celery_app / notification_tasks / maintenance_tasks
 ├── migrations/
@@ -156,7 +156,7 @@ task-flow/
 │   └── versions/                # 20 个迁移（含 RBAC 种子数据、member 角色回填、租户化、RBAC 租户化与 RLS）
 ├── nginx/nginx.conf             # 生产反代配置（只读挂载进容器）
 ├── scripts/check_docs.py        # 文档一致性检查（退出码 0/1）
-├── tests/                       # 71 个测试文件 + conftest.py
+├── tests/                       # 72 个测试文件 + conftest.py
 ├── .github/workflows/ci.yml     # 三 job：ruff / pytest / docker build
 ├── Dockerfile                   # python:3.13-slim，非 root 运行
 ├── docker-compose.yml           # 开发栈（app + worker + postgres + redis）
@@ -509,8 +509,8 @@ pytest --cov --cov-report=term-missing
 ruff check .
 ```
 
-**当前基线（快照 2026-09-16，TASK-096 重测）**：1215 passed，0 failed / 0 error / 0 skipped；
-覆盖率 3001 语句 / 8 未覆盖 / 470 分支 → 99.73% 行、98.94% 分支。
+**当前基线（快照 2026-09-17，TASK-129 重测）**：1230 passed，0 failed / 0 error / 0 skipped；
+覆盖率 3063 语句 / 8 未覆盖 / 472 分支 → 99.74% 行、98.94% 分支。
 可核查的分层明细、双口径披露与刻意排除项见
 [`docs/QUALITY.md`](docs/QUALITY.md)（那里的数字是权威版本）。
 

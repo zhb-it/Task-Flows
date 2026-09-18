@@ -41,12 +41,15 @@ from app.models import (
     OperationLogArchive,
     Project,
     RefreshToken,
+    Role,
+    RolePermission,
     Task,
     TaskAssignee,
     Team,
     TeamMember,
     Tenant,
     User,
+    UserRole,
 )
 
 TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/taskflow"
@@ -261,6 +264,53 @@ def _tenant_slug(tag: str) -> str:
 
 def _username(tag: str) -> str:
     return f"tc94_{RUN_TOKEN}_{tag}"
+
+
+@pytest.fixture(autouse=True)
+async def _cleanup():
+    """本文件写入的行，跑完逐条精确删掉（TASK-129 收尾补：此前是漏的）。
+
+    第 3 组用例证明的是**约束行为**，必须真的 ``commit`` 才能让数据库的
+    UNIQUE / FK 生效，所以不能像第 4 组那样 ``rollback``。代价就是这些行
+    会留在库里——本夹具按「本次运行唯一前缀」把它们清干净。
+
+    漏了会怎样（实测）：每次全量运行往开发库留下 4 个租户 + 4 个用户，
+    其中一个还落在**默认租户**里；累积几十次之后，任何依赖行数/计数的
+    断言（如 ``test_backfill_is_idempotent``）都会开始随机失败，而且看起来
+    像「脏库」而不是像这个文件的问题——这正是当初排查时踩的坑。
+
+    删除顺序受外键约束（``ON DELETE RESTRICT``）：先按 tenant_id 清 RBAC
+    三表，再删用户，最后删租户。连接角色是 postgres 超级用户，RLS 自动绕过。
+    """
+    yield
+    async with SessionFactory() as session:
+        tenant_ids = [
+            row[0]
+            for row in await session.execute(
+                sa.select(Tenant.id).where(Tenant.slug.like(f"tc{RUN_TOKEN}%"))
+            )
+        ]
+        if tenant_ids:
+            await session.execute(
+                sa.delete(RolePermission).where(
+                    RolePermission.tenant_id.in_(tenant_ids)
+                )
+            )
+            await session.execute(
+                sa.delete(UserRole).where(UserRole.tenant_id.in_(tenant_ids))
+            )
+            await session.execute(
+                sa.delete(Role).where(Role.tenant_id.in_(tenant_ids))
+            )
+        # 用户按**用户名**前缀删，而不是按 tenant_id：`fallback` 用例故意
+        # 写进默认租户（不带 tenant_id，走 DB 列 DEFAULT），按租户筛会漏掉它。
+        await session.execute(
+            sa.delete(User).where(User.username.like(f"tc94_{RUN_TOKEN}%"))
+        )
+        await session.execute(
+            sa.delete(Tenant).where(Tenant.slug.like(f"tc{RUN_TOKEN}%"))
+        )
+        await session.commit()
 
 
 async def test_same_username_across_tenants_coexists():

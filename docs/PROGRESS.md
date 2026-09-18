@@ -5,6 +5,8 @@ Phase 1~17 全部交付（TASK-001 ~ TASK-087：后端 TASK-001~064 + 前端 TAS
 
 **TASK-088 起为已确认的企业化规划**（Phase 18~23 / TASK-088~127），用户拍板的四个边界：目标形态**多租户 SaaS**、交付底座 **Docker Compose 与 Kubernetes 都要**、身份档位**本地账号加固 + MFA + 企业目录（OIDC/LDAP）**、**不做「最小可交付版」**。缺口证据与方案见 `docs/ENTERPRISE_READINESS.md`，任务定义见 `docs/TASKS.md`。
 
+**前端体验升级已提前实施**（方案见 `docs/frontend-ux-plan.md`）：Phase A（设计令牌 + 双主题）、Phase B（命令面板 + 全局快捷键）、Phase C（个人工作台聚合端点 `GET /users/me/overview` + Bento 首页）**代码已交付并验证**，登记为 TASK-128~130（Phase 24）。三项目前在 `docs/TASKS.md` 中为**未勾选**——不是没做完，而是 `check_docs.py` 不变量 #6 不允许勾选前沿跳跃（097~127 未完成前勾掉 128/129 会造出编号空洞）。交付说明见本文末尾的同名小节。
+
 ## Current Phase
 Phase 19：多租户地基（TASK-093~100）
 
@@ -554,6 +556,112 @@ TASK-079 前端镜像与生产栈接入（规格 §59 阶段 15 / §56）：fron
 - **主 chunk 超过 Vite 默认 500 kB 警告线**（`index-*.js` 1.1 MB / gzip 364 kB，来自 Element Plus 全量引入与 ECharts）：按规格 §74「反对过早引入复杂方案」接受该取舍，`chunkSizeWarningLimit` 提到 1500 并在 `vite.config.ts` 与 `frontend/README.md` 两处写明——避免后来者以为是漏配。
 
 **文档产物**：`frontend/README.md`（新建）、`docs/FRONTEND_API_MAPPING.md`（新建）、`docs/DECISIONS.md`（047）、`docs/TASKS.md`（Phase 11）、`docs/PROGRESS.md`（本文件）、根 `README.md`（进度前沿）。
+
+## TASK-128 完成 前端设计系统、双主题与命令面板（方案 Phase A+B）
+
+> 代码已交付并验证（提交 `e793d39`），但按 `docs/TASKS.md` Phase 24 的说明
+> **暂未勾选**——不变量 #6 不允许勾选前沿跳跃。
+
+**目标**：把「能跑起来」的前端升级成「愿意每天打开」的前端。
+
+**实现**
+- `frontend/src/assets/styles/tokens.css`（新建）：设计令牌为唯一事实来源
+  （品牌靛蓝六档、语义色、中性色、8px 间距网格、圆角、阴影、字体），并覆写
+  `--el-color-primary*` / `--el-border-radius-*` / `--el-bg-color*` 等 Element Plus
+  变量，使原生 `el-*` 组件自动跟随主题——换品牌色只改 `:root` 一处。
+- `frontend/src/composables/useTheme.ts`（新建）：light / dark / system 三模式，
+  localStorage 持久化 + `matchMedia` 跟随系统切换；暗色下在 `main.ts` 显式引入
+  EP 的 `dark/css-vars.css`（按需引入模式不会自动带），并在 `html.dark` 里覆写品牌项。
+- `frontend/src/composables/useCommandPalette.ts` +
+  `components/command/CommandPalette.vue`（新建）：⌘K / Ctrl+K 唤起，`Teleport`
+  到 body 的浮层，↑↓ 选择 / ↵ 执行 / esc 关闭、选中项自动滚入视野；命令全部是
+  客户端动作（导航、切主题、登出），**零后端依赖**。
+- 外壳改造：`BasicLayout` / `AppHeader`（加主题切换按钮与「搜索或跳转 ⌘K」入口）/
+  `AppSidebar` / `UserMenu` / `index.css` 全部改用令牌，去掉硬编码颜色。
+- `frontend/src/views/design-system/DesignSystem.vue`（新建）+ 路由
+  `/design-system`：配色 / 字体 / 间距 / 圆角 / 阴影 / EP 组件预览，作为视觉评审载体。
+
+**验证**：前端四门全绿——`typecheck` 0、`lint --max-warnings 0` 0、`test` 72 passed、
+`build` 退出码 0（构建需 `CODEBUDDY_SAFE_DELETE_ENABLED=0`，见 DECISIONS 与工作区记忆）。
+
+**推迟项（不伪造接口）**：「工作区 / 租户切换器」因后端尚无租户上下文端点
+（`/users/me` 不返回租户、TASK-097 未做）继续推迟——宁可不做，也不做假 UI。
+
+## TASK-129 完成 个人工作台聚合端点与 Bento 首页（方案 Phase C）
+
+> 代码已交付并验证，**暂未勾选**（原因同 TASK-128）。
+
+**目标**：关闭开发文档 §61.6 的两条欠账——「个人视图：提供跨项目的『我的任务』
+与工作台聚合」与「统计：进度口径（**分母定义必须写明**）」。
+
+**实现（后端）**
+- `app/services/overview.py`（新建）：`get_my_overview(db, user, recent_limit, now)`。
+  **口径写在模块文档里**：可见范围 = 用户所属团队下的项目（沿用
+  `crud.project.list_projects_for_user` 的可见性判定）；「我的」口径 = 可见范围 ∩
+  分配给我；`overdue` 是 `assigned_open` 的**子集**（终态任务过期不算逾期）。
+- `app/schemas/user.py`：新增 `MeOverviewRead` / `MyTaskSummary` /
+  `TaskStatusSummary` / `RecentProjectRead`；响应同时回传 `generated_at` 与
+  `week_start`，让前端不必自己推算周起点。
+- `app/api/v1/users.py`：`GET /users/me/overview`，**只要求登录**；声明位置在
+  `/users/{user_id}/*` 之前（否则 `me` 会被 `{user_id}` 吃掉）；`recent_limit`
+  约束 1~20。
+
+**已知近似（已记录，非缺陷）**：「本周完成」用 `updated_at` 近似完成时刻——
+`tasks` 表没有 `completed_at` 列，而 `DONE` 是状态机终态，最后更新通常就是完成时刻。
+残留误差：进入 `DONE` 后再被普通 PATCH 修改会把完成时刻推后。精确化需新增列 +
+迁移回填，届时应显式决策而非顺手改口径。周起点按 UTC（全站时间口径统一）。
+
+**实现（前端）**
+- `frontend/src/types/overview.ts` + `api/overview.ts`（新建）、
+  `views/dashboard/Dashboard.vue` 重做为 Bento 网格：主卡「我的待办」+
+  逾期 / 本周完成 / 未读通知 / 我的项目 + 任务状态分布条 + 最近项目，
+  **一次请求驱动**（上一版为凑一屏连打四个端点、用「列表长度」冒充统计值）。
+- 页面脚注明写统计口径与上述近似，不掩饰。
+
+**验证**
+- 后端 `tests/test_me_overview.py`（新建）15 项：口径边界（终态不算待办、
+  逾期是待办子集、UTC 周一起算的前一秒不计）、作用域（非成员项目的任务即使被
+  写进 `task_assignees` 也不计入）、契约（OpenAPI 受保护、`recent_limit` 越界 422、
+  聚合是纯读——不得把通知标成已读）。
+- 前端 `tests/unit/api-overview.spec.ts`（新建）3 项：用自省 adapter 钉死端点路径
+  与参数，后端改名即红（规格 §57「禁止猜 API」的机械护栏）。
+- 四门全绿：`typecheck` 0 / `lint` 0 / `test` 75 passed / `build` 0。
+
+**文档产物**：`docs/API_CONTRACT.md`（新端点）、`docs/FRONTEND_API_MAPPING.md`
+（D7/D8/Q2 的欠账关闭）、`docs/DECISIONS.md`（069）、`docs/TASKS.md`（Phase 24）。
+
+**收尾：测试挂起护栏（顺手修掉一个真实的可观测性缺口）**
+- 一次带覆盖率的全量运行**卡在 87% 上 7 小时**不结束，输出停在最后一个完成的点，
+  无法判断卡在哪；单独重跑全部相关文件均绿，**不可复现**（成因是被中止的运行留下的
+  连接/会话残留，属环境性）。
+- 顺手补上护栏：`pyproject.toml` 设 `faulthandler_timeout = 180`，任何用例超时即 dump
+  全线程栈并以非 0 退出码结束。此前「挂起 = 静默烧时间」是本项目最没有可观测性的失败
+  形态（CI 上要烧到 job 的 6 小时上限）；现在会当场报出卡住位置的完整栈。
+- 决策与阈值理由见 `docs/DECISIONS.md` 071，用法见 `docs/TESTING.md`「测试挂起护栏」、
+  `docs/QUALITY.md` §1.1。
+- **不做的事**：不为它编回归用例（既不能稳定复现、又依赖外部进程状态的现象，写了只是
+  假绿），也不引入 `pytest-timeout`（要新依赖，且它的「中断再继续」会把挂起伪装成
+  一批失败，反而更难定位）。
+
+**收尾二：修掉测试残留（QUALITY F6）——顺着挂起排查查出来的真实缺陷**
+- 核对「测试是否真零残留」时改为按**测试前缀统计全库历史残留**：`users` 里 **136 行
+  全部**是残留（`tc94_*` 116 / `tenant93_*` 15 / `smoke_*` 1，白名单外 0 行），
+  `tenants` 137 行中只有 `default` 不是残留。
+- 逐文件量前后行数差定位到 `tests/test_tenant_columns.py`：**它根本没有 teardown 夹具**，
+  每轮全量泄漏 4 租户 + 4 用户，其中一个还写进**默认租户**——而它的模块文档却写着
+  「写入采用『本次运行唯一前缀 + teardown 精确删除』」。文档声称的机制不存在，
+  这比泄漏本身更值得记一笔；此前把 `test_backfill_is_idempotent` 的偶发失败
+  归因为「脏库」，根因就是它。
+- 修复：补 autouse 的 `_cleanup`（按本次 `RUN_TOKEN` 前缀删 RBAC 三表 → 用户 → 租户；
+  用户按 **username 前缀**删，否则写进默认租户的那条漏掉）。
+- 验证：修前「跑一次 +4 用户 / +4 租户」→ 修后「跑一次净增 **0**」；清空全部历史残留后
+  重跑**全量 1230 用例**，16 张表逐表核对：12 张业务表**全 0 行**，只剩 `default`
+  租户与它的 RBAC 种子。结论与证据见 `docs/QUALITY.md` §7-F6。
+
+**最终基线（2026-09-17 复测）**：`1230 passed` / 0 failed / 0 error / 0 skipped，
+覆盖率 3063 语句 / 8 未覆盖 / 472 分支 → **99.74% 行、98.94% 分支**；`ruff check .`
+全绿；`scripts/check_docs.py` RC 0；前端 `typecheck` / `lint --max-warnings 0` /
+`test`（75 passed）/ `build` 四门全绿。
 
 ## 规则
 只有真实完成并验证后才能勾选 Completed。

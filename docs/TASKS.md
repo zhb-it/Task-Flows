@@ -639,6 +639,89 @@
   - 验收标准：四门全绿；语言切换生效且不刷新丢状态；关键流程键盘可完成。
   - 测试要求：文案外置断言（不残留硬编码中文）、locale 切换单测、a11y 静态检查。
 
+## Phase 24：产品体验升级与个人视图（TASK-128~130）
+
+> **需求来源不是新增需求**，而是 §61 里已登记、尚未落地的两条：
+> 开发文档 §61.6 的「**个人视图（新增）**：提供跨项目的『我的任务』与工作台聚合」
+> 与「**统计（新增）**：……进度口径（**分母定义必须写明**）」。本 Phase 落地它们，
+> 并把前端体验方案（`docs/frontend-ux-plan.md`）的 A~D 四阶段纳入任务序列。
+>
+> **硬约束：前端绝不伪造接口。** 方案 Phase C 需要的聚合端点由 TASK-129 的后端
+> 部分交付，前端只消费真实响应；「工作区/租户切换器」因后端尚无租户上下文端点
+> （TASK-097 未做）继续推迟，不做假 UI。
+>
+> 与 Phase 18~23 的关系：这里是**加法**（不碰数据模型、无迁移），因此可以在
+> 企业化主线之外独立推进；但聚合口径依赖 TASK-094/095 的租户作用域，租户隔离
+> 不成立时这些数字没有意义。
+
+> **为什么这三项目前是未勾选**：`scripts/check_docs.py` 的不变量 #6 要求已勾选
+> 任务编号是 `1..前沿` 的连续区间——在 TASK-097~127 完成之前勾掉 128/129 会造出
+> 97~127 的空洞，等同于宣称「已交付到 TASK-129」。TASK-128/129 的**代码已交付并
+> 验证**（交付说明见 `docs/PROGRESS.md` 的同名小节），勾选待前沿推进到此处，
+> 或待序列被正式重排（重排属独立决策，不在本轮顺手做）。
+
+- [ ] TASK-128 前端设计系统、双主题与命令面板（方案 Phase A+B）
+  - 目标：把「能跑起来」的前端升级成「愿意每天打开」的前端——统一视觉语言、
+    支持明暗双主题、提供键盘优先的全局导航。
+  - 依赖：无。
+  - 涉及文件：`frontend/src/assets/styles/tokens.css`（新建）、
+    `frontend/src/composables/useTheme.ts`、`useCommandPalette.ts`（新建）、
+    `frontend/src/components/command/CommandPalette.vue`（新建）、
+    `frontend/src/views/design-system/DesignSystem.vue`（新建）、
+    `frontend/src/main.ts`、`App.vue`、`router/routes.ts`、
+    `layouts/BasicLayout.vue`、`components/layout/{AppHeader,AppSidebar,UserMenu}.vue`、
+    `docs/frontend-ux-plan.md`（新建）。
+  - 实现要求：① 设计令牌为唯一事实来源（颜色/间距/圆角/阴影/字体），覆写
+    Element Plus 变量使原生 `el-*` 自动跟随；② light/dark/system 三模式 +
+    localStorage 持久化 + `matchMedia` 跟随系统；暗色需显式引入 EP dark css-vars
+    （按需引入下不会自动带）；③ ⌘K/Ctrl+K 命令面板（`Teleport` + 键盘导航），
+    命令只做客户端动作；④ 设计系统页 `/design-system` 作为评审载体。
+  - 验收标准：前端四门（typecheck / lint / test / build）全绿；主题切换即时生效
+    且刷新不丢；命令面板可键盘完成导航与主题切换。
+  - 测试要求：既有 8 个单测文件不回归；构建产物含新增组件样式。
+
+- [ ] TASK-129 个人工作台聚合端点与 Bento 首页（方案 Phase C）
+  - 目标：关闭 §61.6「个人视图」与「统计」两条欠账——首页需要真实数字，
+    而不是用「列表长度」冒充统计值。
+  - 依赖：TASK-094/095（租户作用域与 RLS；聚合口径建立在它之上）。
+  - 涉及文件：`app/services/overview.py`（新建）、`app/schemas/user.py`、
+    `app/api/v1/users.py`、`tests/test_me_overview.py`（新建）、
+    `frontend/src/types/overview.ts`、`frontend/src/api/overview.ts`（新建）、
+    `frontend/src/views/dashboard/Dashboard.vue`、
+    `frontend/tests/unit/api-overview.spec.ts`（新建）、`docs/API_CONTRACT.md`、
+    `docs/FRONTEND_API_MAPPING.md`、`pyproject.toml`（测试挂起护栏）、
+    `tests/test_tenant_columns.py`（补 teardown，修测试残留）、
+    `docs/TESTING.md`、`docs/QUALITY.md`、`docs/DECISIONS.md`（069/071）。
+  - 实现要求：① `GET /users/me/overview` 一次返回首页所需全部数字（项目数 /
+    任务状态分布 / 我的待办 / 逾期 / 本周完成 / 未读通知 / 最近项目）；
+    ② **分母定义必须写明**：可见范围 = 所属团队下的项目，「我的」口径 = 可见
+    范围 ∩ 分配给我，`overdue` 是 `assigned_open` 的子集；③ 端点只要求登录；
+    ④ 前端首页改 Bento 网格，一次请求驱动，不再连打多个端点；
+    ⑤ 测试有挂起护栏：任何用例超 180s 即 dump 全线程栈并以非 0 退出码结束
+    （`faulthandler_timeout`，理由见 DECISIONS 071）；
+    ⑥ **零残留可核对**：全量运行后开发库逐表核对——除 `default` 租户与其 RBAC 种子
+    外，业务表全 0 行（收尾修掉了 `tests/test_tenant_columns.py` 的泄漏，见 QUALITY F6）。
+  - 验收标准：后端用例覆盖口径边界（终态不算待办、上周完成不计入、非成员项目
+    的任务即使被指派也不计入）与契约（OpenAPI 受保护、`recent_limit` 越界 422）；
+    首页数字与后端聚合一致，无前端二次统计。
+  - 测试要求：口径用例（子集关系、周边界 UTC 周一、可见性）+ 契约用例 +
+    「聚合是纯读，不得把通知标成已读」的回归断言；前端单测钉死端点路径。
+  - 已知近似（已记录，非缺陷）：「本周完成」用 `updated_at` 近似完成时刻
+    （`tasks` 表无 `completed_at` 列，且 `DONE` 是状态机终态）；精确化需新增列
+    + 迁移回填，届时应显式决策而非顺手改口径。
+
+- [ ] TASK-130 引导、空状态与响应式收口（方案 Phase D）
+  - 目标：让新用户第一次打开就知道下一步做什么，并补齐窄屏体验。
+  - 依赖：TASK-128（设计令牌与空/加载态组件基础）、TASK-129（首页数据）。
+  - 涉及文件：`frontend/src/components/common/`（空状态与引导组件）、
+    `frontend/src/layouts/BasicLayout.vue`、`frontend/src/views/**`、
+    `docs/frontend-ux-plan.md`。
+  - 实现要求：① 新账号引导（建团队 → 建项目 → 建任务的首屏路径）；② 各列表页
+    空状态带明确下一步动作，而非只有「暂无数据」；③ <992px 侧栏改抽屉、
+    Bento 网格逐级降级已完成，需回归核验；④ 加载态统一（骨架屏，不闪白）。
+  - 验收标准：四门全绿；窄屏下无横向溢出；每个空页面都有可执行动作。
+  - 测试要求：响应式断点的静态契约；空状态组件的渲染断言。
+
 ## TASK 执行规则
 每个 TASK 必须包含：目标、依赖、涉及文件、实现要求、验收标准、测试要求。
 一次只执行一个 TASK；测试未通过不得标记完成。

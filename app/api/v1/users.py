@@ -9,7 +9,8 @@ Router 只做 HTTP ⇄ Service 的翻译：认证由 `CurrentUser` 依赖完成�
   ——与种子一致：member 也持有 user:read（协作场景需要找到同事）；
 - `PUT /users/{id}/roles`（改角色）挂 **user:update** ——种子中仅 admin 持有，
   member 天然不可越权；
-- `GET /users/me/permissions` 只要求登录（查自己的权限，无需授权）。
+- `GET /users/me/permissions` 与 `GET /users/me/overview` 只要求登录
+  （查自己的权限 / 自己的工作台，无需授权）。
 - 路由声明顺序：`/me/*` 固定前缀必须在 `/users/{user_id}/*` 之前注册——
   FastAPI 按声明顺序匹配，`me` 会被 `{user_id}` 吃掉（int 解析失败变 422）。
 """
@@ -23,6 +24,7 @@ from app.core.deps import CurrentUser, require_permission
 from app.db.session import get_db
 from app.schemas.common import SuccessResponse
 from app.schemas.user import (
+    MeOverviewRead,
     MePermissionsRead,
     RoleNamesUpdate,
     UserRead,
@@ -30,7 +32,9 @@ from app.schemas.user import (
     UserWithRolesRead,
 )
 from app.models.user import User
+from app.services import overview as overview_service
 from app.services import user as user_service
+from app.services.overview import RECENT_PROJECT_LIMIT
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -71,6 +75,41 @@ async def read_my_permissions(
     """
     permissions = await user_service.get_my_permission_names(db, current_user)
     return SuccessResponse(data=MePermissionsRead(permissions=permissions))
+
+
+@router.get(
+    "/me/overview",
+    response_model=SuccessResponse[MeOverviewRead],
+    status_code=status.HTTP_200_OK,
+    summary="Aggregate the current user's workbench overview",
+    responses={
+        401: {"description": "Missing, invalid or expired access token"},
+        403: {"description": "User account is disabled"},
+    },
+)
+async def read_my_overview(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    recent_limit: Annotated[int, Query(ge=1, le=20)] = RECENT_PROJECT_LIMIT,
+) -> SuccessResponse[MeOverviewRead]:
+    """个人工作台聚合（TASK-129，规格 §61.6「个人视图」+「统计」）。
+
+    一次请求取齐首页（Bento 仪表盘）所需的全部数字，避免前端为凑一屏
+    连打五六个接口——那才是真正的 N+1。
+
+    只要求登录（查自己的工作台，无需授权；与 ``/me/permissions`` 同口径）。
+    作用域是「当前用户」而非「全局」：项目与任务的可见性、租户隔离分别由
+    Service 的可见性谓词与 ``TenantScoped`` + RLS 保证，跨租户数据不会
+    出现在本响应里。
+
+    ``recent_limit`` 控制「最近项目」条数（1~20，默认 5）。口径（分母定义、
+    「本周完成」用 ``updated_at`` 近似的理由、UTC 周起点）见
+    `app/services/overview.py` 模块文档与 `docs/API_CONTRACT.md`。
+    """
+    overview = await overview_service.get_my_overview(
+        db, current_user, recent_limit=recent_limit
+    )
+    return SuccessResponse(data=MeOverviewRead.model_validate(overview))
 
 
 @router.get(

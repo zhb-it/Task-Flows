@@ -101,7 +101,7 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 | --- | --- | --- |
 | 登录 `/login` | `POST /auth/login` → `GET /users/me` | 登录响应只有令牌，用户资料需另拉一次 |
 | 注册 `/register` | `POST /auth/register` | 201 返回 `UserRead` |
-| 首页 `/dashboard` | `GET /teams`、`GET /projects`、`GET /notifications`、`GET /logs` | 任务统计缺跨项目端点，见 §4-D8 |
+| 首页 `/dashboard` | `GET /users/me/overview` | 一次聚合取齐（TASK-129）；原四个端点概览已由聚合端点取代，见 §4-D8 |
 | 我的任务 `/tasks` | `GET /tasks?project_id=…` | `project_id` 必填，见 §4-D7 |
 | 任务看板 `/tasks/board` | `GET /tasks?project_id=…&status=…`、`POST /tasks/{id}/transition` | 拖拽换列必须走 transition |
 | 任务详情 `/tasks/:taskId` | `GET/PATCH/DELETE /tasks/{id}`、`/transition`、`/assignees`、`/comments`、`/attachments`、`GET /logs/task/{id}` | 跨阶段页面 |
@@ -197,12 +197,17 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
   占位页把这个约束写在界面上（`src/views/task/TaskList.vue`），不让后来者以为是漏做。
   `assignee_id` 用来表达「我的任务」，不用独立端点。
 
-### D8 · 没有跨项目的任务统计端点
+### D8 · 没有跨项目的任务统计端点 —— **TASK-129 已关闭**
 
 - **规格 §11.2 说法**：首页展示任务统计。
-- **后端事实**：任务只能按 `project_id` 查，没有聚合/统计端点。
-- **前端处理**：Dashboard 的任务统计需要先决定方案（逐项目拉取后合并，或后端补统计端点），
-  已在占位页写明。**不为它编造接口**。
+- **后端事实（TASK-129 前）**：任务只能按 `project_id` 查，没有聚合/统计端点。
+- **现状（TASK-129 后）**：新增 `GET /api/v1/users/me/overview`，一次返回首页所需的
+  全部聚合数字（项目数 / 任务状态分布 / 我的待办 / 逾期 / 本周完成 / 未读通知 /
+  最近项目）。口径（分母定义）写在 `docs/API_CONTRACT.md` 与
+  `app/services/overview.py` 的模块文档里。
+- **前端处理**：`src/views/dashboard/Dashboard.vue` 已改 Bento 布局，一次请求驱动；
+  上一版的「提示条 + 用列表长度冒充统计值」已移除。任务列表本身仍按项目上下文
+  加载（见 D7），**不为它编造接口**这一点没有变。
 
 ### D9 · 没有「未读数」与「未读筛选」
 
@@ -296,7 +301,7 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 | 编号 | 事项 | 影响 | 建议 |
 | --- | --- | --- | --- |
 | ~~Q1~~ | ~~缺「我的权限集合」查询端点~~ | **已消解（TASK-083/084，2026-09-16）**：`GET /users/me/permissions` 已上线，前端 `usePermission` 接真实数据 | — |
-| Q2 | 缺跨项目的任务统计/查询 | 首页统计与「我的任务」都无法做成全局视图 | 后端加统计端点，或放开 `project_id` 为可选 |
+| ~~Q2~~ | ~~缺跨项目的任务统计/查询~~ | **已消解（TASK-129，2026-09-17）**：`GET /users/me/overview` 提供跨项目的聚合统计（我的待办 / 逾期 / 本周完成 / 状态分布 / 项目数 / 未读 / 最近项目），首页已接真实数据 | 跨项目的**任务列表查询**仍受 D7 阻塞（`project_id` 必填），属另一件事 |
 | Q3 | 列表无 `total` | 分页器无法显示总条数与跳页 | 列表端点补 `total`（可选启用 `X-Total-Count` 头，注意别影响既有响应体契约） |
 | Q4 | 缺更新资料 / 改密端点 | 个人中心的两项功能无法实现 | 明确是否纳入范围，避免前端长期挂着两个禁用按钮 |
 
@@ -311,10 +316,10 @@ member 只有 10 项**（5 项 read + `task:create` / `task:update` / `comment:c
 
 | 页面 | 计划阶段 | 阻塞点 |
 | --- | --- | --- |
-| 首页 Dashboard | 阶段 5 | 已实现（团队/项目/通知/日志概览，TASK-069）；任务统计与全局「最近任务」仍受 Q2/D7 阻塞，页面已注明，不编造接口 |
-| 团队列表 / 详情 / 成员管理 | 阶段 6 | — | **已实现（TASK-070）**：列表+创建+删除、详情（基本信息/项目/编辑设置）、成员邀请（user_id）/移除均接真实端点；「任务统计」与「邮箱列」「改角色」按 §4-D6/D8 降级并在页面明示 |
+| 首页 Dashboard | 阶段 5 | **已实现（TASK-069 + TASK-129 重做）**：Bento 布局接 `GET /users/me/overview` 真实聚合；跨项目「最近任务」列表仍受 D7 阻塞，页面不编造接口 |
+| 团队列表 / 详情 / 成员管理 | 阶段 6 | — | **已实现（TASK-070）**：列表+创建+删除、详情（基本信息/项目/编辑设置）、成员邀请（user_id）/移除均接真实端点；「任务统计」与「邮箱列」「改角色」按 §4-D6/D8 降级并在页面明示（D8 关闭的是**跨项目个人聚合**，团队内进度统计仍缺端点，故此处降级不变） |
 | 项目列表 / 详情 / 设置 | 阶段 7 | — | **已实现（TASK-071）**：列表卡片+客户端搜索/团队筛选（`GET /projects` 无搜索与 total）、创建按 team_id（`GET /teams` 选团队）、详情四标签（任务列表/看板=**内嵌真实 TaskList/TaskBoard，TASK-087**：`initialProjectId` 预选当前项目 + `embedded` 隐藏重复标题、项目成员=复用 `GET /teams/{team_id}/members`、项目设置跳转）、设置页 `PATCH`/`DELETE`；ProjectRead 无 status 与成员/任务/进度字段，「成员：N/任务：N/78%/状态筛选」按诚实降级顶部提示、不编造接口 |
-| 我的任务 / 看板 / 详情 / 新建 | 阶段 8 | — | **已实现（TASK-072）**：列表表格+客户端搜索/优先级/状态筛选/排序/分页、看板 HTML5 拖拽走 `POST /tasks/{id}/transition`（状态机白名单仅前端提示，真实以后端为准，member 无 `task:transition` 权限时 403 由请求层提示）、详情含 transition 下拉/编辑抽屉/分配成员(`GET /teams/{team_id}/members`)/删除、创建后 `POST /tasks/{id}/assignees` 指派；跨项目「我的任务」全局视图仍受 D7/D8·Q2 阻塞，页面用「项目选择器 + assignee_id=当前用户」诚实表达并顶部提示、不编造接口 |
+| 我的任务 / 看板 / 详情 / 新建 | 阶段 8 | — | **已实现（TASK-072）**：列表表格+客户端搜索/优先级/状态筛选/排序/分页、看板 HTML5 拖拽走 `POST /tasks/{id}/transition`（状态机白名单仅前端提示，真实以后端为准，member 无 `task:transition` 权限时 403 由请求层提示）、详情含 transition 下拉/编辑抽屉/分配成员(`GET /teams/{team_id}/members`)/删除、创建后 `POST /tasks/{id}/assignees` 指派；跨项目的**统计**已由 `GET /users/me/overview` 关闭（首页 Bento 接真实聚合，TASK-129）；跨项目的**任务列表查询**仍受 D7 阻塞（`project_id` 必填），页面用「项目选择器 + assignee_id=当前用户」诚实表达并顶部提示、不编造接口 |
 | 评论（任务详情内） | 阶段 9 | — | **已实现（TASK-073）**：任务详情内评论区块接 `GET/POST /tasks/{task_id}/comments`、`DELETE /comments/{comment_id}`；`CommentRead` 内嵌 `username` 直接渲染作者名、textarea 限 2000 字；删除按钮按 `comment.user_id === 当前用户` 数据驱动显示（规格 §28「删除自己的评论」）；**功能级 `comment:delete` 种子仅 admin 持有且先于资源级判定执行，普通成员删自己的评论也会 403**（§4-D11），由请求层提示、前端不臆测权限集隐藏按钮（见 DECISIONS 052） |
 | 附件（任务详情内） | 阶段 10 | — | **已实现（TASK-074）**：任务详情内附件区块接 `POST/GET /tasks/{task_id}/attachments`、`GET/DELETE /attachments/{id}`；上传 `multipart` 字段名 `file` + 扩展名（后端白名单）/10 MiB 预检 + 进度条；下载走新增的 `http.getBlob`（响应是文件流非信封）+ 临时 `<a download>` 保存；删除按钮按 `uploader_id === 当前用户` 数据驱动（成员有 `attachment:upload`，可删自家附件）；前端预检仅为即时反馈，413/415 仍以后端裁决（见 D13、DECISIONS 053） |
 | 通知列表 | 阶段 11 | — | **已实现（TASK-075）**：收件箱接 `GET /notifications`（skip/limit）+「全部/未读/已读」客户端三页签（D9 无 `is_read` 筛选参数）、单条/全部标记已读经 `stores/notification.ts` 同步顶栏铃铛、分页仅「上一页/下一页」（无 total）；「点击通知跳转对应资源」按 §4-D15 诚实降级——`NotificationRead` 无 link/resource_id 字段，不解析正文猜 id，顶部 `el-alert` 明示（见 DECISIONS 054） |
