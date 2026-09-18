@@ -149,8 +149,8 @@ onMounted(loadLogs)
       type="info"
       :closable="false"
       show-icon
-      title="本页只展示你自己的操作时间线（后端资源级隔离）"
-      description="后端 GET /logs 没有 total、筛选与 IP 字段：操作类型 / 时间筛选仅作用于当前已取回的页；分页为上一页/下一页形态；规格中的「操作人」列与「IP」列因后端不返回相应数据而无法展示。"
+      title="这里记录的是你自己的操作"
+      description="操作类型与时间筛选仅作用于当前页；翻页为「上一页 / 下一页」形式，暂不支持跳转到指定页。"
     />
 
     <el-card shadow="never">

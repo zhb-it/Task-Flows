@@ -115,7 +115,7 @@ onMounted(load)
       <div class="danger-zone">
         <div>
           <div class="dz-title">删除项目</div>
-          <div class="muted">删除后项目及其任务将不可恢复。仅团队 Owner / Admin 可执行（后端校验）。</div>
+          <div class="muted">删除后项目及其任务将不可恢复。仅团队 Owner / Admin 可执行。</div>
         </div>
         <el-button type="danger" @click="remove">删除项目</el-button>
       </div>

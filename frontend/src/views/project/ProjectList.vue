@@ -138,7 +138,7 @@ onMounted(loadAll)
     <div class="page-header">
       <div>
         <h2 class="page-title">项目</h2>
-        <p class="page-sub">管理你所在团队下的项目。后端列表无服务端搜索 / 状态筛选 / 分页总数，相关能力在客户端降级处理。</p>
+        <p class="page-sub">管理你所在团队下的项目。</p>
       </div>
       <el-button type="primary" :disabled="teams.length === 0" @click="openCreate">
         创建项目
@@ -149,14 +149,14 @@ onMounted(loadAll)
       type="info"
       :closable="false"
       show-icon
-      title="后端能力边界（诚实降级，不伪造接口）"
-      description="ProjectRead 没有 status 字段，也没有成员数 / 任务数 / 进度字段，因此规格 §16.1 卡片里的「成员：12 / 任务：56 / 78%」与「状态筛选」目前无法展示；搜索与团队筛选为客户端过滤。这些能力需后端新增跨项目统计端点与 project.status 后才可用。"
+      title="部分能力即将上线"
+      description="项目卡片暂不展示成员数、任务数与进度，也不支持按状态筛选——这些能力将在后续版本提供。当前支持按名称或描述搜索、按团队筛选。"
     />
 
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按名称或描述搜索（客户端过滤）"
+        placeholder="按名称或描述搜索"
         clearable
         style="max-width: 320px"
       />

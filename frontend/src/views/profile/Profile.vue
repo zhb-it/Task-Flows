@@ -146,8 +146,8 @@ onMounted(loadTeamRoles)
         type="info"
         :closable="false"
         show-icon
-        title="修改资料 / 修改密码暂不可用"
-        description="后端当前只提供 GET /api/v1/users/me；没有更新资料与改密的端点，因此这两项功能不会先做界面（规格 §57 禁止猜测 API）。"
+        title="修改资料 / 修改密码即将上线"
+        description="这两项功能正在建设中，上线后即可在此使用。"
       />
 
       <div class="tf-profile__actions">

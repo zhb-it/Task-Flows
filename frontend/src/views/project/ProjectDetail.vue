@@ -113,7 +113,7 @@ onMounted(loadProject)
           :closable="false"
           show-icon
           title="项目设置"
-          description="可在此修改项目名称 / 描述，或删除项目（仅团队 Owner / Admin 有权限，由后端校验）。"
+          description="可在此修改项目名称 / 描述，或删除项目（仅团队 Owner / Admin 可操作）。"
         />
         <div style="margin-top: 16px">
           <el-button type="primary" @click="goSettings">打开项目设置</el-button>

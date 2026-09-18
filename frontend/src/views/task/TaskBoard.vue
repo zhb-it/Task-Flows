@@ -151,7 +151,7 @@ async function onDrop(event: DragEvent, target: TaskStatus): Promise<void> {
       :closable="false"
       show-icon
       title="看板按状态分列，拖拽换列即流转状态"
-      description="拖拽合法目标列会调用状态机端点；普通成员可能没有 task:transition 权限（删除/流转受后端功能级权限控制，见 §4-D11），此时拖拽会被后端 403 拒绝。"
+      description="把卡片拖到目标列即可变更任务状态；若当前账号没有相应操作权限，拖拽后会提示无法完成。"
       class="scope-alert"
     />
 

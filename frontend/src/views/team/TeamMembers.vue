@@ -161,8 +161,8 @@ onMounted(loadMembers)
       type="warning"
       :closable="false"
       show-icon
-      title="已知限制"
-      description="① 后端成员接口不返回邮箱，故列表仅显示用户名；② 后端没有「修改成员角色」的端点，角色调整需走「移除后重新邀请」；③ 邀请按 user_id（非邮箱）——邀请对话框支持按用户名/邮箱搜索后选定，owner 不可被邀请或移除。"
+      title="成员管理说明"
+      description="成员列表仅显示用户名；如需调整成员角色，可先将其移出团队再重新邀请；邀请时支持按用户名或邮箱搜索后选定；团队创建者（Owner）不可被邀请或移除。"
       style="margin-top: 16px"
     />
 

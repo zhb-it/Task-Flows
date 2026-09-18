@@ -264,7 +264,7 @@ onMounted(load)
 
     <div class="pager">
       <el-button :disabled="!canPrev" @click="goPrev">上一页</el-button>
-      <span class="pager__tip">第 {{ pageIndex }} 页 · 后端无总数，仅「上一页 / 下一页」</span>
+      <span class="pager__tip">第 {{ pageIndex }} 页</span>
       <el-button :disabled="!canNext" @click="goNext">下一页</el-button>
     </div>
   </div>

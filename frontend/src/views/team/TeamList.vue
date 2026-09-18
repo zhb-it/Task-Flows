@@ -117,7 +117,7 @@ onMounted(loadTeams)
     <div class="page-header">
       <div>
         <h2 class="page-title">团队</h2>
-        <p class="page-sub">管理你参与的团队。后端只返回「当前用户参与的团队」全量列表（无服务端搜索/分页总数）。</p>
+        <p class="page-sub">管理你参与的团队。</p>
       </div>
       <el-button type="primary" @click="openCreate">创建团队</el-button>
     </div>
@@ -125,7 +125,7 @@ onMounted(loadTeams)
     <div class="toolbar">
       <el-input
         v-model="keyword"
-        placeholder="按名称或描述搜索（客户端过滤）"
+        placeholder="按名称或描述搜索"
         clearable
         style="max-width: 320px"
       />
